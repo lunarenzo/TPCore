@@ -3,7 +3,7 @@
 
 enabled: true
 
-# Time in seconds before an unaccepted TPA request expires automatically
+# Time in seconds before an unaccepted TPA request automatically expires
 request-timeout-seconds: 30
 
 # Warmup delay in seconds before teleporting after request acceptance
@@ -18,26 +18,27 @@ cancel-on-damage: true
 # Whether players can send TPA requests to themselves
 allow-self-tpa: false
 
+# Module message strings (Alphabetically ordered for server admin convenience)
 messages:
-  prefix: "<gradient:#00D2FF:#3A7BD5><bold>TPCore</bold></gradient> <dark_gray>»</dark_gray> "
+  multiple-pending-requests: "<prefix><red>You have multiple requests! Specify the player name: <yellow>/tpaccept <player></yellow></red>"
+  no-pending-requests: "<prefix><red>You have no active pending teleport requests!</red>"
   player-not-online: "<prefix><red>Player <yellow><player></yellow> is not online!</red>"
+  prefix: "<gradient:#00D2FF:#3A7BD5><bold>TPCore</bold></gradient> <dark_gray>»</dark_gray> "
   reject-self-tpa: "<prefix><red>You cannot send a teleport request to yourself!</red>"
+  request-accepted-sender: "<prefix><yellow><target></yellow> <green>accepted your teleport request!</green>"
+  request-accepted-target: "<prefix><green>Accepted teleport request from <yellow><sender></yellow>.</green>"
+  request-cancelled-sender: "<prefix><gray>Cancelled your teleport request to <yellow><target></yellow>.</gray>"
+  request-cancelled-target: "<prefix><yellow><sender></yellow> <gray>cancelled their teleport request.</gray>"
+  request-denied-sender: "<prefix><yellow><target></yellow> <red>denied your teleport request.</red>"
+  request-denied-target: "<prefix><red>Denied teleport request from <yellow><sender></yellow>.</red>"
+  request-expired: "<prefix><red>The teleport request with <yellow><player></yellow> has expired.</red>"
   sender-tpa-sent: "<prefix><gray>Sent a teleport request to <yellow><target></yellow>. Expires in <gold><seconds>s</gold>.</gray>"
   sender-tpahere-sent: "<prefix><gray>Sent a request for <yellow><target></yellow> to teleport to you. Expires in <gold><seconds>s</gold>.</gray>"
   target-tpa-received: "<prefix><yellow><sender></yellow> <gray>wants to teleport to you.</gray>\n<prefix><green><click:run_command:'/tpaccept <sender>'><hover:show_text:'<green>Click to ACCEPT teleport request</green>'><bold>[ACCEPT]</bold></click></green>  <red><click:run_command:'/tpdeny <sender>'><hover:show_text:'<red>Click to DENY teleport request</red>'><bold>[DENY]</bold></click></red>"
   target-tpahere-received: "<prefix><yellow><sender></yellow> <gray>requests you to teleport to them.</gray>\n<prefix><green><click:run_command:'/tpaccept <sender>'><hover:show_text:'<green>Click to ACCEPT teleport request</green>'><bold>[ACCEPT]</bold></click></green>  <red><click:run_command:'/tpdeny <sender>'><hover:show_text:'<red>Click to DENY teleport request</red>'><bold>[DENY]</bold></click></red>"
-  no-pending-requests: "<prefix><red>You have no active pending teleport requests!</red>"
-  multiple-pending-requests: "<prefix><red>You have multiple requests! Specify the player name: <yellow>/tpaccept <player></yellow></red>"
-  request-accepted-sender: "<prefix><yellow><target></yellow> <green>accepted your teleport request!</green>"
-  request-accepted-target: "<prefix><green>Accepted teleport request from <yellow><sender></yellow>.</green>"
-  request-denied-sender: "<prefix><yellow><target></yellow> <red>denied your teleport request.</red>"
-  request-denied-target: "<prefix><red>Denied teleport request from <yellow><sender></yellow>.</red>"
-  request-cancelled-sender: "<prefix><gray>Cancelled your teleport request to <yellow><target></yellow>.</gray>"
-  request-cancelled-target: "<prefix><yellow><sender></yellow> <gray>cancelled their teleport request.</gray>"
-  request-expired: "<prefix><red>The teleport request with <yellow><player></yellow> has expired.</red>"
-  warmup-start: "<prefix><gray>Teleporting in <gold><seconds></gold> seconds. <red>Do not move or take damage!</red></gray>"
-  warmup-cancelled-move: "<prefix><red>Teleport cancelled because you moved!</red>"
-  warmup-cancelled-damage: "<prefix><red>Teleport cancelled because you took damage!</red>"
-  toggle-on: "<prefix><gray>TPA requests are now <green>ENABLED</green>.</gray>"
-  toggle-off: "<prefix><gray>TPA requests are now <red>DISABLED</red>.</gray>"
   target-toggled-off: "<prefix><red>Player <yellow><target></yellow> is not accepting TPA requests right now.</red>"
+  toggle-off: "<prefix><gray>TPA requests are now <red>DISABLED</red>.</gray>"
+  toggle-on: "<prefix><gray>TPA requests are now <green>ENABLED</green>.</gray>"
+  warmup-cancelled-damage: "<prefix><red>Teleport cancelled because you took damage!</red>"
+  warmup-cancelled-move: "<prefix><red>Teleport cancelled because you moved!</red>"
+  warmup-start: "<prefix><gray>Teleporting in <gold><seconds></gold> seconds. <red>Do not move or take damage!</red></gray>"
