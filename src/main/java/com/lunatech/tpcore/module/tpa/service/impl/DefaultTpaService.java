@@ -1,26 +1,26 @@
 package com.lunatech.tpcore.module.tpa.service.impl;
 
 import com.lunatech.tpcore.config.model.TpaConfig;
-import com.lunatech.tpcore.constant.Messages;
 import com.lunatech.tpcore.constant.Permissions;
 import com.lunatech.tpcore.module.tpa.model.TpaRequest;
 import com.lunatech.tpcore.module.tpa.model.TpaType;
 import com.lunatech.tpcore.module.tpa.repository.TpaRepository;
 import com.lunatech.tpcore.module.tpa.service.TpaService;
-import net.kyori.adventure.text.Component;
+import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
+import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.scheduler.BukkitTask;
 
 import java.util.Collection;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 public final class DefaultTpaService implements TpaService {
 
@@ -29,9 +29,8 @@ public final class DefaultTpaService implements TpaService {
     private final TpaConfig config;
     private final MiniMessage miniMessage;
 
-    // Active warmup tracking: Player UUID -> WarmupTask
     private final Map<UUID, ActiveWarmup> activeWarmups = new ConcurrentHashMap<>();
-    private final io.papermc.paper.threadedregions.scheduler.ScheduledTask sweeperTask;
+    private final ScheduledTask sweeperTask;
 
     private record ActiveWarmup(
         UUID teleportingPlayerId,
@@ -46,52 +45,55 @@ public final class DefaultTpaService implements TpaService {
         this.sweeperTask = this.startExpirationSweeper();
     }
 
-    private io.papermc.paper.threadedregions.scheduler.ScheduledTask startExpirationSweeper() {
+    private ScheduledTask startExpirationSweeper() {
         return this.plugin.getServer().getAsyncScheduler().runAtFixedRate(
             this.plugin,
             task -> {
                 for (TpaRequest request : this.repository.getAllRequests()) {
                     if (request.isExpired(this.config.requestTimeoutSeconds())) {
                         this.repository.removeRequest(request.targetId(), request.senderId());
-                        
+
                         Player sender = Bukkit.getPlayer(request.senderId());
                         if (sender != null && sender.isOnline()) {
                             Player target = Bukkit.getPlayer(request.targetId());
-                            sender.sendMessage(this.miniMessage.deserialize(
-                                Messages.REQUEST_EXPIRED,
+                            this.sendMessage(
+                                sender,
+                                this.config.messages().requestExpired(),
                                 Placeholder.unparsed("player", (target != null) ? target.getName() : "Player")
-                            ));
+                            );
                         }
-                        
+
                         Player target = Bukkit.getPlayer(request.targetId());
                         if (target != null && target.isOnline()) {
                             Player senderPlayer = Bukkit.getPlayer(request.senderId());
-                            target.sendMessage(this.miniMessage.deserialize(
-                                Messages.REQUEST_EXPIRED,
+                            this.sendMessage(
+                                target,
+                                this.config.messages().requestExpired(),
                                 Placeholder.unparsed("player", (senderPlayer != null) ? senderPlayer.getName() : "Player")
-                            ));
+                            );
                         }
                     }
                 }
             },
             5L,
             5L,
-            java.util.concurrent.TimeUnit.SECONDS
+            TimeUnit.SECONDS
         );
     }
 
     @Override
     public void sendRequest(Player sender, Player target, TpaType type) {
         if (!this.config.allowSelfTpa() && sender.getUniqueId().equals(target.getUniqueId())) {
-            sender.sendMessage(this.miniMessage.deserialize(Messages.REJECT_SELF_TPA));
+            this.sendMessage(sender, this.config.messages().rejectSelfTpa());
             return;
         }
 
         if (this.repository.isTpaToggledOff(target.getUniqueId())) {
-            sender.sendMessage(this.miniMessage.deserialize(
-                Messages.TARGET_TOGGLED_OFF,
+            this.sendMessage(
+                sender,
+                this.config.messages().targetToggledOff(),
                 Placeholder.unparsed("target", target.getName())
-            ));
+            );
             return;
         }
 
@@ -105,27 +107,31 @@ public final class DefaultTpaService implements TpaService {
         this.repository.addRequest(request);
 
         if (type == TpaType.TPA_TO) {
-            sender.sendMessage(this.miniMessage.deserialize(
-                Messages.SENDER_TPA_SENT,
+            this.sendMessage(
+                sender,
+                this.config.messages().senderTpaSent(),
                 Placeholder.unparsed("target", target.getName()),
                 Placeholder.unparsed("seconds", String.valueOf(this.config.requestTimeoutSeconds()))
-            ));
+            );
 
-            target.sendMessage(this.miniMessage.deserialize(
-                Messages.TARGET_TPA_RECEIVED,
+            this.sendMessage(
+                target,
+                this.config.messages().targetTpaReceived(),
                 Placeholder.unparsed("sender", sender.getName())
-            ));
+            );
         } else {
-            sender.sendMessage(this.miniMessage.deserialize(
-                Messages.SENDER_TPAHERE_SENT,
+            this.sendMessage(
+                sender,
+                this.config.messages().senderTpaHereSent(),
                 Placeholder.unparsed("target", target.getName()),
                 Placeholder.unparsed("seconds", String.valueOf(this.config.requestTimeoutSeconds()))
-            ));
+            );
 
-            target.sendMessage(this.miniMessage.deserialize(
-                Messages.TARGET_TPAHERE_RECEIVED,
+            this.sendMessage(
+                target,
+                this.config.messages().targetTpaHereReceived(),
                 Placeholder.unparsed("sender", sender.getName())
-            ));
+            );
         }
     }
 
@@ -134,7 +140,7 @@ public final class DefaultTpaService implements TpaService {
         Collection<TpaRequest> incoming = this.repository.getIncomingRequests(target.getUniqueId());
 
         if (incoming.isEmpty()) {
-            target.sendMessage(this.miniMessage.deserialize(Messages.NO_PENDING_REQUESTS));
+            this.sendMessage(target, this.config.messages().noPendingRequests());
             return;
         }
 
@@ -151,12 +157,12 @@ public final class DefaultTpaService implements TpaService {
         } else if (incoming.size() == 1) {
             targetRequest = incoming.iterator().next();
         } else {
-            target.sendMessage(this.miniMessage.deserialize(Messages.MULTIPLE_PENDING_REQUESTS));
+            this.sendMessage(target, this.config.messages().multiplePendingRequests());
             return;
         }
 
         if (targetRequest == null || targetRequest.isExpired(this.config.requestTimeoutSeconds())) {
-            target.sendMessage(this.miniMessage.deserialize(Messages.NO_PENDING_REQUESTS));
+            this.sendMessage(target, this.config.messages().noPendingRequests());
             if (targetRequest != null) {
                 this.repository.removeRequest(targetRequest.targetId(), targetRequest.senderId());
             }
@@ -167,19 +173,21 @@ public final class DefaultTpaService implements TpaService {
 
         Player sender = Bukkit.getPlayer(targetRequest.senderId());
         if (sender == null || !sender.isOnline()) {
-            target.sendMessage(this.miniMessage.deserialize(Messages.NO_PENDING_REQUESTS));
+            this.sendMessage(target, this.config.messages().noPendingRequests());
             return;
         }
 
-        target.sendMessage(this.miniMessage.deserialize(
-            Messages.REQUEST_ACCEPTED_TARGET,
+        this.sendMessage(
+            target,
+            this.config.messages().requestAcceptedTarget(),
             Placeholder.unparsed("sender", sender.getName())
-        ));
+        );
 
-        sender.sendMessage(this.miniMessage.deserialize(
-            Messages.REQUEST_ACCEPTED_SENDER,
+        this.sendMessage(
+            sender,
+            this.config.messages().requestAcceptedSender(),
             Placeholder.unparsed("target", target.getName())
-        ));
+        );
 
         Player teleportingPlayer = (targetRequest.type() == TpaType.TPA_TO) ? sender : target;
         Player destinationPlayer = (targetRequest.type() == TpaType.TPA_TO) ? target : sender;
@@ -191,7 +199,7 @@ public final class DefaultTpaService implements TpaService {
     public void denyRequest(Player target, String optionalSenderName) {
         Collection<TpaRequest> incoming = this.repository.getIncomingRequests(target.getUniqueId());
         if (incoming.isEmpty()) {
-            target.sendMessage(this.miniMessage.deserialize(Messages.NO_PENDING_REQUESTS));
+            this.sendMessage(target, this.config.messages().noPendingRequests());
             return;
         }
 
@@ -212,17 +220,19 @@ public final class DefaultTpaService implements TpaService {
             this.repository.removeRequest(targetRequest.targetId(), targetRequest.senderId());
             Player sender = Bukkit.getPlayer(targetRequest.senderId());
             if (sender != null && sender.isOnline()) {
-                sender.sendMessage(this.miniMessage.deserialize(
-                    Messages.REQUEST_DENIED_SENDER,
+                this.sendMessage(
+                    sender,
+                    this.config.messages().requestDeniedSender(),
                     Placeholder.unparsed("target", target.getName())
-                ));
+                );
             }
-            target.sendMessage(this.miniMessage.deserialize(
-                Messages.REQUEST_DENIED_TARGET,
+            this.sendMessage(
+                target,
+                this.config.messages().requestDeniedTarget(),
                 Placeholder.unparsed("sender", (sender != null) ? sender.getName() : "Player")
-            ));
+            );
         } else {
-            target.sendMessage(this.miniMessage.deserialize(Messages.NO_PENDING_REQUESTS));
+            this.sendMessage(target, this.config.messages().noPendingRequests());
         }
     }
 
@@ -230,7 +240,7 @@ public final class DefaultTpaService implements TpaService {
     public void cancelRequest(Player sender, String optionalTargetName) {
         Collection<TpaRequest> outgoing = this.repository.getOutgoingRequests(sender.getUniqueId());
         if (outgoing.isEmpty()) {
-            sender.sendMessage(this.miniMessage.deserialize(Messages.NO_PENDING_REQUESTS));
+            this.sendMessage(sender, this.config.messages().noPendingRequests());
             return;
         }
 
@@ -251,17 +261,19 @@ public final class DefaultTpaService implements TpaService {
             this.repository.removeRequest(targetRequest.targetId(), targetRequest.senderId());
             Player target = Bukkit.getPlayer(targetRequest.targetId());
             if (target != null && target.isOnline()) {
-                target.sendMessage(this.miniMessage.deserialize(
-                    Messages.REQUEST_CANCELLED_TARGET,
+                this.sendMessage(
+                    target,
+                    this.config.messages().requestCancelledTarget(),
                     Placeholder.unparsed("sender", sender.getName())
-                ));
+                );
             }
-            sender.sendMessage(this.miniMessage.deserialize(
-                Messages.REQUEST_CANCELLED_SENDER,
+            this.sendMessage(
+                sender,
+                this.config.messages().requestCancelledSender(),
                 Placeholder.unparsed("target", (target != null) ? target.getName() : "Player")
-            ));
+            );
         } else {
-            sender.sendMessage(this.miniMessage.deserialize(Messages.NO_PENDING_REQUESTS));
+            this.sendMessage(sender, this.config.messages().noPendingRequests());
         }
     }
 
@@ -272,9 +284,9 @@ public final class DefaultTpaService implements TpaService {
         this.repository.setTpaToggledOff(player.getUniqueId(), newStatus);
 
         if (newStatus) {
-            player.sendMessage(this.miniMessage.deserialize(Messages.TOGGLE_OFF));
+            this.sendMessage(player, this.config.messages().toggleOff());
         } else {
-            player.sendMessage(this.miniMessage.deserialize(Messages.TOGGLE_ON));
+            this.sendMessage(player, this.config.messages().toggleOn());
         }
         return !newStatus;
     }
@@ -288,7 +300,7 @@ public final class DefaultTpaService implements TpaService {
     @Override
     public void handlePlayerDamage(UUID playerId) {
         if (this.config.cancelOnDamage()) {
-            this.cancelWarmup(playerId, Messages.WARMUP_CANCELLED_DAMAGE);
+            this.cancelWarmup(playerId, this.config.messages().warmupCancelledDamage());
         }
     }
 
@@ -300,7 +312,7 @@ public final class DefaultTpaService implements TpaService {
         ActiveWarmup warmup = this.activeWarmups.get(player.getUniqueId());
         if (warmup != null) {
             if (warmup.startLocation().distanceSquared(player.getLocation()) > 0.25) {
-                this.cancelWarmup(player.getUniqueId(), Messages.WARMUP_CANCELLED_MOVE);
+                this.cancelWarmup(player.getUniqueId(), this.config.messages().warmupCancelledMove());
             }
         }
     }
@@ -312,12 +324,12 @@ public final class DefaultTpaService implements TpaService {
             return;
         }
 
-        player.sendMessage(this.miniMessage.deserialize(
-            Messages.WARMUP_START,
+        this.sendMessage(
+            player,
+            this.config.messages().warmupStart(),
             Placeholder.unparsed("seconds", String.valueOf(warmupSeconds))
-        ));
+        );
 
-        // Use Folia & Paper native EntityScheduler to guarantee thread safety
         player.getScheduler().runDelayed(
             this.plugin,
             task -> {
@@ -336,16 +348,25 @@ public final class DefaultTpaService implements TpaService {
         );
     }
 
-    private void cancelWarmup(UUID playerId, String cancelMessageKey) {
+    private void cancelWarmup(UUID playerId, String cancelMessageTemplate) {
         ActiveWarmup warmup = this.activeWarmups.remove(playerId);
         if (warmup != null) {
-            if (cancelMessageKey != null) {
+            if (cancelMessageTemplate != null) {
                 Player player = Bukkit.getPlayer(playerId);
                 if (player != null && player.isOnline()) {
-                    player.sendMessage(this.miniMessage.deserialize(cancelMessageKey));
+                    this.sendMessage(player, cancelMessageTemplate);
                 }
             }
         }
+    }
+
+    private void sendMessage(Player player, String template, TagResolver... resolvers) {
+        TagResolver prefixResolver = Placeholder.parsed("prefix", this.config.messages().prefix());
+        TagResolver[] combinedResolvers = new TagResolver[resolvers.length + 1];
+        combinedResolvers[0] = prefixResolver;
+        System.arraycopy(resolvers, 0, combinedResolvers, 1, resolvers.length);
+
+        player.sendMessage(this.miniMessage.deserialize(template, combinedResolvers));
     }
 
     @Override

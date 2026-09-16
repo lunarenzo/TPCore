@@ -1,6 +1,6 @@
 package com.lunatech.tpcore.module.tpa.command;
 
-import com.lunatech.tpcore.constant.Messages;
+import com.lunatech.tpcore.config.model.TpaConfig;
 import com.lunatech.tpcore.constant.Permissions;
 import com.lunatech.tpcore.module.tpa.model.TpaType;
 import com.lunatech.tpcore.module.tpa.service.TpaService;
@@ -20,11 +20,13 @@ public final class TpaCommandRegistry {
 
     private final JavaPlugin plugin;
     private final TpaService tpaService;
+    private final TpaConfig config;
     private final MiniMessage miniMessage;
 
-    public TpaCommandRegistry(JavaPlugin plugin, TpaService tpaService) {
+    public TpaCommandRegistry(JavaPlugin plugin, TpaService tpaService, TpaConfig config) {
         this.plugin = plugin;
         this.tpaService = tpaService;
+        this.config = config;
         this.miniMessage = MiniMessage.miniMessage();
     }
 
@@ -45,7 +47,11 @@ public final class TpaCommandRegistry {
                                 if (target != null && target.isOnline()) {
                                     this.tpaService.sendRequest(sender, target, TpaType.TPA_TO);
                                 } else {
-                                    sender.sendMessage(this.miniMessage.deserialize(Messages.PLAYER_NOT_ONLINE, Placeholder.unparsed("player", "target")));
+                                    sender.sendMessage(this.miniMessage.deserialize(
+                                        this.config.messages().playerNotOnline(),
+                                        Placeholder.parsed("prefix", this.config.messages().prefix()),
+                                        Placeholder.unparsed("player", "target")
+                                    ));
                                 }
                             }
                             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
@@ -69,7 +75,11 @@ public final class TpaCommandRegistry {
                                 if (target != null && target.isOnline()) {
                                     this.tpaService.sendRequest(sender, target, TpaType.TPA_HERE);
                                 } else {
-                                    sender.sendMessage(this.miniMessage.deserialize(Messages.PLAYER_NOT_ONLINE, Placeholder.unparsed("player", "target")));
+                                    sender.sendMessage(this.miniMessage.deserialize(
+                                        this.config.messages().playerNotOnline(),
+                                        Placeholder.parsed("prefix", this.config.messages().prefix()),
+                                        Placeholder.unparsed("player", "target")
+                                    ));
                                 }
                             }
                             return com.mojang.brigadier.Command.SINGLE_SUCCESS;

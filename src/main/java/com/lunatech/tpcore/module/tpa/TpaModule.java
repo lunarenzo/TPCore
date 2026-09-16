@@ -34,7 +34,7 @@ public final class TpaModule {
         this.repository = new ConcurrentTpaRepository();
         this.service = new DefaultTpaService(this.plugin, this.repository, this.config);
         this.listener = new TpaEventListener(this.service);
-        this.commandRegistry = new TpaCommandRegistry(this.plugin, this.service);
+        this.commandRegistry = new TpaCommandRegistry(this.plugin, this.service, this.config);
 
         this.plugin.getServer().getPluginManager().registerEvents(this.listener, this.plugin);
         this.commandRegistry.registerAll();
