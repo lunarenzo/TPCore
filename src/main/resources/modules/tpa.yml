@@ -1,0 +1,19 @@
+# TPCore — TPA Module Configuration
+# Author: lunarenzo (lunatech)
+
+enabled: true
+
+# Time in seconds before an unaccepted TPA request expires automatically
+request-timeout-seconds: 30
+
+# Warmup delay in seconds before teleporting after request acceptance
+warmup-seconds: 3
+
+# Whether movement > 0.5 blocks cancels the teleport warmup
+cancel-on-move: true
+
+# Whether taking damage cancels the teleport warmup
+cancel-on-damage: true
+
+# Whether players can send TPA requests to themselves
+allow-self-tpa: false
