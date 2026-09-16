@@ -311,7 +311,8 @@ public final class DefaultTpaService implements TpaService {
         }
         ActiveWarmup warmup = this.activeWarmups.get(player.getUniqueId());
         if (warmup != null) {
-            if (warmup.startLocation().distanceSquared(player.getLocation()) > 0.25) {
+            if (!warmup.startLocation().getWorld().equals(player.getWorld())
+                || warmup.startLocation().distanceSquared(player.getLocation()) > 0.25) {
                 this.cancelWarmup(player.getUniqueId(), this.config.messages().warmupCancelledMove());
             }
         }
