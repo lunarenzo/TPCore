@@ -50,8 +50,8 @@ jobs:
           echo "is_release=${IS_RELEASE}" >> $GITHUB_OUTPUT
           echo "Building TPCore Version: ${VERSION}"
 
-      - name: Build Shadow Plugin JAR
-        run: ./gradlew shadowJar -PpluginVersion="${{ steps.versioning.outputs.version }}" --no-daemon
+      - name: Build Shadow Plugin JAR & Apply ProGuard
+        run: ./gradlew shadowJar proguard -PpluginVersion="${{ steps.versioning.outputs.version }}" --no-daemon
 
       - name: Upload Downloadable Build Artifact
         uses: actions/upload-artifact@v4

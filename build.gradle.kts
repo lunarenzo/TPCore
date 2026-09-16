@@ -1,3 +1,12 @@
+buildscript {
+    repositories {
+        mavenCentral()
+    }
+    dependencies {
+        classpath("com.guardsquare:proguard-gradle:7.5.0")
+    }
+}
+
 plugins {
     java
     id("com.gradleup.shadow") version "9.0.0-beta10"
@@ -43,6 +52,24 @@ tasks {
         archiveClassifier.set("")
         archiveFileName.set("TPCore-$pluginVersion.jar")
         relocate("org.spongepowered.configurate", "com.lunatech.tpcore.libs.configurate")
+    }
+
+    register<proguard.gradle.ProGuardTask>("proguard") {
+        dependsOn(shadowJar)
+
+        val shadowJarTask = shadowJar.get()
+        val inputFile = shadowJarTask.archiveFile.get().asFile
+        val outputFile = file("${layout.buildDirectory.get().asFile}/libs/TPCore-$pluginVersion-min.jar")
+
+        injars(inputFile)
+        outjars(outputFile)
+
+        libraryjars("${System.getProperty("java.home")}/jmods/java.base.jmod")
+        configurations.compileClasspath.get().files.forEach { file ->
+            libraryjars(file)
+        }
+
+        configuration("proguard-rules.pro")
     }
 
     build {
