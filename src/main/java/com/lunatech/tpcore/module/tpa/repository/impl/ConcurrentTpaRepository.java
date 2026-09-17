@@ -3,8 +3,10 @@ package com.lunatech.tpcore.module.tpa.repository.impl;
 import com.lunatech.tpcore.module.tpa.model.TpaRequest;
 import com.lunatech.tpcore.module.tpa.repository.TpaRepository;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -57,7 +59,7 @@ public final class ConcurrentTpaRepository implements TpaRepository {
 
     @Override
     public Collection<TpaRequest> getAllRequests() {
-        java.util.List<TpaRequest> all = new java.util.ArrayList<>();
+        List<TpaRequest> all = new ArrayList<>();
         for (Map<UUID, TpaRequest> map : this.incoming.values()) {
             all.addAll(map.values());
         }
