@@ -109,7 +109,7 @@ public final class ConcurrentTeleportPipelineEngine {
         Block head = feet.getRelative(BlockFace.UP);
         Block ground = feet.getRelative(BlockFace.DOWN);
 
-        return feet.isPassable() && head.isPassable() && !feet.isLiquid() && !head.isLiquid() && !ground.isPassable();
+        return feet.isPassable() && head.isPassable() && !feet.isLiquid() && !head.isLiquid() && !ground.isPassable() && !ground.isLiquid();
     }
 
     public void close() {
