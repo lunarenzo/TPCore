@@ -23,6 +23,14 @@ public final class Permissions {
     public static final String HOME_BYPASS_COOLDOWN = "tpcore.home.bypass.cooldown";
     public static final String HOME_BYPASS_LIMIT = "tpcore.home.bypass.limit";
     public static final String HOME_ADMIN_BENCHMARK = "tpcore.home.admin.benchmark";
+    public static final String WARP_USE = "tpcore.warp.use";
+    public static final String WARP_SET = "tpcore.warp.set";
+    public static final String WARP_DEL = "tpcore.warp.del";
+    public static final String WARP_LIST = "tpcore.warp.list";
+    public static final String WARP_OTHER = "tpcore.warp.other";
+    public static final String WARP_ADMIN = "tpcore.warp.admin";
+    public static final String WARP_BYPASS_WARMUP = "tpcore.warp.bypass.warmup";
+    public static final String WARP_BYPASS_COOLDOWN = "tpcore.warp.bypass.cooldown";
     public static final String ADMIN_RELOAD = "tpcore.admin.reload";
 
     private Permissions() {

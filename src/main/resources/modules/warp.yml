@@ -1,0 +1,43 @@
+# TPCore - Warp Module Configuration
+enabled: true
+warmup-seconds: 3
+cooldown-seconds: 10
+cancel-on-move: true
+cancel-on-damage: true
+default-permission-gated: false
+default-category: "general"
+warps-per-page: 8
+
+safety-checks:
+  prevent-unsafe-teleport: true
+  prevent-nether-roof: true
+  max-nether-height: 128
+
+storage:
+  type: "SQLITE"
+
+# Module Messages (Alphabetically ordered keys)
+messages:
+  cooldown-active: "<prefix><red>You must wait <gold><seconds>s</gold> before using /warp again!</red>"
+  del-warp-success: "<prefix><green>Warp <yellow><warp></yellow> has been deleted.</green>"
+  invalid-password: "<prefix><red>Incorrect password for warp <yellow><warp></yellow>!</red>"
+  limit-reached: "<prefix><red>You have reached the maximum warp limit!</red>"
+  module-disabled: "<prefix><red>Warp module is currently disabled.</red>"
+  no-permission: "<prefix><red>You do not have permission to access warp <yellow><warp></yellow>!</red>"
+  only-players: "<prefix><red>Only players can execute this command!</red>"
+  password-required: "<prefix><red>Warp <yellow><warp></yellow> is password protected! Usage: <gold>/warp <warp> <password></gold></red>"
+  prefix: "<gradient:#00D2FF:#3A7BD5><bold>TPCore</bold></gradient> <dark_gray>»</dark_gray> "
+  set-warp-confirm: "<prefix><yellow>Warp <gold><warp></gold> already exists! Run <gold>/setwarp <warp> -f</gold> to overwrite it.</yellow>"
+  set-warp-success: "<prefix><green>Warp <yellow><warp></yellow> set to your current location!</green>"
+  teleport-other-success: "<prefix><green>Teleported <gold><target></gold> to warp <yellow><warp></yellow>!</green>"
+  teleport-success: "<prefix><green>Teleported to warp <yellow><warp></yellow>!</green>"
+  unsafe-location: "<prefix><red>Teleport target location is unsafe or obstructed!</red>"
+  warmup-cancelled-damage: "<prefix><red>Teleport cancelled because you took damage!</red>"
+  warmup-cancelled-move: "<prefix><red>Teleport cancelled because you moved!</red>"
+  warmup-start: "<prefix><gray>Teleporting to warp <yellow><warp></yellow> in <gold><seconds></gold> seconds. <red>Do not move or take damage!</red></gray>"
+  warp-list-category-header: "<prefix><gray>Available Warps in Category <gold><category></gold> (Page <gold><page></gold>/<gold><maxpages></gold>):</gray>"
+  warp-list-empty: "<prefix><yellow>No warps found.</yellow>"
+  warp-list-header: "<prefix><gray>Available Warps (Page <gold><page></gold>/<gold><maxpages></gold>):</gray>"
+  warp-list-item: "  <dark_gray>•</dark_gray> <green><name></green> <gray>[<yellow><category></yellow>]</gray> <click:run_command:'/warp <name>'><hover:show_text:'<green>Click to teleport</green><br><gray>World: <yellow><world></yellow><br>Coords: <yellow><x>, <y>, <z></yellow>'><gold>[Teleport]</gold></hover></click>"
+  warp-not-found: "<prefix><red>Warp <yellow><warp></yellow> was not found!</red>"
+  world-not-loaded: "<prefix><red>Target world <yellow><world></yellow> is not currently loaded!</red>"

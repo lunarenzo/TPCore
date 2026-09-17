@@ -1,0 +1,17 @@
+package com.lunatech.tpcore.module.warp.service;
+
+public enum WarpResultStatus {
+    SUCCESS,
+    WARP_NOT_FOUND,
+    INVALID_PASSWORD,
+    PASSWORD_REQUIRED,
+    NO_PERMISSION,
+    WORLD_NOT_LOADED,
+    UNSAFE_LOCATION,
+    WARMUP_CANCELLED_DAMAGE,
+    WARMUP_CANCELLED_MOVE,
+    COOLDOWN_ACTIVE,
+    ALREADY_EXISTS,
+    LIMIT_REACHED,
+    ERROR
+}

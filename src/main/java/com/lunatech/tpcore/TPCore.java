@@ -5,9 +5,11 @@ import com.lunatech.tpcore.config.ModularConfigManager;
 import com.lunatech.tpcore.config.model.HomeConfig;
 import com.lunatech.tpcore.config.model.SpawnConfig;
 import com.lunatech.tpcore.config.model.TpaConfig;
+import com.lunatech.tpcore.config.model.WarpConfig;
 import com.lunatech.tpcore.module.home.HomeModule;
 import com.lunatech.tpcore.module.spawn.SpawnModule;
 import com.lunatech.tpcore.module.tpa.TpaModule;
+import com.lunatech.tpcore.module.warp.WarpModule;
 import com.lunatech.tpcore.platform.ServerVersion;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -17,6 +19,7 @@ public final class TPCore extends JavaPlugin {
     private TpaModule tpaModule;
     private SpawnModule spawnModule;
     private HomeModule homeModule;
+    private WarpModule warpModule;
     private TPCoreAdminCommandRegistry adminCommandRegistry;
 
     @Override
@@ -43,6 +46,10 @@ public final class TPCore extends JavaPlugin {
         this.homeModule = new HomeModule(this, this.configManager, homeConfig);
         this.homeModule.enable();
 
+        WarpConfig warpConfig = this.configManager.loadModuleConfig("warp", WarpConfig.class, WarpConfig.createDefault());
+        this.warpModule = new WarpModule(this, this.configManager, warpConfig);
+        this.warpModule.enable();
+
         this.adminCommandRegistry = new TPCoreAdminCommandRegistry(this, this.configManager, this.configManager::getCoreConfig);
         this.adminCommandRegistry.registerAll();
 
@@ -51,6 +58,9 @@ public final class TPCore extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        if (this.warpModule != null) {
+            this.warpModule.disable();
+        }
         if (this.homeModule != null) {
             this.homeModule.disable();
         }
