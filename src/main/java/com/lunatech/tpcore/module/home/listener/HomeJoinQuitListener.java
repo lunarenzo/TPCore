@@ -4,6 +4,8 @@ import com.lunatech.tpcore.module.home.cache.HomeCache;
 import com.lunatech.tpcore.module.home.repository.HomeRepository;
 import java.util.Objects;
 import java.util.UUID;
+import org.bukkit.Bukkit;
+import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
@@ -22,8 +24,13 @@ public final class HomeJoinQuitListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlayerJoin(PlayerJoinEvent event) {
-        UUID uuid = event.getPlayer().getUniqueId();
-        repository.loadAll(uuid).thenAccept(homes -> cache.loadPlayer(uuid, homes));
+        Player player = event.getPlayer();
+        UUID uuid = player.getUniqueId();
+        repository.loadAll(uuid).thenAccept(homes -> {
+            if (Bukkit.getPlayer(uuid) != null) {
+                cache.loadPlayer(uuid, homes);
+            }
+        });
     }
 
     @EventHandler(priority = EventPriority.MONITOR)

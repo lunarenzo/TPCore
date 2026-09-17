@@ -6,6 +6,8 @@ import com.lunatech.tpcore.module.home.model.Home;
 import com.lunatech.tpcore.module.home.service.HomeResultStatus;
 import com.lunatech.tpcore.module.home.service.HomeService;
 import com.mojang.brigadier.arguments.StringArgumentType;
+import com.mojang.brigadier.suggestion.SuggestionProvider;
+import io.papermc.paper.command.brigadier.CommandSourceStack;
 import io.papermc.paper.command.brigadier.Commands;
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
 import java.util.List;
@@ -38,12 +40,34 @@ public final class HomeCommandRegistry {
         this.plugin.getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS, event -> {
             final Commands commands = event.registrar();
 
+            SuggestionProvider<CommandSourceStack> homeNameSuggestions = (context, builder) -> {
+                if (context.getSource().getSender() instanceof Player player) {
+                    Map<String, Home> homes = homeService.getHomes(player.getUniqueId());
+                    for (String name : homes.keySet()) {
+                        if (name.toLowerCase().startsWith(builder.getRemaining().toLowerCase())) {
+                            builder.suggest(name);
+                        }
+                    }
+                }
+                return builder.buildFuture();
+            };
+
+            SuggestionProvider<CommandSourceStack> onlinePlayerSuggestions = (context, builder) -> {
+                for (Player player : Bukkit.getOnlinePlayers()) {
+                    if (player.getName().toLowerCase().startsWith(builder.getRemaining().toLowerCase())) {
+                        builder.suggest(player.getName());
+                    }
+                }
+                return builder.buildFuture();
+            };
+
             // /home [name]
             commands.register(
                 Commands.literal("home")
                     .requires(src -> src.getSender().hasPermission(Permissions.HOME_USE))
                     .executes(ctx -> executeHome(ctx.getSource().getSender(), null))
-                    .then(Commands.argument("name", StringArgumentType.string())
+                    .then(Commands.argument("name", StringArgumentType.word())
+                        .suggests(homeNameSuggestions)
                         .executes(ctx -> executeHome(ctx.getSource().getSender(), StringArgumentType.getString(ctx, "name")))
                     )
                     .build(),
@@ -56,7 +80,8 @@ public final class HomeCommandRegistry {
                 Commands.literal("sethome")
                     .requires(src -> src.getSender().hasPermission(Permissions.HOME_SET))
                     .executes(ctx -> executeSetHome(ctx.getSource().getSender(), null, false))
-                    .then(Commands.argument("name", StringArgumentType.string())
+                    .then(Commands.argument("name", StringArgumentType.word())
+                        .suggests(homeNameSuggestions)
                         .executes(ctx -> executeSetHome(ctx.getSource().getSender(), StringArgumentType.getString(ctx, "name"), false))
                         .then(Commands.literal("-f")
                             .executes(ctx -> executeSetHome(ctx.getSource().getSender(), StringArgumentType.getString(ctx, "name"), true))
@@ -71,7 +96,8 @@ public final class HomeCommandRegistry {
             commands.register(
                 Commands.literal("delhome")
                     .requires(src -> src.getSender().hasPermission(Permissions.HOME_DEL))
-                    .then(Commands.argument("name", StringArgumentType.string())
+                    .then(Commands.argument("name", StringArgumentType.word())
+                        .suggests(homeNameSuggestions)
                         .executes(ctx -> executeDelHome(ctx.getSource().getSender(), StringArgumentType.getString(ctx, "name")))
                     )
                     .build(),
@@ -93,8 +119,9 @@ public final class HomeCommandRegistry {
             commands.register(
                 Commands.literal("homeother")
                     .requires(src -> src.getSender().hasPermission(Permissions.HOME_OTHER))
-                    .then(Commands.argument("target", StringArgumentType.string())
-                        .then(Commands.argument("name", StringArgumentType.string())
+                    .then(Commands.argument("target", StringArgumentType.word())
+                        .suggests(onlinePlayerSuggestions)
+                        .then(Commands.argument("name", StringArgumentType.word())
                             .executes(ctx -> executeHomeOther(
                                 ctx.getSource().getSender(),
                                 StringArgumentType.getString(ctx, "target"),

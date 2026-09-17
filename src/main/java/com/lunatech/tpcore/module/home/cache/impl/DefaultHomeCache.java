@@ -72,7 +72,7 @@ public final class DefaultHomeCache implements HomeCache {
             return Collections.emptyMap();
         }
         Map<String, Home> userHomes = cache.get(uuid);
-        return userHomes != null ? Collections.unmodifiableMap(userHomes) : Collections.emptyMap();
+        return userHomes != null ? Map.copyOf(userHomes) : Collections.emptyMap();
     }
 
     @Override

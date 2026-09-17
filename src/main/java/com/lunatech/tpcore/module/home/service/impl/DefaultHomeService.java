@@ -305,10 +305,15 @@ public final class DefaultHomeService implements HomeService, Listener {
             return false;
         }
 
+        World world = location.getWorld();
+        if (location.getY() < world.getMinHeight() || location.getY() >= world.getMaxHeight()) {
+            return false;
+        }
+
         HomeConfig config = configSupplier.get();
         HomeConfig.HomeSafetyConfig safety = config.safetyChecks();
 
-        if (safety.preventNetherRoof() && location.getWorld().getEnvironment() == World.Environment.NETHER) {
+        if (safety.preventNetherRoof() && world.getEnvironment() == World.Environment.NETHER) {
             if (location.getY() > safety.maxNetherHeight()) {
                 return false;
             }
