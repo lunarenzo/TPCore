@@ -549,6 +549,10 @@ public final class DefaultBackService implements BackService {
         return material == Material.LAVA
             || material == Material.FIRE
             || material == Material.SOUL_FIRE
-            || material == Material.POWDER_SNOW;
+            || material == Material.POWDER_SNOW
+            || material == Material.MAGMA_BLOCK
+            || material == Material.SWEET_BERRY_BUSH
+            || material == Material.WITHER_ROSE;
     }
+
 }
