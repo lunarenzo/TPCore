@@ -7,9 +7,9 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
-import org.spigotmc.event.player.PlayerSpawnLocationEvent;
 
 import java.util.Optional;
 import java.util.function.Supplier;
@@ -25,7 +25,7 @@ public final class SpawnJoinListener implements Listener {
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
-    public void onPlayerSpawnLocation(PlayerSpawnLocationEvent event) {
+    public void onPlayerJoin(PlayerJoinEvent event) {
         SpawnConfig config = this.configSupplier.get();
         if (!config.enabled()) {
             return;
@@ -37,7 +37,7 @@ public final class SpawnJoinListener implements Listener {
 
         if (shouldTeleportToSpawn) {
             Optional<Location> spawnLocOpt = this.spawnService.getEffectiveSpawnLocation(null);
-            spawnLocOpt.ifPresent(event::setSpawnLocation);
+            spawnLocOpt.ifPresent(player::teleportAsync);
         }
     }
 
