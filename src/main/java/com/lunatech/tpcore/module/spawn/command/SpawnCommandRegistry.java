@@ -13,18 +13,19 @@ import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.List;
+import java.util.function.Supplier;
 
 public final class SpawnCommandRegistry {
 
     private final JavaPlugin plugin;
     private final SpawnService spawnService;
-    private final SpawnConfig config;
+    private final Supplier<SpawnConfig> configSupplier;
     private final MiniMessage miniMessage;
 
-    public SpawnCommandRegistry(JavaPlugin plugin, SpawnService spawnService, SpawnConfig config) {
+    public SpawnCommandRegistry(JavaPlugin plugin, SpawnService spawnService, Supplier<SpawnConfig> configSupplier) {
         this.plugin = plugin;
         this.spawnService = spawnService;
-        this.config = config;
+        this.configSupplier = configSupplier;
         this.miniMessage = MiniMessage.miniMessage();
     }
 
@@ -137,9 +138,10 @@ public final class SpawnCommandRegistry {
     }
 
     private void sendOnlyPlayersMessage(CommandSender sender) {
+        SpawnConfig cfg = this.configSupplier.get();
         sender.sendMessage(this.miniMessage.deserialize(
-            this.config.messages().onlyPlayers(),
-            Placeholder.parsed("prefix", this.config.messages().prefix())
+            cfg.messages().onlyPlayers(),
+            Placeholder.parsed("prefix", cfg.messages().prefix())
         ));
     }
 }

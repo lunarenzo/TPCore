@@ -16,7 +16,7 @@ public final class TpaModule implements ReloadableModule {
 
     private final JavaPlugin plugin;
     private final ModularConfigManager configManager;
-    private TpaConfig config;
+    private volatile TpaConfig config;
 
     private TpaRepository repository;
     private TpaService service;
@@ -60,7 +60,7 @@ public final class TpaModule implements ReloadableModule {
         this.repository = new ConcurrentTpaRepository();
         this.service = new DefaultTpaService(this.plugin, this.repository, this.config);
         this.listener = new TpaEventListener(this.service);
-        this.commandRegistry = new TpaCommandRegistry(this.plugin, this.service, this.config);
+        this.commandRegistry = new TpaCommandRegistry(this.plugin, this.service, () -> this.config);
 
         this.plugin.getServer().getPluginManager().registerEvents(this.listener, this.plugin);
         this.commandRegistry.registerAll();

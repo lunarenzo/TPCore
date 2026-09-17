@@ -15,18 +15,19 @@ import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.List;
+import java.util.function.Supplier;
 
 public final class TpaCommandRegistry {
 
     private final JavaPlugin plugin;
     private final TpaService tpaService;
-    private final TpaConfig config;
+    private final Supplier<TpaConfig> configSupplier;
     private final MiniMessage miniMessage;
 
-    public TpaCommandRegistry(JavaPlugin plugin, TpaService tpaService, TpaConfig config) {
+    public TpaCommandRegistry(JavaPlugin plugin, TpaService tpaService, Supplier<TpaConfig> configSupplier) {
         this.plugin = plugin;
         this.tpaService = tpaService;
-        this.config = config;
+        this.configSupplier = configSupplier;
         this.miniMessage = MiniMessage.miniMessage();
     }
 
@@ -47,9 +48,10 @@ public final class TpaCommandRegistry {
                                 if (target != null && target.isOnline()) {
                                     this.tpaService.sendRequest(sender, target, TpaType.TPA_TO);
                                 } else {
+                                    TpaConfig cfg = this.configSupplier.get();
                                     sender.sendMessage(this.miniMessage.deserialize(
-                                        this.config.messages().playerNotOnline(),
-                                        Placeholder.parsed("prefix", this.config.messages().prefix()),
+                                        cfg.messages().playerNotOnline(),
+                                        Placeholder.parsed("prefix", cfg.messages().prefix()),
                                         Placeholder.unparsed("player", "target")
                                     ));
                                 }
@@ -75,9 +77,10 @@ public final class TpaCommandRegistry {
                                 if (target != null && target.isOnline()) {
                                     this.tpaService.sendRequest(sender, target, TpaType.TPA_HERE);
                                 } else {
+                                    TpaConfig cfg = this.configSupplier.get();
                                     sender.sendMessage(this.miniMessage.deserialize(
-                                        this.config.messages().playerNotOnline(),
-                                        Placeholder.parsed("prefix", this.config.messages().prefix()),
+                                        cfg.messages().playerNotOnline(),
+                                        Placeholder.parsed("prefix", cfg.messages().prefix()),
                                         Placeholder.unparsed("player", "target")
                                     ));
                                 }

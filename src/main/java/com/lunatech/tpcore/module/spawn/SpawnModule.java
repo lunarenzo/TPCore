@@ -18,7 +18,7 @@ public final class SpawnModule implements ReloadableModule {
 
     private final JavaPlugin plugin;
     private final ModularConfigManager configManager;
-    private SpawnConfig config;
+    private volatile SpawnConfig config;
 
     private SpawnRepository repository;
     private SpawnService service;
@@ -68,7 +68,7 @@ public final class SpawnModule implements ReloadableModule {
         this.respawnListener = new SpawnRespawnListener(this.service, this.config);
         this.voidListener = new SpawnVoidListener(this.service, this.config);
 
-        this.commandRegistry = new SpawnCommandRegistry(this.plugin, this.service, this.config);
+        this.commandRegistry = new SpawnCommandRegistry(this.plugin, this.service, () -> this.config);
 
         this.plugin.getServer().getPluginManager().registerEvents(this.joinListener, this.plugin);
         this.plugin.getServer().getPluginManager().registerEvents(this.respawnListener, this.plugin);
