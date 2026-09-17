@@ -2,8 +2,10 @@ package com.lunatech.tpcore;
 
 import com.lunatech.tpcore.command.TPCoreAdminCommandRegistry;
 import com.lunatech.tpcore.config.ModularConfigManager;
+import com.lunatech.tpcore.config.model.HomeConfig;
 import com.lunatech.tpcore.config.model.SpawnConfig;
 import com.lunatech.tpcore.config.model.TpaConfig;
+import com.lunatech.tpcore.module.home.HomeModule;
 import com.lunatech.tpcore.module.spawn.SpawnModule;
 import com.lunatech.tpcore.module.tpa.TpaModule;
 import com.lunatech.tpcore.platform.ServerVersion;
@@ -14,6 +16,7 @@ public final class TPCore extends JavaPlugin {
     private ModularConfigManager configManager;
     private TpaModule tpaModule;
     private SpawnModule spawnModule;
+    private HomeModule homeModule;
     private TPCoreAdminCommandRegistry adminCommandRegistry;
 
     @Override
@@ -36,6 +39,10 @@ public final class TPCore extends JavaPlugin {
         this.spawnModule = new SpawnModule(this, this.configManager, spawnConfig);
         this.spawnModule.enable();
 
+        HomeConfig homeConfig = this.configManager.loadModuleConfig("home", HomeConfig.class, HomeConfig.createDefault());
+        this.homeModule = new HomeModule(this, this.configManager, homeConfig);
+        this.homeModule.enable();
+
         this.adminCommandRegistry = new TPCoreAdminCommandRegistry(this, this.configManager, this.configManager::getCoreConfig);
         this.adminCommandRegistry.registerAll();
 
@@ -44,6 +51,9 @@ public final class TPCore extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        if (this.homeModule != null) {
+            this.homeModule.disable();
+        }
         if (this.spawnModule != null) {
             this.spawnModule.disable();
         }

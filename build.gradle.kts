@@ -25,6 +25,7 @@ repositories {
 dependencies {
     compileOnly("io.papermc.paper:paper-api:1.20.6-R0.1-SNAPSHOT")
     implementation("org.spongepowered:configurate-yaml:4.1.2")
+    implementation("com.zaxxer:HikariCP:5.1.0")
 }
 
 java {
@@ -52,10 +53,11 @@ tasks {
         archiveClassifier.set("")
         archiveFileName.set("TPCore-$pluginVersion.jar")
         relocate("org.spongepowered.configurate", "com.lunatech.tpcore.libs.configurate")
+        relocate("com.zaxxer.hikari", "com.lunatech.tpcore.libs.hikari")
     }
 
     register<proguard.gradle.ProGuardTask>("proguard") {
-        dependsOn(shadowJar)
+        dependsOn("jar", shadowJar)
 
         val shadowJarTask = shadowJar.get()
         val inputFile = shadowJarTask.archiveFile.get().asFile

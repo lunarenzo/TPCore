@@ -1,0 +1,383 @@
+package com.lunatech.tpcore.module.home.service.impl;
+
+import com.lunatech.tpcore.config.model.HomeConfig;
+import com.lunatech.tpcore.constant.Permissions;
+import com.lunatech.tpcore.module.home.cache.HomeCache;
+import com.lunatech.tpcore.module.home.model.Home;
+import com.lunatech.tpcore.module.home.repository.HomeRepository;
+import com.lunatech.tpcore.module.home.service.HomeResultStatus;
+import com.lunatech.tpcore.module.home.service.HomeService;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
+import org.bukkit.Bukkit;
+import org.bukkit.Location;
+import org.bukkit.World;
+import org.bukkit.block.Block;
+import org.bukkit.block.BlockFace;
+import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.Listener;
+import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.player.PlayerMoveEvent;
+import org.bukkit.plugin.Plugin;
+
+public final class DefaultHomeService implements HomeService, Listener {
+
+    private final Plugin plugin;
+    private final HomeRepository repository;
+    private final HomeCache cache;
+    private final Supplier<HomeConfig> configSupplier;
+    private final Map<UUID, Long> cooldownMap = new ConcurrentHashMap<>();
+    private final Map<UUID, ActiveWarmup> activeWarmups = new ConcurrentHashMap<>();
+
+    private record ActiveWarmup(Location startLocation, CompletableFuture<Boolean> future, int taskId) {}
+
+    public DefaultHomeService(Plugin plugin, HomeRepository repository, HomeCache cache, Supplier<HomeConfig> configSupplier) {
+        this.plugin = Objects.requireNonNull(plugin, "plugin cannot be null");
+        this.repository = Objects.requireNonNull(repository, "repository cannot be null");
+        this.cache = Objects.requireNonNull(cache, "cache cannot be null");
+        this.configSupplier = Objects.requireNonNull(configSupplier, "configSupplier cannot be null");
+
+        Bukkit.getPluginManager().registerEvents(this, plugin);
+    }
+
+    @Override
+    public CompletableFuture<HomeResultStatus> setHome(Player player, String homeName, boolean force) {
+        Objects.requireNonNull(player, "player cannot be null");
+        Objects.requireNonNull(homeName, "homeName cannot be null");
+
+        HomeConfig config = configSupplier.get();
+        Location loc = player.getLocation();
+        String worldName = loc.getWorld().getName();
+
+        if (isWorldRestricted(worldName, config)) {
+            return CompletableFuture.completedFuture(HomeResultStatus.WORLD_RESTRICTED);
+        }
+
+        UUID uuid = player.getUniqueId();
+        boolean exists = cache.getHome(uuid, homeName).isPresent();
+
+        if (!exists && cache.getHomeCount(uuid) >= getMaxHomeLimit(player)) {
+            return CompletableFuture.completedFuture(HomeResultStatus.LIMIT_REACHED);
+        }
+
+        if (exists && !force && config.requireOverwriteConfirmation()) {
+            return CompletableFuture.completedFuture(HomeResultStatus.OVERWRITE_REQUIRED);
+        }
+
+        Set<UUID> sharedWith = cache.getHome(uuid, homeName)
+            .map(Home::sharedWith)
+            .orElse(Collections.emptySet());
+
+        Home home = new Home(
+            uuid,
+            homeName,
+            worldName,
+            loc.getX(),
+            loc.getY(),
+            loc.getZ(),
+            loc.getYaw(),
+            loc.getPitch(),
+            System.currentTimeMillis(),
+            sharedWith
+        );
+
+        cache.putHome(uuid, home);
+        return repository.save(home).thenApply(v -> HomeResultStatus.SUCCESS);
+    }
+
+    @Override
+    public CompletableFuture<HomeResultStatus> deleteHome(Player player, String homeName) {
+        Objects.requireNonNull(player, "player cannot be null");
+        Objects.requireNonNull(homeName, "homeName cannot be null");
+
+        UUID uuid = player.getUniqueId();
+        if (cache.getHome(uuid, homeName).isEmpty()) {
+            return CompletableFuture.completedFuture(HomeResultStatus.HOME_NOT_FOUND);
+        }
+
+        cache.removeHome(uuid, homeName);
+        return repository.delete(uuid, homeName).thenApply(v -> HomeResultStatus.SUCCESS);
+    }
+
+    @Override
+    public CompletableFuture<HomeResultStatus> setHomeOther(Player admin, UUID targetUuid, String homeName, Location location) {
+        Objects.requireNonNull(admin, "admin cannot be null");
+        Objects.requireNonNull(targetUuid, "targetUuid cannot be null");
+        Objects.requireNonNull(homeName, "homeName cannot be null");
+        Objects.requireNonNull(location, "location cannot be null");
+
+        Home home = new Home(
+            targetUuid,
+            homeName,
+            location.getWorld().getName(),
+            location.getX(),
+            location.getY(),
+            location.getZ(),
+            location.getYaw(),
+            location.getPitch(),
+            System.currentTimeMillis(),
+            Collections.emptySet()
+        );
+
+        if (cache.isLoaded(targetUuid)) {
+            cache.putHome(targetUuid, home);
+        }
+        return repository.save(home).thenApply(v -> HomeResultStatus.SUCCESS);
+    }
+
+    @Override
+    public CompletableFuture<HomeResultStatus> deleteHomeOther(Player admin, UUID targetUuid, String homeName) {
+        Objects.requireNonNull(admin, "admin cannot be null");
+        Objects.requireNonNull(targetUuid, "targetUuid cannot be null");
+        Objects.requireNonNull(homeName, "homeName cannot be null");
+
+        if (cache.isLoaded(targetUuid)) {
+            cache.removeHome(targetUuid, homeName);
+        }
+        return repository.delete(targetUuid, homeName).thenApply(v -> HomeResultStatus.SUCCESS);
+    }
+
+    @Override
+    public CompletableFuture<HomeResultStatus> shareHome(Player player, String homeName, UUID targetUuid) {
+        Objects.requireNonNull(player, "player cannot be null");
+        Objects.requireNonNull(homeName, "homeName cannot be null");
+        Objects.requireNonNull(targetUuid, "targetUuid cannot be null");
+
+        UUID uuid = player.getUniqueId();
+        Optional<Home> opt = cache.getHome(uuid, homeName);
+        if (opt.isEmpty()) {
+            return CompletableFuture.completedFuture(HomeResultStatus.HOME_NOT_FOUND);
+        }
+
+        Home home = opt.get();
+        if (home.isSharedWith(targetUuid)) {
+            return CompletableFuture.completedFuture(HomeResultStatus.ALREADY_SHARED);
+        }
+
+        Set<UUID> newShared = new HashSet<>(home.sharedWith());
+        newShared.add(targetUuid);
+        Home updatedHome = home.withSharedWith(newShared);
+
+        cache.putHome(uuid, updatedHome);
+        return repository.save(updatedHome).thenApply(v -> HomeResultStatus.SUCCESS);
+    }
+
+    @Override
+    public CompletableFuture<HomeResultStatus> unshareHome(Player player, String homeName, UUID targetUuid) {
+        Objects.requireNonNull(player, "player cannot be null");
+        Objects.requireNonNull(homeName, "homeName cannot be null");
+        Objects.requireNonNull(targetUuid, "targetUuid cannot be null");
+
+        UUID uuid = player.getUniqueId();
+        Optional<Home> opt = cache.getHome(uuid, homeName);
+        if (opt.isEmpty()) {
+            return CompletableFuture.completedFuture(HomeResultStatus.HOME_NOT_FOUND);
+        }
+
+        Home home = opt.get();
+        if (!home.isSharedWith(targetUuid)) {
+            return CompletableFuture.completedFuture(HomeResultStatus.NOT_SHARED);
+        }
+
+        Set<UUID> newShared = new HashSet<>(home.sharedWith());
+        newShared.remove(targetUuid);
+        Home updatedHome = home.withSharedWith(newShared);
+
+        cache.putHome(uuid, updatedHome);
+        return repository.save(updatedHome).thenApply(v -> HomeResultStatus.SUCCESS);
+    }
+
+    @Override
+    public CompletableFuture<Boolean> teleportHome(Player player, String homeName) {
+        Objects.requireNonNull(player, "player cannot be null");
+        Objects.requireNonNull(homeName, "homeName cannot be null");
+
+        UUID uuid = player.getUniqueId();
+        Optional<Home> optHome = cache.getHome(uuid, homeName);
+        if (optHome.isEmpty()) {
+            return CompletableFuture.completedFuture(false);
+        }
+
+        return executeTeleport(player, optHome.get());
+    }
+
+    @Override
+    public CompletableFuture<Boolean> teleportHomeOther(Player player, UUID targetUuid, String homeName) {
+        Objects.requireNonNull(player, "player cannot be null");
+        Objects.requireNonNull(targetUuid, "targetUuid cannot be null");
+        Objects.requireNonNull(homeName, "homeName cannot be null");
+
+        return repository.findByName(targetUuid, homeName).thenCompose(optHome -> {
+            if (optHome.isEmpty()) {
+                return CompletableFuture.completedFuture(false);
+            }
+            return executeTeleport(player, optHome.get());
+        });
+    }
+
+    @Override
+    public CompletableFuture<Boolean> teleportSharedHome(Player player, UUID ownerUuid, String homeName) {
+        Objects.requireNonNull(player, "player cannot be null");
+        Objects.requireNonNull(ownerUuid, "ownerUuid cannot be null");
+        Objects.requireNonNull(homeName, "homeName cannot be null");
+
+        return repository.findByName(ownerUuid, homeName).thenCompose(optHome -> {
+            if (optHome.isEmpty() || !optHome.get().isSharedWith(player.getUniqueId())) {
+                return CompletableFuture.completedFuture(false);
+            }
+            return executeTeleport(player, optHome.get());
+        });
+    }
+
+    @Override
+    public Optional<Home> getHome(UUID ownerUuid, String homeName) {
+        if (ownerUuid == null || homeName == null) {
+            return Optional.empty();
+        }
+        return cache.getHome(ownerUuid, homeName);
+    }
+
+    @Override
+    public Map<String, Home> getHomes(UUID ownerUuid) {
+        if (ownerUuid == null) {
+            return Collections.emptyMap();
+        }
+        return cache.getHomes(ownerUuid);
+    }
+
+    @Override
+    public int getMaxHomeLimit(Player player) {
+        Objects.requireNonNull(player, "player cannot be null");
+        if (player.hasPermission(Permissions.HOME_BYPASS_LIMIT)) {
+            return Integer.MAX_VALUE;
+        }
+
+        HomeConfig config = configSupplier.get();
+        int maxLimit = config.homeLimits().getOrDefault("default", 3);
+
+        for (Map.Entry<String, Integer> entry : config.homeLimits().entrySet()) {
+            String perm = "tpcore.homes.limit." + entry.getKey();
+            if (player.hasPermission(perm)) {
+                maxLimit = Math.max(maxLimit, entry.getValue());
+            }
+        }
+
+        for (org.bukkit.permissions.PermissionAttachmentInfo pai : player.getEffectivePermissions()) {
+            String perm = pai.getPermission().toLowerCase();
+            if (perm.startsWith("tpcore.homes.limit.") && pai.getValue()) {
+                String sub = perm.substring("tpcore.homes.limit.".length());
+                try {
+                    int val = Integer.parseInt(sub);
+                    maxLimit = Math.max(maxLimit, val);
+                } catch (NumberFormatException ignored) {}
+            }
+        }
+        return maxLimit;
+    }
+
+    @Override
+    public boolean isLocationSafe(Location location) {
+        if (location == null || location.getWorld() == null) {
+            return false;
+        }
+
+        HomeConfig config = configSupplier.get();
+        HomeConfig.HomeSafetyConfig safety = config.safetyChecks();
+
+        if (safety.preventNetherRoof() && location.getWorld().getEnvironment() == World.Environment.NETHER) {
+            if (location.getY() > safety.maxNetherHeight()) {
+                return false;
+            }
+        }
+
+        if (!safety.preventUnsafeTeleport()) {
+            return true;
+        }
+
+        Block feet = location.getBlock();
+        Block head = feet.getRelative(BlockFace.UP);
+        Block ground = feet.getRelative(BlockFace.DOWN);
+
+        return feet.isPassable() && head.isPassable() && !feet.isLiquid() && !head.isLiquid() && !ground.isPassable();
+    }
+
+    private CompletableFuture<Boolean> executeTeleport(Player player, Home home) {
+        World world = Bukkit.getWorld(home.worldName());
+        if (world == null) {
+            return CompletableFuture.completedFuture(false);
+        }
+
+        Location target = new Location(world, home.x(), home.y(), home.z(), home.yaw(), home.pitch());
+        if (!isLocationSafe(target)) {
+            return CompletableFuture.completedFuture(false);
+        }
+
+        HomeConfig config = configSupplier.get();
+        UUID uuid = player.getUniqueId();
+        int warmup = config.warmupSeconds();
+
+        if (warmup <= 0 || player.hasPermission(Permissions.HOME_BYPASS_WARMUP)) {
+            return player.teleportAsync(target);
+        }
+
+        CompletableFuture<Boolean> future = new CompletableFuture<>();
+        int taskId = Bukkit.getScheduler().scheduleSyncDelayedTask(plugin, () -> {
+            activeWarmups.remove(uuid);
+            player.teleportAsync(target).thenAccept(future::complete);
+        }, warmup * 20L);
+
+        activeWarmups.put(uuid, new ActiveWarmup(player.getLocation().clone(), future, taskId));
+        return future;
+    }
+
+    private boolean isWorldRestricted(String worldName, HomeConfig config) {
+        HomeConfig.HomeWorldRestrictions res = config.worldRestrictions();
+        if (res == null || res.worlds() == null) {
+            return false;
+        }
+        boolean listed = res.worlds().stream().anyMatch(w -> w.equalsIgnoreCase(worldName));
+        return "WHITELIST".equalsIgnoreCase(res.mode()) ? !listed : listed;
+    }
+
+    @EventHandler
+    public void onPlayerMove(PlayerMoveEvent event) {
+        HomeConfig config = configSupplier.get();
+        if (!config.cancelOnMove()) {
+            return;
+        }
+        Player player = event.getPlayer();
+        ActiveWarmup warmup = activeWarmups.remove(player.getUniqueId());
+        if (warmup != null) {
+            Location from = warmup.startLocation();
+            Location to = event.getTo();
+            if (from.getBlockX() != to.getBlockX() || from.getBlockY() != to.getBlockY() || from.getBlockZ() != to.getBlockZ()) {
+                Bukkit.getScheduler().cancelTask(warmup.taskId());
+                warmup.future().complete(false);
+            } else {
+                activeWarmups.put(player.getUniqueId(), warmup);
+            }
+        }
+    }
+
+    @EventHandler
+    public void onEntityDamage(EntityDamageEvent event) {
+        HomeConfig config = configSupplier.get();
+        if (!config.cancelOnDamage() || !(event.getEntity() instanceof Player player)) {
+            return;
+        }
+        ActiveWarmup warmup = activeWarmups.remove(player.getUniqueId());
+        if (warmup != null) {
+            Bukkit.getScheduler().cancelTask(warmup.taskId());
+            warmup.future().complete(false);
+        }
+    }
+}
