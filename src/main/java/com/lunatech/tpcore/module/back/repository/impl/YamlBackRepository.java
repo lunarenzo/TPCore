@@ -26,6 +26,8 @@ public final class YamlBackRepository implements BackRepository {
     private final Logger logger;
     private final ExecutorService virtualExecutor;
 
+    private final Object fileLock = new Object();
+
     public YamlBackRepository(File dataFolder, Logger logger) {
         Objects.requireNonNull(dataFolder, "dataFolder cannot be null");
         File backDir = new File(dataFolder, "back");
@@ -47,34 +49,36 @@ public final class YamlBackRepository implements BackRepository {
     @Override
     public CompletableFuture<Map<UUID, List<BackLocation>>> loadAll() {
         return CompletableFuture.supplyAsync(() -> {
-            if (!backFile.exists()) {
-                return Collections.emptyMap();
-            }
-
-            YamlConfigurationLoader loader = createLoader(backFile);
-            Map<UUID, List<BackLocation>> map = new HashMap<>();
-
-            try {
-                CommentedConfigurationNode root = loader.load();
-                CommentedConfigurationNode playersNode = root.node("players");
-                if (playersNode.isMap()) {
-                    for (Map.Entry<Object, ? extends CommentedConfigurationNode> entry : playersNode.childrenMap().entrySet()) {
-                        String uuidRaw = entry.getKey().toString();
-                        UUID playerUuid;
-                        try {
-                            playerUuid = UUID.fromString(uuidRaw);
-                        } catch (IllegalArgumentException e) {
-                            continue;
-                        }
-
-                        List<BackLocation> history = parseHistoryNode(entry.getValue());
-                        map.put(playerUuid, history);
-                    }
+            synchronized (fileLock) {
+                if (!backFile.exists()) {
+                    return Collections.emptyMap();
                 }
-            } catch (ConfigurateException e) {
-                logger.error("Failed to load back history from YAML file {}", backFile.getAbsolutePath(), e);
+
+                YamlConfigurationLoader loader = createLoader(backFile);
+                Map<UUID, List<BackLocation>> map = new HashMap<>();
+
+                try {
+                    CommentedConfigurationNode root = loader.load();
+                    CommentedConfigurationNode playersNode = root.node("players");
+                    if (playersNode.isMap()) {
+                        for (Map.Entry<Object, ? extends CommentedConfigurationNode> entry : playersNode.childrenMap().entrySet()) {
+                            String uuidRaw = entry.getKey().toString();
+                            UUID playerUuid;
+                            try {
+                                playerUuid = UUID.fromString(uuidRaw);
+                            } catch (IllegalArgumentException e) {
+                                continue;
+                            }
+
+                            List<BackLocation> history = parseHistoryNode(entry.getValue());
+                            map.put(playerUuid, history);
+                        }
+                    }
+                } catch (ConfigurateException e) {
+                    logger.error("Failed to load back history from YAML file {}", backFile.getAbsolutePath(), e);
+                }
+                return map;
             }
-            return map;
         }, virtualExecutor);
     }
 
@@ -88,33 +92,35 @@ public final class YamlBackRepository implements BackRepository {
     public CompletableFuture<Void> savePlayerHistory(UUID playerUuid, List<BackLocation> history) {
         Objects.requireNonNull(playerUuid, "playerUuid cannot be null");
         return CompletableFuture.runAsync(() -> {
-            YamlConfigurationLoader loader = createLoader(backFile);
-            try {
-                CommentedConfigurationNode root = loader.load();
-                CommentedConfigurationNode playerNode = root.node("players", playerUuid.toString());
+            synchronized (fileLock) {
+                YamlConfigurationLoader loader = createLoader(backFile);
+                try {
+                    CommentedConfigurationNode root = loader.load();
+                    CommentedConfigurationNode playerNode = root.node("players", playerUuid.toString());
 
-                if (history == null || history.isEmpty()) {
-                    playerNode.set(null);
-                } else {
-                    playerNode.set(null); // Clear previous array
-                    for (int i = 0; i < history.size(); i++) {
-                        BackLocation loc = history.get(i);
-                        CommentedConfigurationNode itemNode = playerNode.node(i);
-                        itemNode.node("world-id").set(loc.worldId() != null ? loc.worldId().toString() : null);
-                        itemNode.node("world").set(loc.worldName());
-                        itemNode.node("x").set(loc.x());
-                        itemNode.node("y").set(loc.y());
-                        itemNode.node("z").set(loc.z());
-                        itemNode.node("yaw").set(loc.yaw());
-                        itemNode.node("pitch").set(loc.pitch());
-                        itemNode.node("timestamp").set(loc.timestamp());
-                        itemNode.node("cause").set(loc.cause() != null ? loc.cause().name() : "TELEPORT");
+                    if (history == null || history.isEmpty()) {
+                        playerNode.set(null);
+                    } else {
+                        playerNode.set(null); // Clear previous array
+                        for (int i = 0; i < history.size(); i++) {
+                            BackLocation loc = history.get(i);
+                            CommentedConfigurationNode itemNode = playerNode.node(i);
+                            itemNode.node("world-id").set(loc.worldId() != null ? loc.worldId().toString() : null);
+                            itemNode.node("world").set(loc.worldName());
+                            itemNode.node("x").set(loc.x());
+                            itemNode.node("y").set(loc.y());
+                            itemNode.node("z").set(loc.z());
+                            itemNode.node("yaw").set(loc.yaw());
+                            itemNode.node("pitch").set(loc.pitch());
+                            itemNode.node("timestamp").set(loc.timestamp());
+                            itemNode.node("cause").set(loc.cause() != null ? loc.cause().name() : "TELEPORT");
+                        }
                     }
-                }
 
-                loader.save(root);
-            } catch (ConfigurateException e) {
-                logger.error("Failed to save back history for player {} to YAML file", playerUuid, e);
+                    loader.save(root);
+                } catch (ConfigurateException e) {
+                    logger.error("Failed to save back history for player {} to YAML file", playerUuid, e);
+                }
             }
         }, virtualExecutor);
     }
@@ -129,10 +135,18 @@ public final class YamlBackRepository implements BackRepository {
     public CompletableFuture<Void> close() {
         return CompletableFuture.runAsync(() -> {
             if (virtualExecutor != null && !virtualExecutor.isShutdown()) {
-                virtualExecutor.shutdown();
+                try {
+                    virtualExecutor.shutdown();
+                    if (!virtualExecutor.awaitTermination(3, java.util.concurrent.TimeUnit.SECONDS)) {
+                        virtualExecutor.shutdownNow();
+                    }
+                } catch (Exception e) {
+                    logger.error("Error shutting down virtualExecutor in YamlBackRepository", e);
+                }
             }
         });
     }
+
 
     private List<BackLocation> parseHistoryNode(CommentedConfigurationNode node) {
         List<BackLocation> list = new ArrayList<>();

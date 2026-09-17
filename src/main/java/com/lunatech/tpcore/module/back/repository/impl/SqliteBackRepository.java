@@ -49,9 +49,7 @@ public final class SqliteBackRepository implements BackRepository {
             config.setMaximumPoolSize(4);
             config.setConnectionTimeout(5000);
             config.setConnectionTestQuery("SELECT 1");
-            config.addDataSourceProperty("journal_mode", "WAL");
-            config.addDataSourceProperty("busy_timeout", "5000");
-            config.addDataSourceProperty("synchronous", "NORMAL");
+            config.setConnectionInitSql("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;");
 
             try {
                 this.dataSource = new HikariDataSource(config);
@@ -74,9 +72,10 @@ public final class SqliteBackRepository implements BackRepository {
                             cause VARCHAR(32) NOT NULL DEFAULT 'TELEPORT'
                         );
                     """);
-                    stmt.execute("CREATE INDEX IF NOT EXISTS idx_tpcore_back_player ON tpcore_back_locations(player_uuid);");
+                    stmt.execute("CREATE INDEX IF NOT EXISTS idx_tpcore_back_player_id ON tpcore_back_locations(player_uuid, id ASC);");
                     logger.info("SQLite BackRepository initialized successfully at {}", dbFile.getAbsolutePath());
                 }
+
             } catch (Exception e) {
                 logger.error("Failed to initialize SQLite database table tpcore_back_locations at {}", dbFile.getAbsolutePath(), e);
                 if (this.dataSource != null && !this.dataSource.isClosed()) {
