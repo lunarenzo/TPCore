@@ -9,5 +9,10 @@ public enum BackResultStatus {
     WORLD_NOT_LOADED,
     UNSAFE_LOCATION,
     COOLDOWN_ACTIVE,
-    ERROR
+    ERROR;
+
+    public boolean isSuccess() {
+        return this == SUCCESS || this == SUCCESS_ADJUSTED_HAZARD;
+    }
 }
+
