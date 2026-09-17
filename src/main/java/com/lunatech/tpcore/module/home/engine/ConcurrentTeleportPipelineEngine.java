@@ -177,7 +177,7 @@ public final class ConcurrentTeleportPipelineEngine {
                     return cf;
                 });
 
-                CompletableFuture<Void> taskFuture = chunkFuture.thenAccept(chunk -> {
+                CompletableFuture<Void> taskFuture = chunkFuture.thenAcceptAsync(chunk -> {
                     addTicket(chunk);
                     if (isLocationSafe(target)) {
                         successCounter.incrementAndGet();
@@ -185,7 +185,7 @@ public final class ConcurrentTeleportPipelineEngine {
                         failCounter.incrementAndGet();
                     }
                     removeTicket(chunk);
-                }).exceptionally(ex -> {
+                }, runnable -> runOnGlobalThread(runnable)).exceptionally(ex -> {
                     failCounter.incrementAndGet();
                     return null;
                 });
@@ -195,11 +195,11 @@ public final class ConcurrentTeleportPipelineEngine {
 
             CompletableFuture<Void> chunkAll = CompletableFuture.allOf(chunkFutures.toArray(new CompletableFuture[0]));
 
-            return chunkAll.thenCompose(vChunk -> {
+            return chunkAll.handle((vChunk, exChunk) -> {
                 long chunkLoadTimeMs = Math.round((System.nanoTime() - startChunkNano) / 1_000_000.0);
                 long startDbDelete = System.currentTimeMillis();
 
-                // STAGE 3: delhome Database Deletion & Cleanup
+                // STAGE 3: delhome Database Deletion & Guaranteed Cleanup
                 CompletableFuture<Void> deleteFuture = (repository != null)
                     ? repository.deleteAll(benchmarkUuid)
                     : CompletableFuture.completedFuture(null);
@@ -230,7 +230,7 @@ public final class ConcurrentTeleportPipelineEngine {
                         failCounter.get()
                     );
                 });
-            });
+            }).thenCompose(stage3Future -> stage3Future);
         });
     }
 
@@ -425,6 +425,14 @@ public final class ConcurrentTeleportPipelineEngine {
         try {
             chunk.removePluginChunkTicket(plugin);
         } catch (Throwable ignored) {}
+    }
+
+    private void runOnGlobalThread(Runnable runnable) {
+        try {
+            Bukkit.getGlobalRegionScheduler().run(plugin, task -> runnable.run());
+        } catch (NoSuchMethodError | Exception e) {
+            Bukkit.getScheduler().runTask(plugin, runnable);
+        }
     }
 
     private void runOnPlayerThread(Player player, Runnable runnable) {
