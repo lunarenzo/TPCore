@@ -49,13 +49,12 @@ public final class WarpModule implements ReloadableModule {
                 boolean isEnabled = newConfig.enabled();
                 this.config = newConfig;
 
-                if (this.service != null) {
-                    this.service.updateConfig(newConfig);
-                }
-
                 if (wasEnabled && !isEnabled) {
                     disable();
                 } else if (!wasEnabled && isEnabled) {
+                    enable();
+                } else if (wasEnabled && isEnabled) {
+                    disable();
                     enable();
                 }
                 return true;
