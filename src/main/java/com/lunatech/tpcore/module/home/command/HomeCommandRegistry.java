@@ -379,9 +379,11 @@ public final class HomeCommandRegistry {
                 Placeholder.parsed("worlds", result.targetWorlds()),
                 Placeholder.parsed("dedup", String.format("%.1f", result.dedupRatio())),
                 Placeholder.parsed("unique", String.valueOf(result.uniqueChunkReads())),
+                Placeholder.parsed("dbwrite", String.valueOf(result.dbWriteTimeMs())),
+                Placeholder.parsed("dbdel", String.valueOf(result.dbDeleteTimeMs())),
                 Placeholder.parsed("cap", String.valueOf(result.batchCap())),
                 Placeholder.parsed("batches", String.valueOf(result.totalBatches())),
-                Placeholder.parsed("time", String.valueOf(result.totalTimeMs())),
+                Placeholder.parsed("time", String.valueOf(result.chunkLoadTimeMs())),
                 Placeholder.parsed("mspt", String.format("%.4f", result.mspt())),
                 Placeholder.parsed("success", String.valueOf(result.successCount())),
                 Placeholder.parsed("fail", String.valueOf(result.failCount()))

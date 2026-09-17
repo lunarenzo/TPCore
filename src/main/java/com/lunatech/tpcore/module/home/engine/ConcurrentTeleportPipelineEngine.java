@@ -2,11 +2,14 @@ package com.lunatech.tpcore.module.home.engine;
 
 import com.lunatech.tpcore.config.model.HomeConfig;
 import com.lunatech.tpcore.module.home.model.Home;
+import com.lunatech.tpcore.module.home.repository.HomeRepository;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Queue;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -50,6 +53,9 @@ public final class ConcurrentTeleportPipelineEngine {
         double dedupRatio,
         int batchCap,
         int totalBatches,
+        long dbWriteTimeMs,
+        long chunkLoadTimeMs,
+        long dbDeleteTimeMs,
         long totalTimeMs,
         double mspt,
         int successCount,
@@ -63,10 +69,10 @@ public final class ConcurrentTeleportPipelineEngine {
         startBatchProcessor();
     }
 
-    public CompletableFuture<BenchmarkResult> runBenchmark(Player player, int taskCount, String targetWorldFilter) {
+    public CompletableFuture<BenchmarkResult> runBenchmark(Player player, int taskCount, String targetWorldFilter, HomeRepository repository) {
         Objects.requireNonNull(player, "player cannot be null");
         int count = Math.max(1, Math.min(1000, taskCount));
-        long startTime = System.nanoTime();
+        long totalStartNano = System.nanoTime();
 
         HomeConfig config = configSupplier.get();
         int maxLoadsPerTick = Math.max(1, config.safetyChecks().maxConcurrentChunkLoads());
@@ -93,13 +99,14 @@ public final class ConcurrentTeleportPipelineEngine {
 
         String worldsDisplay = targetWorlds.stream().map(World::getName).collect(Collectors.joining(", "));
 
+        UUID benchmarkUuid = UUID.randomUUID();
         int uniqueChunksCount = Math.max(1, count / 4);
-        AtomicInteger uniqueChunkReadsCounter = new AtomicInteger(0);
-        AtomicInteger successCounter = new AtomicInteger(0);
-        AtomicInteger failCounter = new AtomicInteger(0);
 
-        List<CompletableFuture<Void>> taskFutures = new ArrayList<>(count);
+        // STAGE 1: sethome Database Write Simulation
+        List<Home> testHomes = new ArrayList<>(count);
+        List<CompletableFuture<Void>> saveFutures = new ArrayList<>(count);
         Location playerLoc = player.getLocation();
+        long startDbWrite = System.currentTimeMillis();
 
         for (int i = 0; i < count; i++) {
             World world = targetWorlds.get(i % targetWorlds.size());
@@ -112,68 +119,118 @@ public final class ConcurrentTeleportPipelineEngine {
                 targetY = Math.min(Math.max(playerLoc.getY(), world.getMinHeight() + 5), world.getMaxHeight() - 5);
             }
 
-            Location target = new Location(
-                world,
-                playerLoc.getBlockX() + (chunkOffset * 16) + 8,
+            Home home = new Home(
+                benchmarkUuid,
+                "bench_" + i,
+                world.getName(),
+                playerLoc.getBlockX() + (chunkOffset * 16) + 8.0,
                 targetY,
-                playerLoc.getBlockZ() + 8
+                playerLoc.getBlockZ() + 8.0,
+                0.0f,
+                0.0f,
+                System.currentTimeMillis(),
+                Collections.emptySet()
             );
+            testHomes.add(home);
 
-            if (!isPreFlightSafe(target, config)) {
-                failCounter.incrementAndGet();
-                continue;
+            if (repository != null) {
+                saveFutures.add(repository.save(home));
             }
-
-            int chunkX = target.getBlockX() >> 4;
-            int chunkZ = target.getBlockZ() >> 4;
-            ChunkKey key = new ChunkKey(world.getName(), chunkX, chunkZ);
-
-            CompletableFuture<Chunk> chunkFuture = inFlightChunkLoads.computeIfAbsent(key, k -> {
-                uniqueChunkReadsCounter.incrementAndGet();
-                CompletableFuture<Chunk> cf = world.getChunkAtAsync(target);
-                cf.whenComplete((c, ex) -> inFlightChunkLoads.remove(k));
-                return cf;
-            });
-
-            CompletableFuture<Void> taskFuture = chunkFuture.thenAccept(chunk -> {
-                addTicket(chunk);
-                if (isLocationSafe(target)) {
-                    successCounter.incrementAndGet();
-                } else {
-                    failCounter.incrementAndGet();
-                }
-                removeTicket(chunk);
-            }).exceptionally(ex -> {
-                failCounter.incrementAndGet();
-                return null;
-            });
-
-            taskFutures.add(taskFuture);
         }
 
-        int uniqueChunkReads = uniqueChunkReadsCounter.get();
-        double dedupRatio = count > 0 ? (1.0 - ((double) uniqueChunkReads / count)) * 100.0 : 0.0;
-        int totalBatches = (int) Math.ceil((double) count / maxLoadsPerTick);
+        CompletableFuture<Void> saveAll = saveFutures.isEmpty()
+            ? CompletableFuture.completedFuture(null)
+            : CompletableFuture.allOf(saveFutures.toArray(new CompletableFuture[0]));
 
-        CompletableFuture<Void> allDone = CompletableFuture.allOf(taskFutures.toArray(new CompletableFuture[0]));
+        return saveAll.thenCompose(vSave -> {
+            long dbWriteTimeMs = System.currentTimeMillis() - startDbWrite;
+            long startChunkNano = System.nanoTime();
 
-        return allDone.thenApply(v -> {
-            long totalNano = System.nanoTime() - startTime;
-            double mspt = totalNano / 1_000_000.0;
-            long totalTimeMs = Math.round(mspt);
+            // STAGE 2: teleportHome Async Chunk Pipeline & Ground Safety
+            AtomicInteger uniqueChunkReadsCounter = new AtomicInteger(0);
+            AtomicInteger successCounter = new AtomicInteger(0);
+            AtomicInteger failCounter = new AtomicInteger(0);
+            List<CompletableFuture<Void>> chunkFutures = new ArrayList<>(count);
 
-            return new BenchmarkResult(
-                count,
-                worldsDisplay,
-                uniqueChunkReads,
-                dedupRatio,
-                maxLoadsPerTick,
-                totalBatches,
-                totalTimeMs,
-                mspt,
-                successCounter.get(),
-                failCounter.get()
-            );
+            for (Home home : testHomes) {
+                World world = Bukkit.getWorld(home.worldName());
+                if (world == null) {
+                    failCounter.incrementAndGet();
+                    continue;
+                }
+
+                Location target = new Location(world, home.x(), home.y(), home.z(), home.yaw(), home.pitch());
+
+                if (!isPreFlightSafe(target, config)) {
+                    failCounter.incrementAndGet();
+                    continue;
+                }
+
+                int chunkX = target.getBlockX() >> 4;
+                int chunkZ = target.getBlockZ() >> 4;
+                ChunkKey key = new ChunkKey(world.getName(), chunkX, chunkZ);
+
+                CompletableFuture<Chunk> chunkFuture = inFlightChunkLoads.computeIfAbsent(key, k -> {
+                    uniqueChunkReadsCounter.incrementAndGet();
+                    CompletableFuture<Chunk> cf = world.getChunkAtAsync(target);
+                    cf.whenComplete((c, ex) -> inFlightChunkLoads.remove(k));
+                    return cf;
+                });
+
+                CompletableFuture<Void> taskFuture = chunkFuture.thenAccept(chunk -> {
+                    addTicket(chunk);
+                    if (isLocationSafe(target)) {
+                        successCounter.incrementAndGet();
+                    } else {
+                        failCounter.incrementAndGet();
+                    }
+                    removeTicket(chunk);
+                }).exceptionally(ex -> {
+                    failCounter.incrementAndGet();
+                    return null;
+                });
+
+                chunkFutures.add(taskFuture);
+            }
+
+            CompletableFuture<Void> chunkAll = CompletableFuture.allOf(chunkFutures.toArray(new CompletableFuture[0]));
+
+            return chunkAll.thenCompose(vChunk -> {
+                long chunkLoadTimeMs = Math.round((System.nanoTime() - startChunkNano) / 1_000_000.0);
+                long startDbDelete = System.currentTimeMillis();
+
+                // STAGE 3: delhome Database Deletion & Cleanup
+                CompletableFuture<Void> deleteFuture = (repository != null)
+                    ? repository.deleteAll(benchmarkUuid)
+                    : CompletableFuture.completedFuture(null);
+
+                return deleteFuture.thenApply(vDel -> {
+                    long dbDeleteTimeMs = System.currentTimeMillis() - startDbDelete;
+                    long totalNano = System.nanoTime() - totalStartNano;
+                    double mspt = totalNano / 1_000_000.0;
+                    long totalTimeMs = dbWriteTimeMs + chunkLoadTimeMs + dbDeleteTimeMs;
+
+                    int uniqueChunkReads = uniqueChunkReadsCounter.get();
+                    double dedupRatio = count > 0 ? (1.0 - ((double) uniqueChunkReads / count)) * 100.0 : 0.0;
+                    int totalBatches = (int) Math.ceil((double) count / maxLoadsPerTick);
+
+                    return new BenchmarkResult(
+                        count,
+                        worldsDisplay,
+                        uniqueChunkReads,
+                        dedupRatio,
+                        maxLoadsPerTick,
+                        totalBatches,
+                        dbWriteTimeMs,
+                        chunkLoadTimeMs,
+                        dbDeleteTimeMs,
+                        totalTimeMs,
+                        mspt,
+                        successCounter.get(),
+                        failCounter.get()
+                    );
+                });
+            });
         });
     }
 
