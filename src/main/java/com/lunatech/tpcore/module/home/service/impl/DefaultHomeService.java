@@ -389,50 +389,72 @@ public final class DefaultHomeService implements HomeService, Listener {
         }
 
         Location target = new Location(world, home.x(), home.y(), home.z(), home.yaw(), home.pitch());
-        if (!isLocationSafe(target)) {
-            String msg = config.messages().prefix() + config.messages().unsafeLocation();
-            player.sendMessage(miniMessage.deserialize(msg));
-            return CompletableFuture.completedFuture(false);
-        }
 
-        int warmup = config.warmupSeconds();
-        int cooldown = config.cooldownSeconds();
-
-        ActiveWarmup existing = activeWarmups.remove(uuid);
-        if (existing != null) {
-            cancelScheduledTask(existing.scheduledTask());
-            existing.future().complete(false);
-        }
-
-        if (warmup <= 0 || player.hasPermission(Permissions.HOME_BYPASS_WARMUP)) {
-            if (cooldown > 0 && !player.hasPermission(Permissions.HOME_BYPASS_COOLDOWN)) {
-                cooldownMap.put(uuid, System.currentTimeMillis() + (cooldown * 1000L));
+        return ensureChunkLoaded(target).thenCompose(v -> supplyOnPlayerThread(player, () -> {
+            if (!isLocationSafe(target)) {
+                String msg = config.messages().prefix() + config.messages().unsafeLocation();
+                player.sendMessage(miniMessage.deserialize(msg));
+                return false;
             }
-            String msg = config.messages().prefix() + config.messages().teleportSuccess();
-            player.sendMessage(miniMessage.deserialize(msg, Placeholder.parsed("home", home.name())));
-            return player.teleportAsync(target);
-        }
 
-        CompletableFuture<Boolean> future = new CompletableFuture<>();
-        String warmupMsg = config.messages().prefix() + config.messages().warmupStart();
-        player.sendMessage(miniMessage.deserialize(
-            warmupMsg,
-            Placeholder.parsed("home", home.name()),
-            Placeholder.parsed("seconds", String.valueOf(warmup))
-        ));
+            int warmup = config.warmupSeconds();
+            int cooldown = config.cooldownSeconds();
 
-        Object task = schedulePlayerTask(player, warmup * 20L, () -> {
-            activeWarmups.remove(uuid);
-            if (cooldown > 0 && !player.hasPermission(Permissions.HOME_BYPASS_COOLDOWN)) {
-                cooldownMap.put(uuid, System.currentTimeMillis() + (cooldown * 1000L));
+            ActiveWarmup existing = activeWarmups.remove(uuid);
+            if (existing != null) {
+                cancelScheduledTask(existing.scheduledTask());
+                existing.future().complete(false);
             }
-            String successMsg = config.messages().prefix() + config.messages().teleportSuccess();
-            player.sendMessage(miniMessage.deserialize(successMsg, Placeholder.parsed("home", home.name())));
-            player.teleportAsync(target).thenAccept(future::complete);
-        });
 
-        activeWarmups.put(uuid, new ActiveWarmup(player.getLocation().clone(), future, task));
-        return future;
+            if (warmup <= 0 || player.hasPermission(Permissions.HOME_BYPASS_WARMUP)) {
+                if (cooldown > 0 && !player.hasPermission(Permissions.HOME_BYPASS_COOLDOWN)) {
+                    cooldownMap.put(uuid, System.currentTimeMillis() + (cooldown * 1000L));
+                }
+                String msg = config.messages().prefix() + config.messages().teleportSuccess();
+                player.sendMessage(miniMessage.deserialize(msg, Placeholder.parsed("home", home.name())));
+                player.teleportAsync(target);
+                return true;
+            }
+
+            CompletableFuture<Boolean> future = new CompletableFuture<>();
+            String warmupMsg = config.messages().prefix() + config.messages().warmupStart();
+            player.sendMessage(miniMessage.deserialize(
+                warmupMsg,
+                Placeholder.parsed("home", home.name()),
+                Placeholder.parsed("seconds", String.valueOf(warmup))
+            ));
+
+            Object task = schedulePlayerTask(player, warmup * 20L, () -> {
+                activeWarmups.remove(uuid);
+                if (cooldown > 0 && !player.hasPermission(Permissions.HOME_BYPASS_COOLDOWN)) {
+                    cooldownMap.put(uuid, System.currentTimeMillis() + (cooldown * 1000L));
+                }
+                String successMsg = config.messages().prefix() + config.messages().teleportSuccess();
+                player.sendMessage(miniMessage.deserialize(successMsg, Placeholder.parsed("home", home.name())));
+                player.teleportAsync(target).thenAccept(future::complete);
+            });
+
+            activeWarmups.put(uuid, new ActiveWarmup(player.getLocation().clone(), future, task));
+            return true;
+        }).thenCompose(b -> {
+            if (b instanceof Boolean bool && !bool) {
+                return CompletableFuture.completedFuture(false);
+            }
+            return CompletableFuture.completedFuture(true);
+        }));
+    }
+
+    private CompletableFuture<Void> ensureChunkLoaded(Location target) {
+        World world = target.getWorld();
+        if (world == null) {
+            return CompletableFuture.completedFuture(null);
+        }
+        int chunkX = target.getBlockX() >> 4;
+        int chunkZ = target.getBlockZ() >> 4;
+        if (world.isChunkLoaded(chunkX, chunkZ)) {
+            return CompletableFuture.completedFuture(null);
+        }
+        return world.getChunkAtAsync(target).thenAccept(chunk -> {});
     }
 
     private void runOnPlayerThread(Player player, Runnable runnable) {
