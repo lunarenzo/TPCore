@@ -13,7 +13,6 @@ import java.sql.Statement;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -53,31 +52,36 @@ public final class SqliteHomeRepository implements HomeRepository {
             config.setConnectionTestQuery("SELECT 1");
             config.addDataSourceProperty("journal_mode", "WAL");
 
-            this.dataSource = new HikariDataSource(config);
-            this.virtualExecutor = Executors.newVirtualThreadPerTaskExecutor();
+            try {
+                this.dataSource = new HikariDataSource(config);
+                this.virtualExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
-            try (Connection conn = dataSource.getConnection();
-                 Statement stmt = conn.createStatement()) {
-                stmt.execute("""
-                    CREATE TABLE IF NOT EXISTS tpcore_homes (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        owner_uuid VARCHAR(36) NOT NULL,
-                        home_name VARCHAR(32) NOT NULL,
-                        world_name VARCHAR(64) NOT NULL,
-                        x DOUBLE NOT NULL,
-                        y DOUBLE NOT NULL,
-                        z DOUBLE NOT NULL,
-                        yaw FLOAT NOT NULL,
-                        pitch FLOAT NOT NULL,
-                        created_at BIGINT NOT NULL,
-                        shared_with TEXT DEFAULT '',
-                        UNIQUE(owner_uuid, home_name)
-                    );
-                """);
-                stmt.execute("CREATE INDEX IF NOT EXISTS idx_tpcore_homes_owner ON tpcore_homes(owner_uuid);");
-                logger.info("SQLite HomeRepository initialized successfully at {}", dbFile.getAbsolutePath());
-            } catch (SQLException e) {
-                logger.error("Failed to initialize SQLite database tables", e);
+                try (Connection conn = dataSource.getConnection();
+                     Statement stmt = conn.createStatement()) {
+                    stmt.execute("""
+                        CREATE TABLE IF NOT EXISTS tpcore_homes (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            owner_uuid VARCHAR(36) NOT NULL,
+                            home_name VARCHAR(32) COLLATE NOCASE NOT NULL,
+                            world_name VARCHAR(64) NOT NULL,
+                            x DOUBLE NOT NULL,
+                            y DOUBLE NOT NULL,
+                            z DOUBLE NOT NULL,
+                            yaw FLOAT NOT NULL,
+                            pitch FLOAT NOT NULL,
+                            created_at BIGINT NOT NULL,
+                            shared_with TEXT DEFAULT '',
+                            UNIQUE(owner_uuid, home_name)
+                        );
+                    """);
+                    stmt.execute("CREATE INDEX IF NOT EXISTS idx_tpcore_homes_owner ON tpcore_homes(owner_uuid);");
+                    logger.info("SQLite HomeRepository initialized successfully at {}", dbFile.getAbsolutePath());
+                }
+            } catch (Exception e) {
+                logger.error("Failed to initialize SQLite database tables at {}", dbFile.getAbsolutePath(), e);
+                if (this.dataSource != null && !this.dataSource.isClosed()) {
+                    this.dataSource.close();
+                }
                 throw new RuntimeException("Database initialization failure", e);
             }
         });
@@ -118,7 +122,7 @@ public final class SqliteHomeRepository implements HomeRepository {
     @Override
     public CompletableFuture<Optional<Home>> findByName(UUID ownerUuid, String homeName) {
         return CompletableFuture.supplyAsync(() -> {
-            String sql = "SELECT world_name, x, y, z, yaw, pitch, created_at, shared_with FROM tpcore_homes WHERE owner_uuid = ? AND LOWER(home_name) = LOWER(?)";
+            String sql = "SELECT world_name, x, y, z, yaw, pitch, created_at, shared_with FROM tpcore_homes WHERE owner_uuid = ? AND home_name = ? COLLATE NOCASE";
             try (Connection conn = dataSource.getConnection();
                  PreparedStatement ps = conn.prepareStatement(sql)) {
                 ps.setString(1, ownerUuid.toString());
@@ -175,6 +179,7 @@ public final class SqliteHomeRepository implements HomeRepository {
                 ps.executeUpdate();
             } catch (SQLException e) {
                 logger.error("Failed to save home {} for player {}", home.name(), home.ownerUuid(), e);
+                throw new RuntimeException("Database save failure", e);
             }
         }, virtualExecutor);
     }
@@ -182,7 +187,7 @@ public final class SqliteHomeRepository implements HomeRepository {
     @Override
     public CompletableFuture<Void> delete(UUID ownerUuid, String homeName) {
         return CompletableFuture.runAsync(() -> {
-            String sql = "DELETE FROM tpcore_homes WHERE owner_uuid = ? AND LOWER(home_name) = LOWER(?)";
+            String sql = "DELETE FROM tpcore_homes WHERE owner_uuid = ? AND home_name = ? COLLATE NOCASE";
             try (Connection conn = dataSource.getConnection();
                  PreparedStatement ps = conn.prepareStatement(sql)) {
                 ps.setString(1, ownerUuid.toString());
@@ -190,6 +195,7 @@ public final class SqliteHomeRepository implements HomeRepository {
                 ps.executeUpdate();
             } catch (SQLException e) {
                 logger.error("Failed to delete home {} for player {}", homeName, ownerUuid, e);
+                throw new RuntimeException("Database delete failure", e);
             }
         }, virtualExecutor);
     }
@@ -204,6 +210,7 @@ public final class SqliteHomeRepository implements HomeRepository {
                 ps.executeUpdate();
             } catch (SQLException e) {
                 logger.error("Failed to delete all homes for player {}", ownerUuid, e);
+                throw new RuntimeException("Database delete all failure", e);
             }
         }, virtualExecutor);
     }

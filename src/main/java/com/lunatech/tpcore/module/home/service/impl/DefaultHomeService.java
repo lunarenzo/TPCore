@@ -27,6 +27,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.Plugin;
 
 public final class DefaultHomeService implements HomeService, Listener {
@@ -35,10 +36,9 @@ public final class DefaultHomeService implements HomeService, Listener {
     private final HomeRepository repository;
     private final HomeCache cache;
     private final Supplier<HomeConfig> configSupplier;
-    private final Map<UUID, Long> cooldownMap = new ConcurrentHashMap<>();
     private final Map<UUID, ActiveWarmup> activeWarmups = new ConcurrentHashMap<>();
 
-    private record ActiveWarmup(Location startLocation, CompletableFuture<Boolean> future, int taskId) {}
+    private record ActiveWarmup(Location startLocation, CompletableFuture<Boolean> future, Object scheduledTask) {}
 
     public DefaultHomeService(Plugin plugin, HomeRepository repository, HomeCache cache, Supplier<HomeConfig> configSupplier) {
         this.plugin = Objects.requireNonNull(plugin, "plugin cannot be null");
@@ -90,8 +90,12 @@ public final class DefaultHomeService implements HomeService, Listener {
             sharedWith
         );
 
-        cache.putHome(uuid, home);
-        return repository.save(home).thenApply(v -> HomeResultStatus.SUCCESS);
+        return repository.save(home)
+            .thenApply(v -> {
+                cache.putHome(uuid, home);
+                return HomeResultStatus.SUCCESS;
+            })
+            .exceptionally(ex -> HomeResultStatus.ERROR);
     }
 
     @Override
@@ -104,8 +108,12 @@ public final class DefaultHomeService implements HomeService, Listener {
             return CompletableFuture.completedFuture(HomeResultStatus.HOME_NOT_FOUND);
         }
 
-        cache.removeHome(uuid, homeName);
-        return repository.delete(uuid, homeName).thenApply(v -> HomeResultStatus.SUCCESS);
+        return repository.delete(uuid, homeName)
+            .thenApply(v -> {
+                cache.removeHome(uuid, homeName);
+                return HomeResultStatus.SUCCESS;
+            })
+            .exceptionally(ex -> HomeResultStatus.ERROR);
     }
 
     @Override
@@ -128,10 +136,12 @@ public final class DefaultHomeService implements HomeService, Listener {
             Collections.emptySet()
         );
 
-        if (cache.isLoaded(targetUuid)) {
-            cache.putHome(targetUuid, home);
-        }
-        return repository.save(home).thenApply(v -> HomeResultStatus.SUCCESS);
+        return repository.save(home).thenApply(v -> {
+            if (cache.isLoaded(targetUuid)) {
+                cache.putHome(targetUuid, home);
+            }
+            return HomeResultStatus.SUCCESS;
+        }).exceptionally(ex -> HomeResultStatus.ERROR);
     }
 
     @Override
@@ -140,10 +150,12 @@ public final class DefaultHomeService implements HomeService, Listener {
         Objects.requireNonNull(targetUuid, "targetUuid cannot be null");
         Objects.requireNonNull(homeName, "homeName cannot be null");
 
-        if (cache.isLoaded(targetUuid)) {
-            cache.removeHome(targetUuid, homeName);
-        }
-        return repository.delete(targetUuid, homeName).thenApply(v -> HomeResultStatus.SUCCESS);
+        return repository.delete(targetUuid, homeName).thenApply(v -> {
+            if (cache.isLoaded(targetUuid)) {
+                cache.removeHome(targetUuid, homeName);
+            }
+            return HomeResultStatus.SUCCESS;
+        }).exceptionally(ex -> HomeResultStatus.ERROR);
     }
 
     @Override
@@ -167,8 +179,10 @@ public final class DefaultHomeService implements HomeService, Listener {
         newShared.add(targetUuid);
         Home updatedHome = home.withSharedWith(newShared);
 
-        cache.putHome(uuid, updatedHome);
-        return repository.save(updatedHome).thenApply(v -> HomeResultStatus.SUCCESS);
+        return repository.save(updatedHome).thenApply(v -> {
+            cache.putHome(uuid, updatedHome);
+            return HomeResultStatus.SUCCESS;
+        }).exceptionally(ex -> HomeResultStatus.ERROR);
     }
 
     @Override
@@ -192,8 +206,10 @@ public final class DefaultHomeService implements HomeService, Listener {
         newShared.remove(targetUuid);
         Home updatedHome = home.withSharedWith(newShared);
 
-        cache.putHome(uuid, updatedHome);
-        return repository.save(updatedHome).thenApply(v -> HomeResultStatus.SUCCESS);
+        return repository.save(updatedHome).thenApply(v -> {
+            cache.putHome(uuid, updatedHome);
+            return HomeResultStatus.SUCCESS;
+        }).exceptionally(ex -> HomeResultStatus.ERROR);
     }
 
     @Override
@@ -265,8 +281,7 @@ public final class DefaultHomeService implements HomeService, Listener {
         int maxLimit = config.homeLimits().getOrDefault("default", 3);
 
         for (Map.Entry<String, Integer> entry : config.homeLimits().entrySet()) {
-            String perm = "tpcore.homes.limit." + entry.getKey();
-            if (player.hasPermission(perm)) {
+            if (player.hasPermission("tpcore.homes.limit." + entry.getKey())) {
                 maxLimit = Math.max(maxLimit, entry.getValue());
             }
         }
@@ -330,13 +345,35 @@ public final class DefaultHomeService implements HomeService, Listener {
         }
 
         CompletableFuture<Boolean> future = new CompletableFuture<>();
-        int taskId = Bukkit.getScheduler().scheduleSyncDelayedTask(plugin, () -> {
+        Object task = schedulePlayerTask(player, warmup * 20L, () -> {
             activeWarmups.remove(uuid);
             player.teleportAsync(target).thenAccept(future::complete);
-        }, warmup * 20L);
+        });
 
-        activeWarmups.put(uuid, new ActiveWarmup(player.getLocation().clone(), future, taskId));
+        activeWarmups.put(uuid, new ActiveWarmup(player.getLocation().clone(), future, task));
         return future;
+    }
+
+    private Object schedulePlayerTask(Player player, long delayTicks, Runnable runnable) {
+        try {
+            return player.getScheduler().runDelayed(plugin, task -> runnable.run(), null, delayTicks);
+        } catch (NoSuchMethodError | Exception e) {
+            int taskId = Bukkit.getScheduler().scheduleSyncDelayedTask(plugin, runnable, delayTicks);
+            return Integer.valueOf(taskId);
+        }
+    }
+
+    private void cancelScheduledTask(Object task) {
+        if (task == null) return;
+        if (task instanceof Integer taskId) {
+            Bukkit.getScheduler().cancelTask(taskId);
+        } else {
+            try {
+                if (task instanceof io.papermc.paper.threadedregions.scheduler.ScheduledTask st) {
+                    st.cancel();
+                }
+            } catch (Throwable ignored) {}
+        }
     }
 
     private boolean isWorldRestricted(String worldName, HomeConfig config) {
@@ -355,15 +392,14 @@ public final class DefaultHomeService implements HomeService, Listener {
             return;
         }
         Player player = event.getPlayer();
-        ActiveWarmup warmup = activeWarmups.remove(player.getUniqueId());
+        ActiveWarmup warmup = activeWarmups.get(player.getUniqueId());
         if (warmup != null) {
             Location from = warmup.startLocation();
             Location to = event.getTo();
-            if (from.getBlockX() != to.getBlockX() || from.getBlockY() != to.getBlockY() || from.getBlockZ() != to.getBlockZ()) {
-                Bukkit.getScheduler().cancelTask(warmup.taskId());
+            if (from.getWorld() != to.getWorld() || from.getBlockX() != to.getBlockX() || from.getBlockY() != to.getBlockY() || from.getBlockZ() != to.getBlockZ()) {
+                activeWarmups.remove(player.getUniqueId());
+                cancelScheduledTask(warmup.scheduledTask());
                 warmup.future().complete(false);
-            } else {
-                activeWarmups.put(player.getUniqueId(), warmup);
             }
         }
     }
@@ -376,7 +412,16 @@ public final class DefaultHomeService implements HomeService, Listener {
         }
         ActiveWarmup warmup = activeWarmups.remove(player.getUniqueId());
         if (warmup != null) {
-            Bukkit.getScheduler().cancelTask(warmup.taskId());
+            cancelScheduledTask(warmup.scheduledTask());
+            warmup.future().complete(false);
+        }
+    }
+
+    @EventHandler
+    public void onPlayerQuit(PlayerQuitEvent event) {
+        ActiveWarmup warmup = activeWarmups.remove(event.getPlayer().getUniqueId());
+        if (warmup != null) {
+            cancelScheduledTask(warmup.scheduledTask());
             warmup.future().complete(false);
         }
     }
