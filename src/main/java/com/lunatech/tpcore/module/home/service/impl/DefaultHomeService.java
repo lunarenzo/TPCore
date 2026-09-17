@@ -36,6 +36,7 @@ public final class DefaultHomeService implements HomeService, Listener {
     private final HomeRepository repository;
     private final HomeCache cache;
     private final Supplier<HomeConfig> configSupplier;
+    private final Map<UUID, Long> cooldownMap = new ConcurrentHashMap<>();
     private final Map<UUID, ActiveWarmup> activeWarmups = new ConcurrentHashMap<>();
 
     private record ActiveWarmup(Location startLocation, CompletableFuture<Boolean> future, Object scheduledTask) {}
@@ -164,6 +165,11 @@ public final class DefaultHomeService implements HomeService, Listener {
         Objects.requireNonNull(homeName, "homeName cannot be null");
         Objects.requireNonNull(targetUuid, "targetUuid cannot be null");
 
+        HomeConfig config = configSupplier.get();
+        if (!config.enableHomeSharing()) {
+            return CompletableFuture.completedFuture(HomeResultStatus.ERROR);
+        }
+
         UUID uuid = player.getUniqueId();
         Optional<Home> opt = cache.getHome(uuid, homeName);
         if (opt.isEmpty()) {
@@ -190,6 +196,11 @@ public final class DefaultHomeService implements HomeService, Listener {
         Objects.requireNonNull(player, "player cannot be null");
         Objects.requireNonNull(homeName, "homeName cannot be null");
         Objects.requireNonNull(targetUuid, "targetUuid cannot be null");
+
+        HomeConfig config = configSupplier.get();
+        if (!config.enableHomeSharing()) {
+            return CompletableFuture.completedFuture(HomeResultStatus.ERROR);
+        }
 
         UUID uuid = player.getUniqueId();
         Optional<Home> opt = cache.getHome(uuid, homeName);
@@ -245,6 +256,11 @@ public final class DefaultHomeService implements HomeService, Listener {
         Objects.requireNonNull(player, "player cannot be null");
         Objects.requireNonNull(ownerUuid, "ownerUuid cannot be null");
         Objects.requireNonNull(homeName, "homeName cannot be null");
+
+        HomeConfig config = configSupplier.get();
+        if (!config.enableHomeSharing()) {
+            return CompletableFuture.completedFuture(false);
+        }
 
         return repository.findByName(ownerUuid, homeName).thenCompose(optHome -> {
             if (optHome.isEmpty() || !optHome.get().isSharedWith(player.getUniqueId())) {
@@ -330,7 +346,26 @@ public final class DefaultHomeService implements HomeService, Listener {
         return feet.isPassable() && head.isPassable() && !feet.isLiquid() && !head.isLiquid() && !ground.isPassable();
     }
 
+    public long getRemainingCooldownSeconds(Player player) {
+        UUID uuid = player.getUniqueId();
+        Long expiresAt = cooldownMap.get(uuid);
+        if (expiresAt == null) return 0;
+
+        long diff = expiresAt - System.currentTimeMillis();
+        return diff > 0 ? (diff / 1000L) + 1 : 0;
+    }
+
     private CompletableFuture<Boolean> executeTeleport(Player player, Home home) {
+        UUID uuid = player.getUniqueId();
+        HomeConfig config = configSupplier.get();
+
+        if (!player.hasPermission(Permissions.HOME_BYPASS_COOLDOWN)) {
+            long remainingSec = getRemainingCooldownSeconds(player);
+            if (remainingSec > 0) {
+                return CompletableFuture.completedFuture(false);
+            }
+        }
+
         World world = Bukkit.getWorld(home.worldName());
         if (world == null) {
             return CompletableFuture.completedFuture(false);
@@ -341,17 +376,29 @@ public final class DefaultHomeService implements HomeService, Listener {
             return CompletableFuture.completedFuture(false);
         }
 
-        HomeConfig config = configSupplier.get();
-        UUID uuid = player.getUniqueId();
         int warmup = config.warmupSeconds();
+        int cooldown = config.cooldownSeconds();
+
+        // Cancel any existing active warmup for this player before creating a new one
+        ActiveWarmup existing = activeWarmups.remove(uuid);
+        if (existing != null) {
+            cancelScheduledTask(existing.scheduledTask());
+            existing.future().complete(false);
+        }
 
         if (warmup <= 0 || player.hasPermission(Permissions.HOME_BYPASS_WARMUP)) {
+            if (cooldown > 0 && !player.hasPermission(Permissions.HOME_BYPASS_COOLDOWN)) {
+                cooldownMap.put(uuid, System.currentTimeMillis() + (cooldown * 1000L));
+            }
             return player.teleportAsync(target);
         }
 
         CompletableFuture<Boolean> future = new CompletableFuture<>();
         Object task = schedulePlayerTask(player, warmup * 20L, () -> {
             activeWarmups.remove(uuid);
+            if (cooldown > 0 && !player.hasPermission(Permissions.HOME_BYPASS_COOLDOWN)) {
+                cooldownMap.put(uuid, System.currentTimeMillis() + (cooldown * 1000L));
+            }
             player.teleportAsync(target).thenAccept(future::complete);
         });
 
@@ -424,7 +471,9 @@ public final class DefaultHomeService implements HomeService, Listener {
 
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
-        ActiveWarmup warmup = activeWarmups.remove(event.getPlayer().getUniqueId());
+        UUID uuid = event.getPlayer().getUniqueId();
+        cooldownMap.remove(uuid);
+        ActiveWarmup warmup = activeWarmups.remove(uuid);
         if (warmup != null) {
             cancelScheduledTask(warmup.scheduledTask());
             warmup.future().complete(false);

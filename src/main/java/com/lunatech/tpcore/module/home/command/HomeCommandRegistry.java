@@ -5,6 +5,7 @@ import com.lunatech.tpcore.constant.Permissions;
 import com.lunatech.tpcore.module.home.model.Home;
 import com.lunatech.tpcore.module.home.service.HomeResultStatus;
 import com.lunatech.tpcore.module.home.service.HomeService;
+import com.lunatech.tpcore.module.home.service.impl.DefaultHomeService;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
@@ -144,6 +145,15 @@ public final class HomeCommandRegistry {
 
         HomeConfig config = configSupplier.get();
         String targetHome = (homeName != null && !homeName.isBlank()) ? homeName : config.defaultHomeName();
+
+        if (homeService instanceof DefaultHomeService defaultService) {
+            long remaining = defaultService.getRemainingCooldownSeconds(player);
+            if (remaining > 0 && !player.hasPermission(Permissions.HOME_BYPASS_COOLDOWN)) {
+                String msg = config.messages().prefix() + config.messages().cooldownActive();
+                player.sendMessage(miniMessage.deserialize(msg, Placeholder.parsed("seconds", String.valueOf(remaining))));
+                return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+            }
+        }
 
         this.homeService.teleportHome(player, targetHome).thenAccept(success -> {
             if (!success) {

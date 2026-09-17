@@ -9,5 +9,6 @@ public enum HomeResultStatus {
     UNSAFE_LOCATION,
     ALREADY_SHARED,
     NOT_SHARED,
+    COOLDOWN_ACTIVE,
     ERROR
 }
