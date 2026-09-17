@@ -20,6 +20,10 @@ public interface BackCache {
 
     Optional<BackLocation> popLastDeathLocation(UUID playerUuid);
 
+    boolean removeLocation(UUID playerUuid, BackLocation location);
+
+    boolean removeLocationAtIndex(UUID playerUuid, int index);
+
     List<BackLocation> getHistory(UUID playerUuid);
 
     void clearPlayerHistory(UUID playerUuid);

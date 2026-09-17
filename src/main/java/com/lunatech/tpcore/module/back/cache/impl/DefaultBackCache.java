@@ -121,6 +121,46 @@ public final class DefaultBackCache implements BackCache {
         return Optional.empty();
     }
 
+    @Override
+    public boolean removeLocation(UUID playerUuid, BackLocation location) {
+        if (playerUuid == null || location == null) {
+            return false;
+        }
+        ConcurrentLinkedDeque<BackLocation> deque = cache.get(playerUuid);
+        if (deque == null || deque.isEmpty()) {
+            return false;
+        }
+        boolean removed = deque.remove(location);
+        if (removed && deque.isEmpty()) {
+            cache.remove(playerUuid, deque);
+        }
+        return removed;
+    }
+
+    @Override
+    public boolean removeLocationAtIndex(UUID playerUuid, int index) {
+        if (playerUuid == null || index < 0) {
+            return false;
+        }
+        ConcurrentLinkedDeque<BackLocation> deque = cache.get(playerUuid);
+        if (deque == null || deque.isEmpty()) {
+            return false;
+        }
+        var iterator = deque.iterator();
+        int current = 0;
+        while (iterator.hasNext()) {
+            iterator.next();
+            if (current == index) {
+                iterator.remove();
+                if (deque.isEmpty()) {
+                    cache.remove(playerUuid, deque);
+                }
+                return true;
+            }
+            current++;
+        }
+        return false;
+    }
 
     @Override
     public List<BackLocation> getHistory(UUID playerUuid) {

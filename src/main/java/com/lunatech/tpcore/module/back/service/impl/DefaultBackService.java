@@ -20,6 +20,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
+import java.util.function.Consumer;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import org.bukkit.Bukkit;
@@ -74,7 +75,8 @@ public final class DefaultBackService implements BackService {
             return CompletableFuture.completedFuture(BackResultStatus.NO_BACK_LOCATION);
         }
 
-        return executeBackTeleport(player, locOpt.get(), true);
+        BackLocation loc = locOpt.get();
+        return executeBackTeleport(player, loc, uuid -> cache.removeLocation(uuid, loc));
     }
 
     @Override
@@ -90,7 +92,8 @@ public final class DefaultBackService implements BackService {
             return CompletableFuture.completedFuture(BackResultStatus.NO_DEATH_LOCATION);
         }
 
-        return executeBackTeleport(player, locOpt.get(), false);
+        BackLocation loc = locOpt.get();
+        return executeBackTeleport(player, loc, uuid -> cache.removeLocation(uuid, loc));
     }
 
     @Override
@@ -107,10 +110,10 @@ public final class DefaultBackService implements BackService {
         }
 
         BackLocation loc = history.get(index);
-        return executeBackTeleport(player, loc, false);
+        return executeBackTeleport(player, loc, uuid -> cache.removeLocation(uuid, loc));
     }
 
-    private CompletableFuture<BackResultStatus> executeBackTeleport(Player player, BackLocation backLoc, boolean popOnSuccess) {
+    private CompletableFuture<BackResultStatus> executeBackTeleport(Player player, BackLocation backLoc, Consumer<UUID> onSuccessConsumer) {
         UUID uuid = player.getUniqueId();
 
         long now = System.currentTimeMillis();
@@ -134,7 +137,7 @@ public final class DefaultBackService implements BackService {
 
         if (warmupSeconds <= 0 || bypassWarmup) {
             cooldowns.put(uuid, now);
-            return performTeleportWithSafety(player, targetLocation, backLoc, popOnSuccess);
+            return performTeleportWithSafety(player, targetLocation, backLoc, onSuccessConsumer);
         }
 
         String startMsg = config.messages().prefix() + config.messages().warmupStart();
@@ -146,7 +149,7 @@ public final class DefaultBackService implements BackService {
         ScheduledTask scheduledTask = player.getScheduler().runDelayed(plugin, task -> {
             activeWarmups.remove(uuid);
             cooldowns.put(uuid, System.currentTimeMillis());
-            performTeleportWithSafety(player, targetLocation, backLoc, popOnSuccess).thenAccept(futureResult::complete);
+            performTeleportWithSafety(player, targetLocation, backLoc, onSuccessConsumer).thenAccept(futureResult::complete);
         }, () -> {
             activeWarmups.remove(uuid);
             futureResult.complete(BackResultStatus.ERROR);
@@ -155,13 +158,13 @@ public final class DefaultBackService implements BackService {
         if (scheduledTask != null) {
             activeWarmups.put(uuid, new WarmupSession(scheduledTask, backLoc));
         } else {
-            return performTeleportWithSafety(player, targetLocation, backLoc, popOnSuccess);
+            return performTeleportWithSafety(player, targetLocation, backLoc, onSuccessConsumer);
         }
 
         return futureResult;
     }
 
-    private CompletableFuture<BackResultStatus> performTeleportWithSafety(Player player, Location targetLocation, BackLocation backLoc, boolean popOnSuccess) {
+    private CompletableFuture<BackResultStatus> performTeleportWithSafety(Player player, Location targetLocation, BackLocation backLoc, Consumer<UUID> onSuccessConsumer) {
         World world = targetLocation.getWorld();
         if (world == null) {
             return CompletableFuture.completedFuture(BackResultStatus.WORLD_NOT_LOADED);
@@ -177,7 +180,7 @@ public final class DefaultBackService implements BackService {
                 return CompletableFuture.completedFuture(BackResultStatus.UNSAFE_LOCATION);
             }
             boolean adjusted = !finalLoc.equals(targetLocation);
-            return performAsyncBackTeleport(player, finalLoc, popOnSuccess, adjusted);
+            return performAsyncBackTeleport(player, finalLoc, onSuccessConsumer, adjusted);
         }
 
         if (requireSafety && !world.isChunkLoaded(chunkX, chunkZ)) {
@@ -190,7 +193,7 @@ public final class DefaultBackService implements BackService {
                         return;
                     }
                     boolean adjusted = !finalLoc.equals(targetLocation);
-                    performAsyncBackTeleport(player, finalLoc, popOnSuccess, adjusted).thenAccept(future::complete);
+                    performAsyncBackTeleport(player, finalLoc, onSuccessConsumer, adjusted).thenAccept(future::complete);
                 }, () -> future.complete(BackResultStatus.ERROR));
             }).exceptionally(ex -> {
                 future.complete(BackResultStatus.ERROR);
@@ -199,18 +202,18 @@ public final class DefaultBackService implements BackService {
             return future;
         }
 
-        return performAsyncBackTeleport(player, targetLocation, popOnSuccess, false);
+        return performAsyncBackTeleport(player, targetLocation, onSuccessConsumer, false);
     }
 
-    private CompletableFuture<BackResultStatus> performAsyncBackTeleport(Player player, Location finalLocation, boolean popOnSuccess, boolean hazardAdjusted) {
+    private CompletableFuture<BackResultStatus> performAsyncBackTeleport(Player player, Location finalLocation, Consumer<UUID> onSuccessConsumer, boolean hazardAdjusted) {
         UUID uuid = player.getUniqueId();
         backTeleportInProgress.add(uuid);
 
         return player.teleportAsync(finalLocation).thenApply(success -> {
             backTeleportInProgress.remove(uuid);
             if (Boolean.TRUE.equals(success)) {
-                if (popOnSuccess) {
-                    cache.popLastLocation(uuid);
+                if (onSuccessConsumer != null) {
+                    onSuccessConsumer.accept(uuid);
                     persistPlayerHistoryAsync(uuid);
                 }
                 return hazardAdjusted ? BackResultStatus.SUCCESS_ADJUSTED_HAZARD : BackResultStatus.SUCCESS;

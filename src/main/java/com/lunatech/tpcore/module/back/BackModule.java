@@ -109,12 +109,21 @@ public final class BackModule implements ReloadableModule {
     }
 
     private void reloadActiveModule(BackConfig newConfig) {
+        String oldStorage = (this.config != null && this.config.storage() != null) ? this.config.storage().type() : "SQLITE";
+        String newStorage = (newConfig != null && newConfig.storage() != null) ? newConfig.storage().type() : "SQLITE";
+
+        if (oldStorage.equalsIgnoreCase(newStorage) && this.service != null) {
+            this.service.updateConfig(newConfig);
+            this.plugin.getSLF4JLogger().info("Back Module configuration reloaded successfully.");
+            return;
+        }
+
         if (this.service != null) {
             this.service.close().join();
         }
 
         instantiateAndInitializeStorage(newConfig);
-        this.plugin.getSLF4JLogger().info("Back Module storage engine successfully reloaded: {}", newConfig.storage() != null ? newConfig.storage().type() : "SQLITE");
+        this.plugin.getSLF4JLogger().info("Back Module storage engine successfully reloaded: {}", newStorage);
     }
 
     private void instantiateAndInitializeStorage(BackConfig targetConfig) {
