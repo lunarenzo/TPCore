@@ -2,12 +2,11 @@ package com.lunatech.tpcore.module.home.engine;
 
 import com.lunatech.tpcore.config.model.HomeConfig;
 import com.lunatech.tpcore.module.home.model.Home;
-import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
-import it.unimi.dsi.fastutil.longs.Long2ObjectMaps;
-import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.function.Supplier;
 import net.kyori.adventure.text.minimessage.MiniMessage;
@@ -26,9 +25,11 @@ public final class ConcurrentTeleportPipelineEngine {
     private final Plugin plugin;
     private final Supplier<HomeConfig> configSupplier;
     private final MiniMessage miniMessage = MiniMessage.miniMessage();
-    private final Long2ObjectMap<CompletableFuture<Chunk>> inFlightChunkLoads = Long2ObjectMaps.synchronize(new Long2ObjectOpenHashMap<>());
+    private final Map<ChunkKey, CompletableFuture<Chunk>> inFlightChunkLoads = new ConcurrentHashMap<>();
     private final Queue<TeleportTask> taskQueue = new ConcurrentLinkedQueue<>();
     private Object batchTask;
+
+    public record ChunkKey(String worldName, int chunkX, int chunkZ) {}
 
     public record TeleportTask(
         Player player,
@@ -139,6 +140,7 @@ public final class ConcurrentTeleportPipelineEngine {
         HomeConfig config = configSupplier.get();
         int maxLoadsPerTick = Math.max(1, config.safetyChecks().maxConcurrentChunkLoads());
         int processed = 0;
+        long now = System.currentTimeMillis();
 
         while (processed < maxLoadsPerTick && !taskQueue.isEmpty()) {
             TeleportTask task = taskQueue.poll();
@@ -152,38 +154,29 @@ public final class ConcurrentTeleportPipelineEngine {
                 continue;
             }
 
+            if (now - task.requestedAt() > 15000L) {
+                task.future().complete(false);
+                continue;
+            }
+
             processed++;
             Location target = task.target();
             World world = target.getWorld();
             int chunkX = target.getBlockX() >> 4;
             int chunkZ = target.getBlockZ() >> 4;
-            long packedKey = ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL);
+            ChunkKey key = new ChunkKey(world.getName(), chunkX, chunkZ);
 
-            if (world.isChunkLoaded(chunkX, chunkZ)) {
-                dispatchStage5(task, world.getChunkAt(chunkX, chunkZ));
-            } else {
-                CompletableFuture<Chunk> chunkFuture;
-                synchronized (inFlightChunkLoads) {
-                    chunkFuture = inFlightChunkLoads.get(packedKey);
-                    if (chunkFuture == null) {
-                        chunkFuture = world.getChunkAtAsync(target);
-                        inFlightChunkLoads.put(packedKey, chunkFuture);
-                        chunkFuture.whenComplete((c, ex) -> inFlightChunkLoads.remove(packedKey));
-                    }
-                }
+            CompletableFuture<Chunk> chunkFuture = inFlightChunkLoads.computeIfAbsent(key, k -> {
+                CompletableFuture<Chunk> cf = world.getChunkAtAsync(target);
+                cf.whenComplete((c, ex) -> inFlightChunkLoads.remove(k));
+                return cf;
+            });
 
-                chunkFuture.thenAccept(chunk -> {
-                    if (chunk != null) {
-                        try {
-                            chunk.addPluginChunkTicket(plugin);
-                        } catch (Throwable ignored) {}
-                    }
-                    dispatchStage5(task, chunk);
-                }).exceptionally(ex -> {
+            chunkFuture.thenAccept(chunk -> dispatchStage5(task, chunk))
+                .exceptionally(ex -> {
                     task.future().complete(false);
                     return null;
                 });
-            }
         }
     }
 
@@ -199,6 +192,8 @@ public final class ConcurrentTeleportPipelineEngine {
                     task.future().complete(false);
                     return;
                 }
+
+                addTicket(chunk);
 
                 if (!isLocationSafe(target)) {
                     removeTicket(chunk);
@@ -220,6 +215,13 @@ public final class ConcurrentTeleportPipelineEngine {
                 task.future().complete(false);
             }
         });
+    }
+
+    private void addTicket(Chunk chunk) {
+        if (chunk == null) return;
+        try {
+            chunk.addPluginChunkTicket(plugin);
+        } catch (Throwable ignored) {}
     }
 
     private void removeTicket(Chunk chunk) {
