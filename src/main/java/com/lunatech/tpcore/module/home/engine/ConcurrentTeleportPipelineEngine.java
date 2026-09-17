@@ -3,6 +3,7 @@ package com.lunatech.tpcore.module.home.engine;
 import com.lunatech.tpcore.config.model.HomeConfig;
 import com.lunatech.tpcore.module.home.model.Home;
 import com.lunatech.tpcore.module.home.repository.HomeRepository;
+import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 import java.io.File;
 import java.nio.file.Files;
 import java.util.ArrayList;
@@ -38,7 +39,12 @@ public final class ConcurrentTeleportPipelineEngine {
     private final MiniMessage miniMessage = MiniMessage.miniMessage();
     private final Map<ChunkKey, CompletableFuture<Chunk>> inFlightChunkLoads = new ConcurrentHashMap<>();
     private final Queue<TeleportTask> taskQueue = new ConcurrentLinkedQueue<>();
-    private Object batchTask;
+    private TaskHandle batchTask;
+
+    @FunctionalInterface
+    private interface TaskHandle {
+        void cancel();
+    }
 
     public record ChunkKey(String worldName, int chunkX, int chunkZ) {}
 
@@ -466,7 +472,7 @@ public final class ConcurrentTeleportPipelineEngine {
 
     public void close() {
         if (batchTask != null) {
-            cancelScheduledTask(batchTask);
+            batchTask.cancel();
             batchTask = null;
         }
         taskQueue.forEach(task -> task.future().complete(false));
@@ -477,10 +483,11 @@ public final class ConcurrentTeleportPipelineEngine {
     private void startBatchProcessor() {
         Runnable batchRunnable = this::processBatch;
         try {
-            batchTask = Bukkit.getGlobalRegionScheduler().runAtFixedRate(plugin, task -> batchRunnable.run(), 1L, 1L);
+            ScheduledTask task = Bukkit.getGlobalRegionScheduler().runAtFixedRate(plugin, t -> batchRunnable.run(), 1L, 1L);
+            batchTask = task::cancel;
         } catch (NoSuchMethodError | Exception e) {
             int taskId = Bukkit.getScheduler().scheduleSyncRepeatingTask(plugin, batchRunnable, 1L, 1L);
-            batchTask = Integer.valueOf(taskId);
+            batchTask = () -> Bukkit.getScheduler().cancelTask(taskId);
         }
     }
 
@@ -558,9 +565,9 @@ public final class ConcurrentTeleportPipelineEngine {
                 String successMsg = config.messages().prefix() + config.messages().teleportSuccess();
                 player.sendMessage(miniMessage.deserialize(successMsg, Placeholder.parsed("home", task.home().name())));
 
-                player.teleportAsync(target).thenAccept(success -> {
+                player.teleportAsync(target).whenComplete((success, ex) -> {
                     removeTicket(chunk);
-                    task.future().complete(success);
+                    task.future().complete(success != null && success && ex == null);
                 });
             } catch (Throwable t) {
                 removeTicket(chunk);
@@ -604,17 +611,6 @@ public final class ConcurrentTeleportPipelineEngine {
             player.getScheduler().run(plugin, task -> runnable.run(), null);
         } catch (NoSuchMethodError | Exception e) {
             Bukkit.getScheduler().runTask(plugin, runnable);
-        }
-    }
-
-    private void cancelScheduledTask(Object task) {
-        if (task == null) return;
-        if (task instanceof Integer taskId) {
-            Bukkit.getScheduler().cancelTask(taskId);
-        } else {
-            try {
-                task.getClass().getMethod("cancel").invoke(task);
-            } catch (Throwable ignored) {}
         }
     }
 

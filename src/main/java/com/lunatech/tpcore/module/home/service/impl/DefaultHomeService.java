@@ -8,6 +8,7 @@ import com.lunatech.tpcore.module.home.model.Home;
 import com.lunatech.tpcore.module.home.repository.HomeRepository;
 import com.lunatech.tpcore.module.home.service.HomeResultStatus;
 import com.lunatech.tpcore.module.home.service.HomeService;
+import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Map;
@@ -433,7 +434,7 @@ public final class DefaultHomeService implements HomeService, Listener {
 
     private TaskHandle schedulePlayerTask(Player player, long delayTicks, Runnable runnable) {
         try {
-            io.papermc.paper.threadedregions.scheduler.ScheduledTask task = player.getScheduler().runDelayed(plugin, t -> runnable.run(), null, delayTicks);
+            ScheduledTask task = player.getScheduler().runDelayed(plugin, t -> runnable.run(), null, delayTicks);
             return task::cancel;
         } catch (NoSuchMethodError | Exception e) {
             int taskId = Bukkit.getScheduler().scheduleSyncDelayedTask(plugin, runnable, delayTicks);
