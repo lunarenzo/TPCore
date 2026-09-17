@@ -74,7 +74,7 @@ public final class HomeModule implements ReloadableModule {
         }
 
         this.repository = new SqliteHomeRepository(this.plugin.getDataFolder(), this.plugin.getSLF4JLogger());
-        this.repository.initialize();
+        this.repository.initialize().join();
 
         this.cache = new DefaultHomeCache();
         this.service = new DefaultHomeService(this.plugin, this.repository, this.cache, () -> this.config);
@@ -100,6 +100,9 @@ public final class HomeModule implements ReloadableModule {
 
         this.configManager.unregisterModule("home");
 
+        if (this.service instanceof DefaultHomeService defaultService) {
+            defaultService.close();
+        }
         if (this.joinQuitListener != null) {
             HandlerList.unregisterAll(this.joinQuitListener);
         }
@@ -110,7 +113,7 @@ public final class HomeModule implements ReloadableModule {
             this.cache.clear();
         }
         if (this.repository != null) {
-            this.repository.close();
+            this.repository.close().join();
         }
 
         this.isInitialized = false;

@@ -35,7 +35,7 @@ public final class HomeRespawnListener implements Listener {
             return;
         }
 
-        if (event.isBedSpawn() || event.isAnchorSpawn()) {
+        if (event.isBedSpawn() || event.isAnchorSpawn() || event.getRespawnReason() == PlayerRespawnEvent.RespawnReason.END_PORTAL) {
             return;
         }
 

@@ -280,7 +280,23 @@ public final class HomeCommandRegistry {
             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
         }
 
-        OfflinePlayer target = Bukkit.getOfflinePlayer(targetName);
+        OfflinePlayer target = Bukkit.getOfflinePlayerIfCached(targetName);
+        if (target == null) {
+            Player online = Bukkit.getPlayerExact(targetName);
+            if (online != null) {
+                target = online;
+            }
+        }
+
+        if (target == null) {
+            String msg = config.messages().prefix() + config.messages().homeNotFoundOther();
+            player.sendMessage(miniMessage.deserialize(
+                msg,
+                Placeholder.parsed("target", targetName),
+                Placeholder.parsed("home", homeName)
+            ));
+            return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+        }
 
         this.homeService.teleportHomeOther(player, target.getUniqueId(), homeName).thenAccept(success -> {
             if (!success) {
@@ -306,7 +322,7 @@ public final class HomeCommandRegistry {
     private void sendDisabledMessage(CommandSender sender) {
         HomeConfig config = configSupplier.get();
         sender.sendMessage(miniMessage.deserialize(
-            config.messages().prefix() + "<red>Home module is currently disabled.</red>"
+            config.messages().prefix() + config.messages().moduleDisabled()
         ));
     }
 }

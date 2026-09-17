@@ -219,10 +219,21 @@ public final class SqliteHomeRepository implements HomeRepository {
     public CompletableFuture<Void> close() {
         return CompletableFuture.runAsync(() -> {
             if (dataSource != null && !dataSource.isClosed()) {
-                dataSource.close();
+                try {
+                    dataSource.close();
+                } catch (Exception e) {
+                    logger.error("Error closing HikariDataSource", e);
+                }
             }
             if (virtualExecutor != null && !virtualExecutor.isShutdown()) {
-                virtualExecutor.shutdown();
+                try {
+                    virtualExecutor.shutdown();
+                    if (!virtualExecutor.awaitTermination(3, java.util.concurrent.TimeUnit.SECONDS)) {
+                        virtualExecutor.shutdownNow();
+                    }
+                } catch (Exception e) {
+                    logger.error("Error shutting down virtualExecutor", e);
+                }
             }
         });
     }

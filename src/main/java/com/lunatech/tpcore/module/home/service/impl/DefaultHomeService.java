@@ -17,6 +17,8 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
+import net.kyori.adventure.text.minimessage.MiniMessage;
+import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.World;
@@ -24,10 +26,12 @@ import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.HandlerList;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.permissions.PermissionAttachmentInfo;
 import org.bukkit.plugin.Plugin;
 
 public final class DefaultHomeService implements HomeService, Listener {
@@ -36,6 +40,7 @@ public final class DefaultHomeService implements HomeService, Listener {
     private final HomeRepository repository;
     private final HomeCache cache;
     private final Supplier<HomeConfig> configSupplier;
+    private final MiniMessage miniMessage = MiniMessage.miniMessage();
     private final Map<UUID, Long> cooldownMap = new ConcurrentHashMap<>();
     private final Map<UUID, ActiveWarmup> activeWarmups = new ConcurrentHashMap<>();
 
@@ -247,7 +252,8 @@ public final class DefaultHomeService implements HomeService, Listener {
             if (optHome.isEmpty()) {
                 return CompletableFuture.completedFuture(false);
             }
-            return executeTeleport(player, optHome.get());
+            return supplyOnPlayerThread(player, () -> optHome.get())
+                .thenCompose(home -> executeTeleport(player, home));
         });
     }
 
@@ -266,7 +272,8 @@ public final class DefaultHomeService implements HomeService, Listener {
             if (optHome.isEmpty() || !optHome.get().isSharedWith(player.getUniqueId())) {
                 return CompletableFuture.completedFuture(false);
             }
-            return executeTeleport(player, optHome.get());
+            return supplyOnPlayerThread(player, () -> optHome.get())
+                .thenCompose(home -> executeTeleport(player, home));
         });
     }
 
@@ -302,7 +309,7 @@ public final class DefaultHomeService implements HomeService, Listener {
             }
         }
 
-        for (org.bukkit.permissions.PermissionAttachmentInfo pai : player.getEffectivePermissions()) {
+        for (PermissionAttachmentInfo pai : player.getEffectivePermissions()) {
             String perm = pai.getPermission().toLowerCase();
             if (perm.startsWith("tpcore.homes.limit.") && pai.getValue()) {
                 String sub = perm.substring("tpcore.homes.limit.".length());
@@ -355,6 +362,16 @@ public final class DefaultHomeService implements HomeService, Listener {
         return diff > 0 ? (diff / 1000L) + 1 : 0;
     }
 
+    public void close() {
+        HandlerList.unregisterAll(this);
+        activeWarmups.forEach((uuid, warmup) -> {
+            cancelScheduledTask(warmup.scheduledTask());
+            warmup.future().complete(false);
+        });
+        activeWarmups.clear();
+        cooldownMap.clear();
+    }
+
     private CompletableFuture<Boolean> executeTeleport(Player player, Home home) {
         UUID uuid = player.getUniqueId();
         HomeConfig config = configSupplier.get();
@@ -373,13 +390,14 @@ public final class DefaultHomeService implements HomeService, Listener {
 
         Location target = new Location(world, home.x(), home.y(), home.z(), home.yaw(), home.pitch());
         if (!isLocationSafe(target)) {
+            String msg = config.messages().prefix() + config.messages().unsafeLocation();
+            player.sendMessage(miniMessage.deserialize(msg));
             return CompletableFuture.completedFuture(false);
         }
 
         int warmup = config.warmupSeconds();
         int cooldown = config.cooldownSeconds();
 
-        // Cancel any existing active warmup for this player before creating a new one
         ActiveWarmup existing = activeWarmups.remove(uuid);
         if (existing != null) {
             cancelScheduledTask(existing.scheduledTask());
@@ -390,19 +408,50 @@ public final class DefaultHomeService implements HomeService, Listener {
             if (cooldown > 0 && !player.hasPermission(Permissions.HOME_BYPASS_COOLDOWN)) {
                 cooldownMap.put(uuid, System.currentTimeMillis() + (cooldown * 1000L));
             }
+            String msg = config.messages().prefix() + config.messages().teleportSuccess();
+            player.sendMessage(miniMessage.deserialize(msg, Placeholder.parsed("home", home.name())));
             return player.teleportAsync(target);
         }
 
         CompletableFuture<Boolean> future = new CompletableFuture<>();
+        String warmupMsg = config.messages().prefix() + config.messages().warmupStart();
+        player.sendMessage(miniMessage.deserialize(
+            warmupMsg,
+            Placeholder.parsed("home", home.name()),
+            Placeholder.parsed("seconds", String.valueOf(warmup))
+        ));
+
         Object task = schedulePlayerTask(player, warmup * 20L, () -> {
             activeWarmups.remove(uuid);
             if (cooldown > 0 && !player.hasPermission(Permissions.HOME_BYPASS_COOLDOWN)) {
                 cooldownMap.put(uuid, System.currentTimeMillis() + (cooldown * 1000L));
             }
+            String successMsg = config.messages().prefix() + config.messages().teleportSuccess();
+            player.sendMessage(miniMessage.deserialize(successMsg, Placeholder.parsed("home", home.name())));
             player.teleportAsync(target).thenAccept(future::complete);
         });
 
         activeWarmups.put(uuid, new ActiveWarmup(player.getLocation().clone(), future, task));
+        return future;
+    }
+
+    private void runOnPlayerThread(Player player, Runnable runnable) {
+        try {
+            player.getScheduler().run(plugin, task -> runnable.run(), null);
+        } catch (NoSuchMethodError | Exception e) {
+            Bukkit.getScheduler().runTask(plugin, runnable);
+        }
+    }
+
+    private <T> CompletableFuture<T> supplyOnPlayerThread(Player player, Supplier<T> supplier) {
+        CompletableFuture<T> future = new CompletableFuture<>();
+        runOnPlayerThread(player, () -> {
+            try {
+                future.complete(supplier.get());
+            } catch (Throwable t) {
+                future.completeExceptionally(t);
+            }
+        });
         return future;
     }
 
@@ -421,9 +470,7 @@ public final class DefaultHomeService implements HomeService, Listener {
             Bukkit.getScheduler().cancelTask(taskId);
         } else {
             try {
-                if (task instanceof io.papermc.paper.threadedregions.scheduler.ScheduledTask st) {
-                    st.cancel();
-                }
+                task.getClass().getMethod("cancel").invoke(task);
             } catch (Throwable ignored) {}
         }
     }
@@ -439,33 +486,48 @@ public final class DefaultHomeService implements HomeService, Listener {
 
     @EventHandler
     public void onPlayerMove(PlayerMoveEvent event) {
+        if (activeWarmups.isEmpty()) {
+            return;
+        }
+
+        Location from = event.getFrom();
+        Location to = event.getTo();
+        if (from.getBlockX() == to.getBlockX() && from.getBlockY() == to.getBlockY() && from.getBlockZ() == to.getBlockZ() && from.getWorld() == to.getWorld()) {
+            return;
+        }
+
         HomeConfig config = configSupplier.get();
         if (!config.cancelOnMove()) {
             return;
         }
+
         Player player = event.getPlayer();
-        ActiveWarmup warmup = activeWarmups.get(player.getUniqueId());
+        ActiveWarmup warmup = activeWarmups.remove(player.getUniqueId());
         if (warmup != null) {
-            Location from = warmup.startLocation();
-            Location to = event.getTo();
-            if (from.getWorld() != to.getWorld() || from.getBlockX() != to.getBlockX() || from.getBlockY() != to.getBlockY() || from.getBlockZ() != to.getBlockZ()) {
-                activeWarmups.remove(player.getUniqueId());
-                cancelScheduledTask(warmup.scheduledTask());
-                warmup.future().complete(false);
-            }
+            cancelScheduledTask(warmup.scheduledTask());
+            warmup.future().complete(false);
+            String msg = config.messages().prefix() + config.messages().warmupCancelledMove();
+            player.sendMessage(miniMessage.deserialize(msg));
         }
     }
 
     @EventHandler
     public void onEntityDamage(EntityDamageEvent event) {
+        if (activeWarmups.isEmpty()) {
+            return;
+        }
+
         HomeConfig config = configSupplier.get();
         if (!config.cancelOnDamage() || !(event.getEntity() instanceof Player player)) {
             return;
         }
+
         ActiveWarmup warmup = activeWarmups.remove(player.getUniqueId());
         if (warmup != null) {
             cancelScheduledTask(warmup.scheduledTask());
             warmup.future().complete(false);
+            String msg = config.messages().prefix() + config.messages().warmupCancelledDamage();
+            player.sendMessage(miniMessage.deserialize(msg));
         }
     }
 
