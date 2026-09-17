@@ -43,7 +43,6 @@ public final class DefaultBackService implements BackService {
 
     private final Map<UUID, Long> cooldowns = new ConcurrentHashMap<>();
     private final Map<UUID, WarmupSession> activeWarmups = new ConcurrentHashMap<>();
-    private final Set<UUID> backTeleportInProgress = ConcurrentHashMap.newKeySet();
 
     private record WarmupSession(ScheduledTask task, BackLocation targetBackLoc) {}
 
@@ -207,10 +206,8 @@ public final class DefaultBackService implements BackService {
 
     private CompletableFuture<BackResultStatus> performAsyncBackTeleport(Player player, Location finalLocation, Consumer<UUID> onSuccessConsumer, boolean hazardAdjusted) {
         UUID uuid = player.getUniqueId();
-        backTeleportInProgress.add(uuid);
 
         return player.teleportAsync(finalLocation).thenApply(success -> {
-            backTeleportInProgress.remove(uuid);
             if (Boolean.TRUE.equals(success)) {
                 if (onSuccessConsumer != null) {
                     onSuccessConsumer.accept(uuid);
@@ -220,10 +217,7 @@ public final class DefaultBackService implements BackService {
             } else {
                 return BackResultStatus.ERROR;
             }
-        }).exceptionally(ex -> {
-            backTeleportInProgress.remove(uuid);
-            return BackResultStatus.ERROR;
-        });
+        }).exceptionally(ex -> BackResultStatus.ERROR);
     }
 
     private Location resolveSafeLocation(Location targetLocation) {
@@ -269,7 +263,6 @@ public final class DefaultBackService implements BackService {
         if (cause == BackCause.PORTAL && !config.trackPortals()) return;
 
         UUID uuid = player.getUniqueId();
-        if (backTeleportInProgress.contains(uuid)) return;
 
         Optional<BackLocation> lastOpt = cache.peekLastLocation(uuid);
         if (lastOpt.isPresent()) {
@@ -376,7 +369,6 @@ public final class DefaultBackService implements BackService {
         cancelWarmupSession(playerUuid);
         cooldowns.remove(playerUuid);
         cache.clearPlayerHistory(playerUuid);
-        backTeleportInProgress.remove(playerUuid);
     }
 
     @Override
@@ -508,7 +500,6 @@ public final class DefaultBackService implements BackService {
         activeWarmups.clear();
         cooldowns.clear();
         cache.clear();
-        backTeleportInProgress.clear();
         return repository.close();
     }
 
