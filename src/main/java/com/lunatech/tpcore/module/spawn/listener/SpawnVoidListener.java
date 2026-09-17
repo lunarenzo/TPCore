@@ -8,19 +8,22 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageEvent;
 
+import java.util.function.Supplier;
+
 public final class SpawnVoidListener implements Listener {
 
     private final SpawnService spawnService;
-    private final SpawnConfig config;
+    private final Supplier<SpawnConfig> configSupplier;
 
-    public SpawnVoidListener(SpawnService spawnService, SpawnConfig config) {
+    public SpawnVoidListener(SpawnService spawnService, Supplier<SpawnConfig> configSupplier) {
         this.spawnService = spawnService;
-        this.config = config;
+        this.configSupplier = configSupplier;
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onEntityDamage(EntityDamageEvent event) {
-        if (!this.config.enabled() || !this.config.voidFallProtection()) {
+        SpawnConfig config = this.configSupplier.get();
+        if (!config.enabled() || !config.voidFallProtection()) {
             return;
         }
 

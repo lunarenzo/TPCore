@@ -64,9 +64,9 @@ public final class SpawnModule implements ReloadableModule {
         this.repository = new YamlSpawnRepository(this.plugin, this.plugin.getDataFolder().toPath(), this.plugin.getSLF4JLogger());
         this.service = new DefaultSpawnService(this.plugin, this.repository, this.config);
 
-        this.joinListener = new SpawnJoinListener(this.service, this.config);
-        this.respawnListener = new SpawnRespawnListener(this.service, this.config);
-        this.voidListener = new SpawnVoidListener(this.service, this.config);
+        this.joinListener = new SpawnJoinListener(this.service, () -> this.config);
+        this.respawnListener = new SpawnRespawnListener(this.service, () -> this.config);
+        this.voidListener = new SpawnVoidListener(this.service, () -> this.config);
 
         this.commandRegistry = new SpawnCommandRegistry(this.plugin, this.service, () -> this.config);
 

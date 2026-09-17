@@ -12,26 +12,28 @@ import org.bukkit.event.player.PlayerQuitEvent;
 import org.spigotmc.event.player.PlayerSpawnLocationEvent;
 
 import java.util.Optional;
+import java.util.function.Supplier;
 
 public final class SpawnJoinListener implements Listener {
 
     private final SpawnService spawnService;
-    private final SpawnConfig config;
+    private final Supplier<SpawnConfig> configSupplier;
 
-    public SpawnJoinListener(SpawnService spawnService, SpawnConfig config) {
+    public SpawnJoinListener(SpawnService spawnService, Supplier<SpawnConfig> configSupplier) {
         this.spawnService = spawnService;
-        this.config = config;
+        this.configSupplier = configSupplier;
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPlayerSpawnLocation(PlayerSpawnLocationEvent event) {
-        if (!this.config.enabled()) {
+        SpawnConfig config = this.configSupplier.get();
+        if (!config.enabled()) {
             return;
         }
 
         Player player = event.getPlayer();
         boolean isFirstJoin = !player.hasPlayedBefore();
-        boolean shouldTeleportToSpawn = (this.config.spawnOnFirstJoin() && isFirstJoin) || this.config.spawnOnJoin();
+        boolean shouldTeleportToSpawn = (config.spawnOnFirstJoin() && isFirstJoin) || config.spawnOnJoin();
 
         if (shouldTeleportToSpawn) {
             Optional<Location> spawnLocOpt = this.spawnService.getEffectiveSpawnLocation(null);

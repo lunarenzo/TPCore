@@ -16,6 +16,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 public final class ModularConfigManager {
@@ -27,6 +28,7 @@ public final class ModularConfigManager {
 
     private final AtomicReference<CoreConfig> coreConfigRef = new AtomicReference<>(CoreConfig.createDefault());
     private final Map<String, ReloadableModule> registeredModules = new ConcurrentHashMap<>();
+    private final AtomicBoolean reloading = new AtomicBoolean(false);
 
     public ModularConfigManager(Path dataDirectory, Logger logger, ClassLoader classLoader) {
         this.dataDirectory = dataDirectory;
@@ -46,6 +48,18 @@ public final class ModularConfigManager {
         } catch (Exception e) {
             this.logger.error("Failed to create TPCore configuration directories.", e);
         }
+    }
+
+    public boolean tryLockReload() {
+        return this.reloading.compareAndSet(false, true);
+    }
+
+    public void unlockReload() {
+        this.reloading.set(false);
+    }
+
+    public boolean isReloading() {
+        return this.reloading.get();
     }
 
     public CoreConfig getCoreConfig() {
@@ -167,6 +181,9 @@ public final class ModularConfigManager {
 
     public <T> T tryLoadModuleConfig(String moduleName, Class<T> configClass) throws ConfigurateException {
         Path file = this.modulesDirectory.resolve(moduleName + ".yml");
+        if (!Files.exists(file)) {
+            this.extractResourceIfMissing("modules/" + moduleName + ".yml", file);
+        }
         if (!Files.exists(file)) {
             return null;
         }

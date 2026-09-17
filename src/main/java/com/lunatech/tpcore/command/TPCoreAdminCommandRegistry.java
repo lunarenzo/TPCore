@@ -76,63 +76,74 @@ public final class TPCoreAdminCommandRegistry {
     }
 
     private void executeReload(CommandSender sender, String targetModule) {
-        CoreConfig.CoreMessages msgs = this.configSupplier.get().messages();
+        if (!this.configManager.tryLockReload()) {
+            this.sendFormatted(sender, "<prefix><red>A configuration reload is already in progress! Please wait.</red>", Map.of());
+            return;
+        }
 
-        if (targetModule.equalsIgnoreCase("all")) {
-            Map<String, Boolean> results = this.configManager.reloadAllModules();
-            if (results.isEmpty()) {
-                this.sendFormatted(sender, msgs.reloadNoModules(), Map.of());
-                return;
-            }
+        this.plugin.getServer().getAsyncScheduler().runNow(this.plugin, scheduledTask -> {
+            try {
+                CoreConfig.CoreMessages msgs = this.configSupplier.get().messages();
 
-            int successCount = 0;
-            for (Map.Entry<String, Boolean> entry : results.entrySet()) {
-                String mod = entry.getKey();
-                boolean ok = entry.getValue();
-                if (ok) {
-                    successCount++;
-                    if (mod.equalsIgnoreCase("core")) {
+                if (targetModule.equalsIgnoreCase("all")) {
+                    Map<String, Boolean> results = this.configManager.reloadAllModules();
+                    if (results.isEmpty()) {
+                        this.sendFormatted(sender, msgs.reloadNoModules(), Map.of());
+                        return;
+                    }
+
+                    int successCount = 0;
+                    for (Map.Entry<String, Boolean> entry : results.entrySet()) {
+                        String mod = entry.getKey();
+                        boolean ok = entry.getValue();
+                        if (ok) {
+                            successCount++;
+                            if (mod.equalsIgnoreCase("core")) {
+                                this.sendFormatted(sender, msgs.reloadCoreSuccess(), Map.of());
+                            } else {
+                                this.sendFormatted(sender, msgs.reloadModuleSuccess(), Map.of("module", mod));
+                            }
+                        } else {
+                            if (mod.equalsIgnoreCase("core")) {
+                                this.sendFormatted(sender, msgs.reloadCoreFail(), Map.of());
+                            } else {
+                                this.sendFormatted(sender, msgs.reloadModuleFail(), Map.of("module", mod));
+                            }
+                        }
+                    }
+                    this.sendFormatted(sender, msgs.reloadAllComplete(), Map.of(
+                        "success", String.valueOf(successCount),
+                        "total", String.valueOf(results.size())
+                    ));
+                } else if (targetModule.equalsIgnoreCase("core")) {
+                    boolean ok = this.configManager.reloadCoreConfig();
+                    if (ok) {
                         this.sendFormatted(sender, msgs.reloadCoreSuccess(), Map.of());
                     } else {
-                        this.sendFormatted(sender, msgs.reloadModuleSuccess(), Map.of("module", mod));
+                        this.sendFormatted(sender, msgs.reloadCoreFail(), Map.of());
                     }
                 } else {
-                    if (mod.equalsIgnoreCase("core")) {
-                        this.sendFormatted(sender, msgs.reloadCoreFail(), Map.of());
+                    String modName = targetModule.toLowerCase();
+                    Set<String> modules = this.configManager.getRegisteredModuleNames();
+                    if (!modules.contains(modName)) {
+                        this.sendFormatted(sender, msgs.reloadUnknownModule(), Map.of(
+                            "module", targetModule,
+                            "modules", String.join(", ", modules)
+                        ));
+                        return;
+                    }
+
+                    boolean ok = this.configManager.reloadModule(modName);
+                    if (ok) {
+                        this.sendFormatted(sender, msgs.reloadModuleSuccess(), Map.of("module", modName));
                     } else {
-                        this.sendFormatted(sender, msgs.reloadModuleFail(), Map.of("module", mod));
+                        this.sendFormatted(sender, msgs.reloadModuleFail(), Map.of("module", modName));
                     }
                 }
+            } finally {
+                this.configManager.unlockReload();
             }
-            this.sendFormatted(sender, msgs.reloadAllComplete(), Map.of(
-                "success", String.valueOf(successCount),
-                "total", String.valueOf(results.size())
-            ));
-        } else if (targetModule.equalsIgnoreCase("core")) {
-            boolean ok = this.configManager.reloadCoreConfig();
-            if (ok) {
-                this.sendFormatted(sender, msgs.reloadCoreSuccess(), Map.of());
-            } else {
-                this.sendFormatted(sender, msgs.reloadCoreFail(), Map.of());
-            }
-        } else {
-            String modName = targetModule.toLowerCase();
-            Set<String> modules = this.configManager.getRegisteredModuleNames();
-            if (!modules.contains(modName)) {
-                this.sendFormatted(sender, msgs.reloadUnknownModule(), Map.of(
-                    "module", targetModule,
-                    "modules", String.join(", ", modules)
-                ));
-                return;
-            }
-
-            boolean ok = this.configManager.reloadModule(modName);
-            if (ok) {
-                this.sendFormatted(sender, msgs.reloadModuleSuccess(), Map.of("module", modName));
-            } else {
-                this.sendFormatted(sender, msgs.reloadModuleFail(), Map.of("module", modName));
-            }
-        }
+        });
     }
 
     private void sendVersionMessage(CommandSender sender) {

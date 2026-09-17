@@ -9,24 +9,26 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerRespawnEvent;
 
 import java.util.Optional;
+import java.util.function.Supplier;
 
 public final class SpawnRespawnListener implements Listener {
 
     private final SpawnService spawnService;
-    private final SpawnConfig config;
+    private final Supplier<SpawnConfig> configSupplier;
 
-    public SpawnRespawnListener(SpawnService spawnService, SpawnConfig config) {
+    public SpawnRespawnListener(SpawnService spawnService, Supplier<SpawnConfig> configSupplier) {
         this.spawnService = spawnService;
-        this.config = config;
+        this.configSupplier = configSupplier;
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPlayerRespawn(PlayerRespawnEvent event) {
-        if (!this.config.enabled() || !this.config.spawnOnRespawn()) {
+        SpawnConfig config = this.configSupplier.get();
+        if (!config.enabled() || !config.spawnOnRespawn()) {
             return;
         }
 
-        if ((event.isBedSpawn() || event.isAnchorSpawn()) && !this.config.overrideBedRespawn()) {
+        if ((event.isBedSpawn() || event.isAnchorSpawn()) && !config.overrideBedRespawn()) {
             return;
         }
 
