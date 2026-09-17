@@ -176,10 +176,10 @@ public final class ModularConfigManager {
         CommentedConfigurationNode defaultNode = CommentedConfigurationNode.root();
         defaultNode.set(configClass, defaultConfig);
 
-        defaultNode.mergeFrom(rootNode);
-        loader.save(defaultNode);
+        rootNode.mergeFrom(defaultNode);
+        loader.save(rootNode);
 
-        T result = defaultNode.get(configClass);
+        T result = rootNode.get(configClass);
         return (result != null) ? result : defaultConfig;
     }
 
