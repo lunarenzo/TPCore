@@ -126,6 +126,16 @@ public final class DefaultTpaService implements TpaService {
             return;
         }
 
+        Optional<TpaRequest> existing = this.repository.getRequest(target.getUniqueId(), sender.getUniqueId());
+        if (existing.isPresent() && !existing.get().isExpired(this.config().requestTimeoutSeconds())) {
+            this.sendMessage(
+                sender,
+                this.config().messages().alreadyHasPendingRequest(),
+                Placeholder.unparsed("target", target.getName())
+            );
+            return;
+        }
+
         TpaRequest request = new TpaRequest(
             sender.getUniqueId(),
             target.getUniqueId(),

@@ -32,6 +32,7 @@ public record TpaConfig(
 
     @ConfigSerializable
     public record TpaMessages(
+        String alreadyHasPendingRequest,
         String multiplePendingRequests,
         String noPendingRequests,
         String playerNotOnline,
@@ -57,6 +58,7 @@ public record TpaConfig(
     ) {
         public static TpaMessages createDefault() {
             return new TpaMessages(
+                "<prefix><red>You already have an active pending teleport request with <yellow><target></yellow>!</red>",
                 "<prefix><red>You have multiple requests! Specify the player name: <yellow>/tpaccept <player></yellow></red>",
                 "<prefix><red>You have no active pending teleport requests!</red>",
                 "<prefix><red>Player <yellow><player></yellow> is not online!</red>",

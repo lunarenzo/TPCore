@@ -20,6 +20,7 @@ allow-self-tpa: false
 
 # Module message strings (Alphabetically ordered for server admin convenience)
 messages:
+  already-has-pending-request: "<prefix><red>You already have an active pending teleport request with <yellow><target></yellow>!</red>"
   multiple-pending-requests: "<prefix><red>You have multiple requests! Specify the player name: <yellow>/tpaccept <player></yellow></red>"
   no-pending-requests: "<prefix><red>You have no active pending teleport requests!</red>"
   player-not-online: "<prefix><red>Player <yellow><player></yellow> is not online!</red>"
