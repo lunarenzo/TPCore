@@ -91,7 +91,7 @@ public final class DefaultWarpService implements WarpService {
         }
 
         // Check password protection
-        if (warp.hasPassword()) {
+        if (warp.hasPassword() && !player.hasPermission("tpcore.warp.admin") && !player.hasPermission("tpcore.warp.bypass.password")) {
             if (rawPassword == null || rawPassword.isBlank()) {
                 return CompletableFuture.completedFuture(WarpResultStatus.PASSWORD_REQUIRED);
             }
@@ -474,7 +474,7 @@ public final class DefaultWarpService implements WarpService {
         if (feet.getType().isSolid() || head.getType().isSolid()) {
             return false;
         }
-        if (feet.getType() == Material.LAVA || head.getType() == Material.LAVA) {
+        if (isDangerousBlock(feet.getType()) || isDangerousBlock(head.getType())) {
             return false;
         }
 
@@ -484,6 +484,13 @@ public final class DefaultWarpService implements WarpService {
             }
         }
         return ground.getType().isSolid() || feet.getType() == Material.WATER;
+    }
+
+    private boolean isDangerousBlock(Material material) {
+        return material == Material.LAVA
+            || material == Material.FIRE
+            || material == Material.SOUL_FIRE
+            || material == Material.POWDER_SNOW;
     }
 
     private boolean isValidWarpName(String name) {
