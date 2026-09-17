@@ -26,3 +26,18 @@
 # Keep Configurate 4.x @ConfigSerializable Records & Classes
 -keep @org.spongepowered.configurate.objectmapping.ConfigSerializable class * { *; }
 -keepclassmembers class * extends java.lang.Record { *; }
+
+# Keep JDBC, SQLite, and javax.sql DataSources
+-keep class java.sql.** { *; }
+-keep interface java.sql.** { *; }
+-keep class javax.sql.** { *; }
+-keep interface javax.sql.** { *; }
+-keep class org.sqlite.** { *; }
+
+# Keep Relocated HikariCP Pool & Utilities
+-keep class com.lunatech.tpcore.libs.hikari.** { *; }
+-keepclassmembers class * implements javax.sql.DataSource { *; }
+-keepclassmembers class * implements java.sql.Driver { *; }
+
+# Keep Relocated Configurate Libraries
+-keep class com.lunatech.tpcore.libs.configurate.** { *; }
