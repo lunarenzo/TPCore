@@ -15,11 +15,11 @@ import org.bukkit.event.player.PlayerQuitEvent;
 
 public final class WarpEventListener implements Listener {
 
-    private final WarpService service;
+    private final Supplier<WarpService> serviceSupplier;
     private final Supplier<WarpConfig> configSupplier;
 
-    public WarpEventListener(WarpService service, Supplier<WarpConfig> configSupplier) {
-        this.service = Objects.requireNonNull(service, "service cannot be null");
+    public WarpEventListener(Supplier<WarpService> serviceSupplier, Supplier<WarpConfig> configSupplier) {
+        this.serviceSupplier = Objects.requireNonNull(serviceSupplier, "serviceSupplier cannot be null");
         this.configSupplier = Objects.requireNonNull(configSupplier, "configSupplier cannot be null");
     }
 
@@ -36,6 +36,7 @@ public final class WarpEventListener implements Listener {
             return;
         }
 
+        WarpService service = serviceSupplier.get();
         if (service instanceof DefaultWarpService defaultService) {
             defaultService.cancelWarmupOnMove(event.getPlayer());
         }
@@ -49,6 +50,7 @@ public final class WarpEventListener implements Listener {
         }
 
         if (event.getEntity() instanceof Player player) {
+            WarpService service = serviceSupplier.get();
             if (service instanceof DefaultWarpService defaultService) {
                 defaultService.cancelWarmupOnDamage(player);
             }
@@ -57,6 +59,7 @@ public final class WarpEventListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerQuit(PlayerQuitEvent event) {
+        WarpService service = serviceSupplier.get();
         if (service instanceof DefaultWarpService defaultService) {
             defaultService.cancelWarmupOnQuit(event.getPlayer().getUniqueId());
         }

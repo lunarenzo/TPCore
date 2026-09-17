@@ -22,6 +22,7 @@ public final class WarpModule implements ReloadableModule {
     private final ModularConfigManager configManager;
     private volatile WarpConfig config;
     private boolean isInitialized = false;
+    private boolean commandsRegistered = false;
 
     private WarpRepository repository;
     private WarpCache cache;
@@ -54,8 +55,7 @@ public final class WarpModule implements ReloadableModule {
                 } else if (!wasEnabled && isEnabled) {
                     enable();
                 } else if (wasEnabled && isEnabled) {
-                    disable();
-                    enable();
+                    reloadActiveModule(newConfig);
                 }
                 return true;
             }
@@ -75,26 +75,44 @@ public final class WarpModule implements ReloadableModule {
             return;
         }
 
-        if (this.config.storage() != null && "YAML".equalsIgnoreCase(this.config.storage().type())) {
+        instantiateAndInitializeStorage(this.config);
+
+        if (this.eventListener == null) {
+            this.eventListener = new WarpEventListener(this::getService, () -> this.config);
+            this.plugin.getServer().getPluginManager().registerEvents(this.eventListener, this.plugin);
+        }
+
+        if (!this.commandsRegistered) {
+            this.commandRegistry = new WarpCommandRegistry(this.plugin, this::getService, () -> this.config);
+            this.commandRegistry.registerAll();
+            this.commandsRegistered = true;
+        }
+
+        this.configManager.registerModule(this);
+        this.isInitialized = true;
+
+        this.plugin.getSLF4JLogger().info("Warp Module successfully enabled.");
+    }
+
+    private void reloadActiveModule(WarpConfig newConfig) {
+        if (this.service != null) {
+            this.service.close().join();
+        }
+
+        instantiateAndInitializeStorage(newConfig);
+        this.plugin.getSLF4JLogger().info("Warp Module storage engine successfully reloaded: {}", newConfig.storage() != null ? newConfig.storage().type() : "SQLITE");
+    }
+
+    private void instantiateAndInitializeStorage(WarpConfig targetConfig) {
+        if (targetConfig.storage() != null && "YAML".equalsIgnoreCase(targetConfig.storage().type())) {
             this.repository = new YamlWarpRepository(this.plugin.getDataFolder(), this.plugin.getSLF4JLogger());
         } else {
             this.repository = new SqliteWarpRepository(this.plugin.getDataFolder(), this.plugin.getSLF4JLogger());
         }
 
         this.cache = new DefaultWarpCache();
-        this.service = new DefaultWarpService(this.plugin, this.repository, this.cache, this.config, this.plugin.getSLF4JLogger());
+        this.service = new DefaultWarpService(this.plugin, this.repository, this.cache, targetConfig, this.plugin.getSLF4JLogger());
         this.service.initialize().join();
-
-        this.eventListener = new WarpEventListener(this.service, () -> this.config);
-        this.plugin.getServer().getPluginManager().registerEvents(this.eventListener, this.plugin);
-
-        this.commandRegistry = new WarpCommandRegistry(this.plugin, this.service, () -> this.config);
-        this.commandRegistry.registerAll();
-
-        this.configManager.registerModule(this);
-        this.isInitialized = true;
-
-        this.plugin.getSLF4JLogger().info("Warp Module successfully enabled.");
     }
 
     public void disable() {
@@ -106,10 +124,12 @@ public final class WarpModule implements ReloadableModule {
 
         if (this.eventListener != null) {
             HandlerList.unregisterAll(this.eventListener);
+            this.eventListener = null;
         }
 
         if (this.service != null) {
             this.service.close().join();
+            this.service = null;
         }
 
         this.isInitialized = false;

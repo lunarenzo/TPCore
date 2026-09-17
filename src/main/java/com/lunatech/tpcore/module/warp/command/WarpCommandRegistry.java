@@ -27,13 +27,13 @@ import org.bukkit.plugin.java.JavaPlugin;
 public final class WarpCommandRegistry {
 
     private final JavaPlugin plugin;
-    private final WarpService warpService;
+    private final Supplier<WarpService> warpServiceSupplier;
     private final Supplier<WarpConfig> configSupplier;
     private final MiniMessage miniMessage = MiniMessage.miniMessage();
 
-    public WarpCommandRegistry(JavaPlugin plugin, WarpService warpService, Supplier<WarpConfig> configSupplier) {
+    public WarpCommandRegistry(JavaPlugin plugin, Supplier<WarpService> warpServiceSupplier, Supplier<WarpConfig> configSupplier) {
         this.plugin = Objects.requireNonNull(plugin, "plugin cannot be null");
-        this.warpService = Objects.requireNonNull(warpService, "warpService cannot be null");
+        this.warpServiceSupplier = Objects.requireNonNull(warpServiceSupplier, "warpServiceSupplier cannot be null");
         this.configSupplier = Objects.requireNonNull(configSupplier, "configSupplier cannot be null");
     }
 
@@ -46,9 +46,12 @@ public final class WarpCommandRegistry {
                     return builder.buildFuture();
                 }
                 String remaining = builder.getRemaining().toLowerCase();
-                for (Warp warp : warpService.getAllWarps()) {
-                    if (warp.name().toLowerCase().startsWith(remaining)) {
-                        builder.suggest(warp.name());
+                WarpService service = warpServiceSupplier.get();
+                if (service != null) {
+                    for (Warp warp : service.getAllWarps()) {
+                        if (warp.name().toLowerCase().startsWith(remaining)) {
+                            builder.suggest(warp.name());
+                        }
                     }
                 }
                 return builder.buildFuture();
@@ -59,9 +62,12 @@ public final class WarpCommandRegistry {
                     return builder.buildFuture();
                 }
                 String remaining = builder.getRemaining().toLowerCase();
-                for (String category : warpService.getCategories()) {
-                    if (category.toLowerCase().startsWith(remaining)) {
-                        builder.suggest(category);
+                WarpService service = warpServiceSupplier.get();
+                if (service != null) {
+                    for (String category : service.getCategories()) {
+                        if (category.toLowerCase().startsWith(remaining)) {
+                            builder.suggest(category);
+                        }
                     }
                 }
                 return builder.buildFuture();
@@ -203,7 +209,13 @@ public final class WarpCommandRegistry {
             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
         }
 
-        warpService.teleportToWarp(player, warpName, rawPassword).thenAccept(status -> {
+        WarpService service = warpServiceSupplier.get();
+        if (service == null) {
+            sendDisabledMessage(sender);
+            return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+        }
+
+        service.teleportToWarp(player, warpName, rawPassword).thenAccept(status -> {
             String rawMsg = switch (status) {
                 case SUCCESS -> config.messages().prefix() + config.messages().teleportSuccess();
                 case WARP_NOT_FOUND -> config.messages().prefix() + config.messages().warpNotFound();
@@ -233,7 +245,13 @@ public final class WarpCommandRegistry {
             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
         }
 
-        warpService.setWarp(player, warpName, overwrite, password, category).thenAccept(status -> {
+        WarpService service = warpServiceSupplier.get();
+        if (service == null) {
+            sendDisabledMessage(sender);
+            return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+        }
+
+        service.setWarp(player, warpName, overwrite, password, category).thenAccept(status -> {
             String rawMsg = (status == WarpResultStatus.SUCCESS)
                 ? config.messages().prefix() + config.messages().setWarpSuccess()
                 : config.messages().prefix() + config.messages().setWarpConfirm();
@@ -250,7 +268,13 @@ public final class WarpCommandRegistry {
             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
         }
 
-        warpService.deleteWarp(warpName).thenAccept(status -> {
+        WarpService service = warpServiceSupplier.get();
+        if (service == null) {
+            sendDisabledMessage(sender);
+            return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+        }
+
+        service.deleteWarp(warpName).thenAccept(status -> {
             String rawMsg = (status == WarpResultStatus.SUCCESS)
                 ? config.messages().prefix() + config.messages().delWarpSuccess()
                 : config.messages().prefix() + config.messages().warpNotFound();
@@ -267,9 +291,15 @@ public final class WarpCommandRegistry {
             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
         }
 
+        WarpService service = warpServiceSupplier.get();
+        if (service == null) {
+            sendDisabledMessage(sender);
+            return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+        }
+
         Collection<Warp> rawList = (category != null && !category.isBlank())
-            ? warpService.getWarpsByCategory(category)
-            : warpService.getAllWarps();
+            ? service.getWarpsByCategory(category)
+            : service.getAllWarps();
 
         if (rawList.isEmpty()) {
             sender.sendMessage(miniMessage.deserialize(config.messages().prefix() + config.messages().warpListEmpty()));
@@ -328,7 +358,13 @@ public final class WarpCommandRegistry {
             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
         }
 
-        warpService.teleportOtherToWarp(sender instanceof Player p ? p : null, target, warpName).thenAccept(status -> {
+        WarpService service = warpServiceSupplier.get();
+        if (service == null) {
+            sendDisabledMessage(sender);
+            return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+        }
+
+        service.teleportOtherToWarp(sender instanceof Player p ? p : null, target, warpName).thenAccept(status -> {
             String rawMsg = (status == WarpResultStatus.SUCCESS)
                 ? config.messages().prefix() + config.messages().teleportOtherSuccess()
                 : config.messages().prefix() + config.messages().warpNotFound();
