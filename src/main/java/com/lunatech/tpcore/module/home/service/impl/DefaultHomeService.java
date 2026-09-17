@@ -277,9 +277,9 @@ public final class DefaultHomeService implements HomeService, Listener {
     }
 
     @Override
-    public CompletableFuture<ConcurrentTeleportPipelineEngine.BenchmarkResult> runBenchmark(Player player, int taskCount) {
+    public CompletableFuture<ConcurrentTeleportPipelineEngine.BenchmarkResult> runBenchmark(Player player, int taskCount, String targetWorldFilter) {
         Objects.requireNonNull(player, "player cannot be null");
-        return pipelineEngine.runBenchmark(player, taskCount);
+        return pipelineEngine.runBenchmark(player, taskCount, targetWorldFilter);
     }
 
     @Override

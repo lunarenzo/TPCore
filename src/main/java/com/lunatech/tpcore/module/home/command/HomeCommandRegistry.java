@@ -21,6 +21,7 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
+import org.bukkit.World;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -64,6 +65,22 @@ public final class HomeCommandRegistry {
                 for (Player player : Bukkit.getOnlinePlayers()) {
                     if (player.getName().toLowerCase().startsWith(builder.getRemaining().toLowerCase())) {
                         builder.suggest(player.getName());
+                    }
+                }
+                return builder.buildFuture();
+            };
+
+            SuggestionProvider<CommandSourceStack> worldSuggestions = (context, builder) -> {
+                if (!configSupplier.get().enabled()) {
+                    return builder.buildFuture();
+                }
+                String remaining = builder.getRemaining().toLowerCase();
+                if ("all".startsWith(remaining)) {
+                    builder.suggest("all");
+                }
+                for (World world : Bukkit.getWorlds()) {
+                    if (world.getName().toLowerCase().startsWith(remaining)) {
+                        builder.suggest(world.getName());
                     }
                 }
                 return builder.buildFuture();
@@ -142,16 +159,24 @@ public final class HomeCommandRegistry {
                 List.of()
             );
 
-            // /homebenchmark [count]
+            // /homebenchmark [count] [world]
             commands.register(
                 Commands.literal("homebenchmark")
                     .requires(src -> src.getSender().hasPermission(Permissions.HOME_ADMIN_BENCHMARK))
-                    .executes(ctx -> executeBenchmark(ctx.getSource().getSender(), 100))
+                    .executes(ctx -> executeBenchmark(ctx.getSource().getSender(), 100, "all"))
                     .then(Commands.argument("count", IntegerArgumentType.integer(1, 1000))
-                        .executes(ctx -> executeBenchmark(ctx.getSource().getSender(), IntegerArgumentType.getInteger(ctx, "count")))
+                        .executes(ctx -> executeBenchmark(ctx.getSource().getSender(), IntegerArgumentType.getInteger(ctx, "count"), "all"))
+                        .then(Commands.argument("world", StringArgumentType.string())
+                            .suggests(worldSuggestions)
+                            .executes(ctx -> executeBenchmark(
+                                ctx.getSource().getSender(),
+                                IntegerArgumentType.getInteger(ctx, "count"),
+                                StringArgumentType.getString(ctx, "world")
+                            ))
+                        )
                     )
                     .build(),
-                "Run stress test benchmark for CTCPE teleport engine",
+                "Run stress test benchmark for CTCPE teleport engine across worlds",
                 List.of("homebench")
             );
         });
@@ -325,7 +350,7 @@ public final class HomeCommandRegistry {
         return com.mojang.brigadier.Command.SINGLE_SUCCESS;
     }
 
-    private int executeBenchmark(CommandSender sender, int taskCount) {
+    private int executeBenchmark(CommandSender sender, int taskCount, String targetWorldFilter) {
         HomeConfig config = configSupplier.get();
         if (!config.enabled()) {
             sendDisabledMessage(sender);
@@ -337,14 +362,21 @@ public final class HomeCommandRegistry {
             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
         }
 
-        String header = config.messages().prefix() + config.messages().benchmarkHeader();
-        player.sendMessage(miniMessage.deserialize(header, Placeholder.parsed("count", String.valueOf(taskCount))));
+        String worldFilter = (targetWorldFilter != null && !targetWorldFilter.isBlank()) ? targetWorldFilter : "all";
 
-        this.homeService.runBenchmark(player, taskCount).thenAccept(result -> {
+        String header = config.messages().prefix() + config.messages().benchmarkHeader();
+        player.sendMessage(miniMessage.deserialize(
+            header,
+            Placeholder.parsed("count", String.valueOf(taskCount)),
+            Placeholder.parsed("worlds", worldFilter)
+        ));
+
+        this.homeService.runBenchmark(player, taskCount, worldFilter).thenAccept(result -> {
             String msg = config.messages().prefix() + config.messages().benchmarkResults();
             player.sendMessage(miniMessage.deserialize(
                 msg,
                 Placeholder.parsed("total", String.valueOf(result.totalTasks())),
+                Placeholder.parsed("worlds", result.targetWorlds()),
                 Placeholder.parsed("dedup", String.format("%.1f", result.dedupRatio())),
                 Placeholder.parsed("unique", String.valueOf(result.uniqueChunkReads())),
                 Placeholder.parsed("cap", String.valueOf(result.batchCap())),

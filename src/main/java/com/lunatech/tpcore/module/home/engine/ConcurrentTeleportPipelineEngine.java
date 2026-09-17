@@ -2,6 +2,8 @@ package com.lunatech.tpcore.module.home.engine;
 
 import com.lunatech.tpcore.config.model.HomeConfig;
 import com.lunatech.tpcore.module.home.model.Home;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Queue;
@@ -9,6 +11,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import org.bukkit.Bukkit;
@@ -41,6 +44,7 @@ public final class ConcurrentTeleportPipelineEngine {
 
     public record BenchmarkResult(
         int totalTasks,
+        String targetWorlds,
         int uniqueChunkReads,
         double dedupRatio,
         int batchCap,
@@ -58,14 +62,35 @@ public final class ConcurrentTeleportPipelineEngine {
         startBatchProcessor();
     }
 
-    public CompletableFuture<BenchmarkResult> runBenchmark(Player player, int taskCount) {
+    public CompletableFuture<BenchmarkResult> runBenchmark(Player player, int taskCount, String targetWorldFilter) {
         Objects.requireNonNull(player, "player cannot be null");
         int count = Math.max(1, Math.min(1000, taskCount));
         long startTime = System.nanoTime();
 
         HomeConfig config = configSupplier.get();
         int maxLoadsPerTick = Math.max(1, config.safetyChecks().maxConcurrentChunkLoads());
-        World world = player.getWorld();
+
+        List<World> availableWorlds = Bukkit.getWorlds();
+        List<World> targetWorlds;
+        String filter = (targetWorldFilter != null && !targetWorldFilter.isBlank()) ? targetWorldFilter.trim() : "all";
+
+        if ("all".equalsIgnoreCase(filter) || "*".equals(filter) || "any".equalsIgnoreCase(filter)) {
+            targetWorlds = new ArrayList<>(availableWorlds);
+        } else {
+            targetWorlds = new ArrayList<>();
+            String[] split = filter.split(",");
+            for (String wName : split) {
+                World w = Bukkit.getWorld(wName.trim());
+                if (w != null) {
+                    targetWorlds.add(w);
+                }
+            }
+            if (targetWorlds.isEmpty()) {
+                targetWorlds.add(player.getWorld());
+            }
+        }
+
+        String worldsDisplay = targetWorlds.stream().map(World::getName).collect(Collectors.joining(", "));
 
         int uniqueChunksCount = Math.max(1, count / 4);
         int uniqueChunkReads = 0;
@@ -74,14 +99,17 @@ public final class ConcurrentTeleportPipelineEngine {
 
         Map<ChunkKey, CompletableFuture<Chunk>> testInFlight = new ConcurrentHashMap<>();
 
-        Location baseLoc = player.getLocation();
+        Location playerLoc = player.getLocation();
         for (int i = 0; i < count; i++) {
+            World world = targetWorlds.get(i % targetWorlds.size());
             int chunkOffset = i % uniqueChunksCount;
+
+            double targetY = Math.min(Math.max(playerLoc.getY(), world.getMinHeight() + 5), world.getMaxHeight() - 5);
             Location target = new Location(
                 world,
-                baseLoc.getBlockX() + (chunkOffset * 16) + 8,
-                baseLoc.getY(),
-                baseLoc.getBlockZ() + 8
+                playerLoc.getBlockX() + (chunkOffset * 16) + 8,
+                targetY,
+                playerLoc.getBlockZ() + 8
             );
 
             if (isWorldRestricted(world.getName(), config) || target.getY() < world.getMinHeight() || target.getY() >= world.getMaxHeight()) {
@@ -114,6 +142,7 @@ public final class ConcurrentTeleportPipelineEngine {
 
         BenchmarkResult result = new BenchmarkResult(
             count,
+            worldsDisplay,
             uniqueChunkReads,
             dedupRatio,
             maxLoadsPerTick,

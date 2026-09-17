@@ -29,7 +29,7 @@ public interface HomeService {
 
     CompletableFuture<Boolean> teleportSharedHome(Player player, UUID ownerUuid, String homeName);
 
-    CompletableFuture<BenchmarkResult> runBenchmark(Player player, int taskCount);
+    CompletableFuture<BenchmarkResult> runBenchmark(Player player, int taskCount, String targetWorldFilter);
 
     Optional<Home> getHome(UUID ownerUuid, String homeName);
 
