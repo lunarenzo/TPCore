@@ -1,0 +1,44 @@
+# TPCore - Back Module Configuration
+enabled: true
+warmup-seconds: 3
+cooldown-seconds: 10
+cancel-on-move: true
+cancel-on-damage: true
+max-history-depth: 5
+min-teleport-distance: 10.0
+track-teleports: true
+track-deaths: true
+track-portals: false
+persist-death-locations: true
+
+safety-checks:
+  prevent-unsafe-teleport: true
+  auto-adjust-hazard: true
+  hazard-search-radius: 5
+  prevent-nether-roof: true
+  max-nether-height: 128
+
+storage:
+  type: "SQLITE"
+
+# Module Messages (Alphabetically ordered keys)
+messages:
+  back-list-category-header: "<prefix><gray>Location History for <gold><category></gold> (Page <gold><page></gold>/<gold><maxpages></gold>):</gray>"
+  back-list-empty: "<prefix><yellow>No previous locations found.</yellow>"
+  back-list-header: "<prefix><gray>Your Location History (Page <gold><page></gold>/<gold><maxpages></gold>):</gray>"
+  back-list-item: "  <dark_gray>•</dark_gray> <green><cause></green> <gray>in</gray> <yellow><world></yellow> <gray>(<x>, <y>, <z>)</gray> <click:run_command:'/back <index>'><hover:show_text:'<green>Click to teleport</green><br><gray>Time: <yellow><time></yellow>'><gold>[Teleport]</gold></hover></click>"
+  cooldown-active: "<prefix><red>You must wait <gold><seconds>s</gold> before using /back again!</red>"
+  history-cleared: "<prefix><green>Your back location history has been cleared.</green>"
+  module-disabled: "<prefix><red>Back module is currently disabled.</red>"
+  no-back-location: "<prefix><red>You do not have a previous location to return to!</red>"
+  no-death-location: "<prefix><red>You do not have a recorded death location!</red>"
+  no-permission: "<prefix><red>You do not have permission to access back location!</red>"
+  only-players: "<prefix><red>Only players can execute this command!</red>"
+  prefix: "<gradient:#00D2FF:#3A7BD5><bold>TPCore</bold></gradient> <dark_gray>»</dark_gray> "
+  teleport-adjusted-hazard: "<prefix><yellow>Original location was dangerous (<hazard>). Safely adjusted target location!</yellow>"
+  teleport-success: "<prefix><green>Teleported back to your previous location!</green>"
+  unsafe-location: "<prefix><red>Target back location is unsafe or obstructed!</red>"
+  warmup-cancelled-damage: "<prefix><red>Teleport cancelled because you took damage!</red>"
+  warmup-cancelled-move: "<prefix><red>Teleport cancelled because you moved!</red>"
+  warmup-start: "<prefix><gray>Teleporting back in <gold><seconds></gold> seconds. <red>Do not move or take damage!</red></gray>"
+  world-not-loaded: "<prefix><red>Target world <yellow><world></yellow> is not currently loaded!</red>"

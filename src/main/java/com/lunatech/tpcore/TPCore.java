@@ -2,10 +2,12 @@ package com.lunatech.tpcore;
 
 import com.lunatech.tpcore.command.TPCoreAdminCommandRegistry;
 import com.lunatech.tpcore.config.ModularConfigManager;
+import com.lunatech.tpcore.config.model.BackConfig;
 import com.lunatech.tpcore.config.model.HomeConfig;
 import com.lunatech.tpcore.config.model.SpawnConfig;
 import com.lunatech.tpcore.config.model.TpaConfig;
 import com.lunatech.tpcore.config.model.WarpConfig;
+import com.lunatech.tpcore.module.back.BackModule;
 import com.lunatech.tpcore.module.home.HomeModule;
 import com.lunatech.tpcore.module.spawn.SpawnModule;
 import com.lunatech.tpcore.module.tpa.TpaModule;
@@ -20,6 +22,7 @@ public final class TPCore extends JavaPlugin {
     private SpawnModule spawnModule;
     private HomeModule homeModule;
     private WarpModule warpModule;
+    private BackModule backModule;
     private TPCoreAdminCommandRegistry adminCommandRegistry;
 
     @Override
@@ -50,6 +53,10 @@ public final class TPCore extends JavaPlugin {
         this.warpModule = new WarpModule(this, this.configManager, warpConfig);
         this.warpModule.enable();
 
+        BackConfig backConfig = this.configManager.loadModuleConfig("back", BackConfig.class, BackConfig.createDefault());
+        this.backModule = new BackModule(this, this.configManager, backConfig);
+        this.backModule.enable();
+
         this.adminCommandRegistry = new TPCoreAdminCommandRegistry(this, this.configManager, this.configManager::getCoreConfig);
         this.adminCommandRegistry.registerAll();
 
@@ -58,6 +65,9 @@ public final class TPCore extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        if (this.backModule != null) {
+            this.backModule.disable();
+        }
         if (this.warpModule != null) {
             this.warpModule.disable();
         }
