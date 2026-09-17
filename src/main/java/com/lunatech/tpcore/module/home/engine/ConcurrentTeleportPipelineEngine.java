@@ -105,7 +105,13 @@ public final class ConcurrentTeleportPipelineEngine {
             World world = targetWorlds.get(i % targetWorlds.size());
             int chunkOffset = i % uniqueChunksCount;
 
-            double targetY = Math.min(Math.max(playerLoc.getY(), world.getMinHeight() + 5), world.getMaxHeight() - 5);
+            double targetY;
+            if (i % 20 == 19 && world.getEnvironment() == World.Environment.NETHER) {
+                targetY = config.safetyChecks().maxNetherHeight() + 5;
+            } else {
+                targetY = Math.min(Math.max(playerLoc.getY(), world.getMinHeight() + 5), world.getMaxHeight() - 5);
+            }
+
             Location target = new Location(
                 world,
                 playerLoc.getBlockX() + (chunkOffset * 16) + 8,
@@ -113,7 +119,7 @@ public final class ConcurrentTeleportPipelineEngine {
                 playerLoc.getBlockZ() + 8
             );
 
-            if (isWorldRestricted(world.getName(), config) || target.getY() < world.getMinHeight() || target.getY() >= world.getMaxHeight()) {
+            if (!isPreFlightSafe(target, config)) {
                 failCounter.incrementAndGet();
                 continue;
             }
@@ -171,6 +177,30 @@ public final class ConcurrentTeleportPipelineEngine {
         });
     }
 
+    public boolean isPreFlightSafe(Location target, HomeConfig config) {
+        if (target == null || target.getWorld() == null) {
+            return false;
+        }
+
+        World world = target.getWorld();
+        if (isWorldRestricted(world.getName(), config)) {
+            return false;
+        }
+
+        if (target.getY() < world.getMinHeight() || target.getY() >= world.getMaxHeight()) {
+            return false;
+        }
+
+        HomeConfig.HomeSafetyConfig safety = config.safetyChecks();
+        if (safety.preventNetherRoof() && world.getEnvironment() == World.Environment.NETHER) {
+            if (target.getY() > safety.maxNetherHeight()) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     public CompletableFuture<Boolean> submitTeleport(Player player, Home home, Location target) {
         Objects.requireNonNull(player, "player cannot be null");
         Objects.requireNonNull(home, "home cannot be null");
@@ -178,26 +208,10 @@ public final class ConcurrentTeleportPipelineEngine {
 
         HomeConfig config = configSupplier.get();
 
-        if (isWorldRestricted(target.getWorld().getName(), config)) {
-            String msg = config.messages().prefix() + config.messages().worldRestricted();
-            player.sendMessage(miniMessage.deserialize(msg));
-            return CompletableFuture.completedFuture(false);
-        }
-
-        World world = target.getWorld();
-        if (world == null || target.getY() < world.getMinHeight() || target.getY() >= world.getMaxHeight()) {
+        if (!isPreFlightSafe(target, config)) {
             String msg = config.messages().prefix() + config.messages().unsafeLocation();
             player.sendMessage(miniMessage.deserialize(msg));
             return CompletableFuture.completedFuture(false);
-        }
-
-        HomeConfig.HomeSafetyConfig safety = config.safetyChecks();
-        if (safety.preventNetherRoof() && world.getEnvironment() == World.Environment.NETHER) {
-            if (target.getY() > safety.maxNetherHeight()) {
-                String msg = config.messages().prefix() + config.messages().unsafeLocation();
-                player.sendMessage(miniMessage.deserialize(msg));
-                return CompletableFuture.completedFuture(false);
-            }
         }
 
         CompletableFuture<Boolean> future = new CompletableFuture<>();
