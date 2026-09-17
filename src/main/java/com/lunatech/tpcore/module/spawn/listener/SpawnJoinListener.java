@@ -41,7 +41,12 @@ public final class SpawnJoinListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlayerMove(PlayerMoveEvent event) {
-        this.spawnService.handlePlayerMove(event.getPlayer());
+        if (!event.hasChangedPosition()) {
+            return;
+        }
+        if (event.hasChangedBlock()) {
+            this.spawnService.handlePlayerMove(event.getPlayer());
+        }
     }
 
     @EventHandler(priority = EventPriority.MONITOR)

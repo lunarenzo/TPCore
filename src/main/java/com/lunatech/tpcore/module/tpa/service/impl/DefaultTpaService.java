@@ -34,7 +34,8 @@ public final class DefaultTpaService implements TpaService {
 
     private record ActiveWarmup(
         UUID teleportingPlayerId,
-        Location startLocation
+        Location startLocation,
+        ScheduledTask task
     ) {}
 
     public DefaultTpaService(JavaPlugin plugin, TpaRepository repository, TpaConfig config) {
@@ -306,13 +307,16 @@ public final class DefaultTpaService implements TpaService {
 
     @Override
     public void handlePlayerMove(Player player) {
-        if (!this.config.cancelOnMove()) {
+        if (!this.config.cancelOnMove() || this.activeWarmups.isEmpty()) {
             return;
         }
         ActiveWarmup warmup = this.activeWarmups.get(player.getUniqueId());
         if (warmup != null) {
-            if (!warmup.startLocation().getWorld().equals(player.getWorld())
-                || warmup.startLocation().distanceSquared(player.getLocation()) > 0.25) {
+            Location start = warmup.startLocation();
+            Location current = player.getLocation();
+
+            if (start.getWorld() == null || !start.getWorld().equals(current.getWorld())
+                || start.distanceSquared(current) > 0.25) {
                 this.cancelWarmup(player.getUniqueId(), this.config.messages().warmupCancelledMove());
             }
         }
@@ -325,17 +329,19 @@ public final class DefaultTpaService implements TpaService {
             return;
         }
 
+        this.cancelWarmup(player.getUniqueId(), null);
+
         this.sendMessage(
             player,
             this.config.messages().warmupStart(),
             Placeholder.unparsed("seconds", String.valueOf(warmupSeconds))
         );
 
-        player.getScheduler().runDelayed(
+        ScheduledTask task = player.getScheduler().runDelayed(
             this.plugin,
-            task -> {
-                this.activeWarmups.remove(player.getUniqueId());
-                if (player.isOnline()) {
+            scheduledTask -> {
+                ActiveWarmup warmup = this.activeWarmups.remove(player.getUniqueId());
+                if (warmup != null && player.isOnline()) {
                     player.teleportAsync(targetLocation);
                 }
             },
@@ -343,15 +349,20 @@ public final class DefaultTpaService implements TpaService {
             warmupSeconds * 20L
         );
 
-        this.activeWarmups.put(
-            player.getUniqueId(),
-            new ActiveWarmup(player.getUniqueId(), player.getLocation().clone())
-        );
+        if (task != null) {
+            this.activeWarmups.put(
+                player.getUniqueId(),
+                new ActiveWarmup(player.getUniqueId(), player.getLocation().clone(), task)
+            );
+        }
     }
 
     private void cancelWarmup(UUID playerId, String cancelMessageTemplate) {
         ActiveWarmup warmup = this.activeWarmups.remove(playerId);
         if (warmup != null) {
+            if (warmup.task() != null) {
+                warmup.task().cancel();
+            }
             if (cancelMessageTemplate != null) {
                 Player player = Bukkit.getPlayer(playerId);
                 if (player != null && player.isOnline()) {
@@ -363,17 +374,19 @@ public final class DefaultTpaService implements TpaService {
 
     private void sendMessage(Player player, String template, TagResolver... resolvers) {
         TagResolver prefixResolver = Placeholder.parsed("prefix", this.config.messages().prefix());
-        TagResolver[] combinedResolvers = new TagResolver[resolvers.length + 1];
-        combinedResolvers[0] = prefixResolver;
-        System.arraycopy(resolvers, 0, combinedResolvers, 1, resolvers.length);
-
-        player.sendMessage(this.miniMessage.deserialize(template, combinedResolvers));
+        TagResolver combined = TagResolver.resolver(prefixResolver, TagResolver.resolver(resolvers));
+        player.sendMessage(this.miniMessage.deserialize(template, combined));
     }
 
     @Override
     public void shutdown() {
         if (this.sweeperTask != null) {
             this.sweeperTask.cancel();
+        }
+        for (ActiveWarmup warmup : this.activeWarmups.values()) {
+            if (warmup.task() != null) {
+                warmup.task().cancel();
+            }
         }
         this.activeWarmups.clear();
         this.repository.clear();
