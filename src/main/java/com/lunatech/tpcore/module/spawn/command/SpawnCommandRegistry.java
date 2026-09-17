@@ -1,10 +1,14 @@
 package com.lunatech.tpcore.module.spawn.command;
 
+import com.lunatech.tpcore.config.model.SpawnConfig;
 import com.lunatech.tpcore.constant.Permissions;
 import com.lunatech.tpcore.module.spawn.service.SpawnService;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import io.papermc.paper.command.brigadier.Commands;
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
+import net.kyori.adventure.text.minimessage.MiniMessage;
+import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
+import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -14,10 +18,14 @@ public final class SpawnCommandRegistry {
 
     private final JavaPlugin plugin;
     private final SpawnService spawnService;
+    private final SpawnConfig config;
+    private final MiniMessage miniMessage;
 
-    public SpawnCommandRegistry(JavaPlugin plugin, SpawnService spawnService) {
+    public SpawnCommandRegistry(JavaPlugin plugin, SpawnService spawnService, SpawnConfig config) {
         this.plugin = plugin;
         this.spawnService = spawnService;
+        this.config = config;
+        this.miniMessage = MiniMessage.miniMessage();
     }
 
     public void registerAll() {
@@ -29,16 +37,22 @@ public final class SpawnCommandRegistry {
                 Commands.literal("spawn")
                     .requires(src -> src.getSender().hasPermission(Permissions.SPAWN_USE))
                     .executes(ctx -> {
-                        if (ctx.getSource().getSender() instanceof Player player) {
+                        CommandSender sender = ctx.getSource().getSender();
+                        if (sender instanceof Player player) {
                             this.spawnService.teleportToSpawn(player, null);
+                        } else {
+                            this.sendOnlyPlayersMessage(sender);
                         }
                         return com.mojang.brigadier.Command.SINGLE_SUCCESS;
                     })
-                    .then(Commands.argument("world", StringArgumentType.word())
+                    .then(Commands.argument("world", StringArgumentType.string())
                         .executes(ctx -> {
-                            if (ctx.getSource().getSender() instanceof Player player) {
+                            CommandSender sender = ctx.getSource().getSender();
+                            if (sender instanceof Player player) {
                                 String worldName = StringArgumentType.getString(ctx, "world");
                                 this.spawnService.teleportToSpawn(player, worldName);
+                            } else {
+                                this.sendOnlyPlayersMessage(sender);
                             }
                             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
                         })
@@ -53,14 +67,18 @@ public final class SpawnCommandRegistry {
                 Commands.literal("setspawn")
                     .requires(src -> src.getSender().hasPermission(Permissions.SPAWN_SET))
                     .executes(ctx -> {
-                        if (ctx.getSource().getSender() instanceof Player player) {
+                        CommandSender sender = ctx.getSource().getSender();
+                        if (sender instanceof Player player) {
                             this.spawnService.setGlobalSpawn(player);
+                        } else {
+                            this.sendOnlyPlayersMessage(sender);
                         }
                         return com.mojang.brigadier.Command.SINGLE_SUCCESS;
                     })
-                    .then(Commands.argument("type", StringArgumentType.word())
+                    .then(Commands.argument("type", StringArgumentType.string())
                         .executes(ctx -> {
-                            if (ctx.getSource().getSender() instanceof Player player) {
+                            CommandSender sender = ctx.getSource().getSender();
+                            if (sender instanceof Player player) {
                                 String arg = StringArgumentType.getString(ctx, "type").toLowerCase();
                                 if (arg.equals("global")) {
                                     this.spawnService.setGlobalSpawn(player);
@@ -69,6 +87,8 @@ public final class SpawnCommandRegistry {
                                 } else {
                                     this.spawnService.setWorldSpawn(player, arg);
                                 }
+                            } else {
+                                this.sendOnlyPlayersMessage(sender);
                             }
                             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
                         })
@@ -83,14 +103,18 @@ public final class SpawnCommandRegistry {
                 Commands.literal("delspawn")
                     .requires(src -> src.getSender().hasPermission(Permissions.SPAWN_DEL))
                     .executes(ctx -> {
-                        if (ctx.getSource().getSender() instanceof Player player) {
+                        CommandSender sender = ctx.getSource().getSender();
+                        if (sender instanceof Player player) {
                             this.spawnService.deleteGlobalSpawn(player);
+                        } else {
+                            this.sendOnlyPlayersMessage(sender);
                         }
                         return com.mojang.brigadier.Command.SINGLE_SUCCESS;
                     })
-                    .then(Commands.argument("type", StringArgumentType.word())
+                    .then(Commands.argument("type", StringArgumentType.string())
                         .executes(ctx -> {
-                            if (ctx.getSource().getSender() instanceof Player player) {
+                            CommandSender sender = ctx.getSource().getSender();
+                            if (sender instanceof Player player) {
                                 String arg = StringArgumentType.getString(ctx, "type").toLowerCase();
                                 if (arg.equals("global")) {
                                     this.spawnService.deleteGlobalSpawn(player);
@@ -99,6 +123,8 @@ public final class SpawnCommandRegistry {
                                 } else {
                                     this.spawnService.deleteWorldSpawn(player, arg);
                                 }
+                            } else {
+                                this.sendOnlyPlayersMessage(sender);
                             }
                             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
                         })
@@ -108,5 +134,12 @@ public final class SpawnCommandRegistry {
                 List.of("removespawn")
             );
         });
+    }
+
+    private void sendOnlyPlayersMessage(CommandSender sender) {
+        sender.sendMessage(this.miniMessage.deserialize(
+            this.config.messages().onlyPlayers(),
+            Placeholder.parsed("prefix", this.config.messages().prefix())
+        ));
     }
 }

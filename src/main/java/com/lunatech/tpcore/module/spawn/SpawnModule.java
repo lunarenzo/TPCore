@@ -42,7 +42,7 @@ public final class SpawnModule {
         this.respawnListener = new SpawnRespawnListener(this.service, this.config);
         this.voidListener = new SpawnVoidListener(this.service, this.config);
 
-        this.commandRegistry = new SpawnCommandRegistry(this.plugin, this.service);
+        this.commandRegistry = new SpawnCommandRegistry(this.plugin, this.service, this.config);
 
         this.plugin.getServer().getPluginManager().registerEvents(this.joinListener, this.plugin);
         this.plugin.getServer().getPluginManager().registerEvents(this.respawnListener, this.plugin);

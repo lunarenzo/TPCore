@@ -34,9 +34,25 @@ public final class DefaultTpaService implements TpaService {
 
     private record ActiveWarmup(
         UUID teleportingPlayerId,
-        Location startLocation,
+        String worldName,
+        double startX,
+        double startY,
+        double startZ,
         ScheduledTask task
-    ) {}
+    ) {
+        public boolean hasMoved(Location currentLoc) {
+            if (currentLoc == null || currentLoc.getWorld() == null) {
+                return true;
+            }
+            if (!this.worldName.equals(currentLoc.getWorld().getName())) {
+                return true;
+            }
+            double dx = currentLoc.getX() - this.startX;
+            double dy = currentLoc.getY() - this.startY;
+            double dz = currentLoc.getZ() - this.startZ;
+            return (dx * dx + dy * dy + dz * dz) > 0.25;
+        }
+    }
 
     public DefaultTpaService(JavaPlugin plugin, TpaRepository repository, TpaConfig config) {
         this.plugin = plugin;
@@ -311,20 +327,17 @@ public final class DefaultTpaService implements TpaService {
             return;
         }
         ActiveWarmup warmup = this.activeWarmups.get(player.getUniqueId());
-        if (warmup != null) {
-            Location start = warmup.startLocation();
-            Location current = player.getLocation();
-
-            if (start.getWorld() == null || !start.getWorld().equals(current.getWorld())
-                || start.distanceSquared(current) > 0.25) {
-                this.cancelWarmup(player.getUniqueId(), this.config.messages().warmupCancelledMove());
-            }
+        if (warmup != null && warmup.hasMoved(player.getLocation())) {
+            this.cancelWarmup(player.getUniqueId(), this.config.messages().warmupCancelledMove());
         }
     }
 
     private void executeTeleportSequence(Player player, Location targetLocation) {
         int warmupSeconds = this.config.warmupSeconds();
         if (warmupSeconds <= 0 || player.hasPermission(Permissions.TPA_BYPASS_WARMUP)) {
+            if (player.isInsideVehicle()) {
+                player.leaveVehicle();
+            }
             player.teleportAsync(targetLocation);
             return;
         }
@@ -337,11 +350,15 @@ public final class DefaultTpaService implements TpaService {
             Placeholder.unparsed("seconds", String.valueOf(warmupSeconds))
         );
 
+        Location currentLoc = player.getLocation();
         ScheduledTask task = player.getScheduler().runDelayed(
             this.plugin,
             scheduledTask -> {
                 ActiveWarmup warmup = this.activeWarmups.remove(player.getUniqueId());
                 if (warmup != null && player.isOnline()) {
+                    if (player.isInsideVehicle()) {
+                        player.leaveVehicle();
+                    }
                     player.teleportAsync(targetLocation);
                 }
             },
@@ -352,7 +369,14 @@ public final class DefaultTpaService implements TpaService {
         if (task != null) {
             this.activeWarmups.put(
                 player.getUniqueId(),
-                new ActiveWarmup(player.getUniqueId(), player.getLocation().clone(), task)
+                new ActiveWarmup(
+                    player.getUniqueId(),
+                    currentLoc.getWorld().getName(),
+                    currentLoc.getX(),
+                    currentLoc.getY(),
+                    currentLoc.getZ(),
+                    task
+                )
             );
         }
     }

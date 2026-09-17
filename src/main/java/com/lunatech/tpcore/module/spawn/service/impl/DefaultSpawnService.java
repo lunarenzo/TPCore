@@ -36,9 +36,25 @@ public final class DefaultSpawnService implements SpawnService {
 
     private record ActiveWarmup(
         UUID playerId,
-        Location startLocation,
+        String worldName,
+        double startX,
+        double startY,
+        double startZ,
         ScheduledTask task
-    ) {}
+    ) {
+        public boolean hasMoved(Location currentLoc) {
+            if (currentLoc == null || currentLoc.getWorld() == null) {
+                return true;
+            }
+            if (!this.worldName.equals(currentLoc.getWorld().getName())) {
+                return true;
+            }
+            double dx = currentLoc.getX() - this.startX;
+            double dy = currentLoc.getY() - this.startY;
+            double dz = currentLoc.getZ() - this.startZ;
+            return (dx * dx + dy * dy + dz * dz) > 0.25;
+        }
+    }
 
     public DefaultSpawnService(JavaPlugin plugin, SpawnRepository repository, SpawnConfig config) {
         this.plugin = plugin;
@@ -54,7 +70,7 @@ public final class DefaultSpawnService implements SpawnService {
             Optional<SpawnLocation> worldSpawn = this.repository.getWorldSpawn(worldName);
             if (worldSpawn.isPresent()) {
                 Location loc = worldSpawn.get().toBukkit();
-                if (loc != null) {
+                if (loc != null && loc.getWorld() != null) {
                     return Optional.of(loc);
                 }
             }
@@ -63,17 +79,21 @@ public final class DefaultSpawnService implements SpawnService {
         Optional<SpawnLocation> globalSpawn = this.repository.getGlobalSpawn();
         if (globalSpawn.isPresent()) {
             Location loc = globalSpawn.get().toBukkit();
-            if (loc != null) {
+            if (loc != null && loc.getWorld() != null) {
                 return Optional.of(loc);
             }
         }
 
-        // Fallback to vanilla world spawn if world is valid
+        // Fallback to target world spawn or main world spawn
         if (worldName != null && !worldName.isBlank()) {
             World world = Bukkit.getWorld(worldName);
             if (world != null) {
                 return Optional.of(world.getSpawnLocation());
             }
+        }
+
+        if (!Bukkit.getWorlds().isEmpty()) {
+            return Optional.of(Bukkit.getWorlds().get(0).getSpawnLocation());
         }
 
         return Optional.empty();
@@ -128,6 +148,7 @@ public final class DefaultSpawnService implements SpawnService {
             Placeholder.unparsed("seconds", String.valueOf(warmupSeconds))
         );
 
+        Location currentLoc = player.getLocation();
         ScheduledTask task = player.getScheduler().runDelayed(
             this.plugin,
             scheduledTask -> {
@@ -143,12 +164,22 @@ public final class DefaultSpawnService implements SpawnService {
         if (task != null) {
             this.activeWarmups.put(
                 player.getUniqueId(),
-                new ActiveWarmup(player.getUniqueId(), player.getLocation().clone(), task)
+                new ActiveWarmup(
+                    player.getUniqueId(),
+                    currentLoc.getWorld().getName(),
+                    currentLoc.getX(),
+                    currentLoc.getY(),
+                    currentLoc.getZ(),
+                    task
+                )
             );
         }
     }
 
     private void executeTeleport(Player player, Location targetLocation) {
+        if (player.isInsideVehicle()) {
+            player.leaveVehicle();
+        }
         synchronized (this.cooldownLock) {
             this.cooldowns.put(player.getUniqueId(), System.currentTimeMillis());
         }
@@ -216,14 +247,8 @@ public final class DefaultSpawnService implements SpawnService {
             return;
         }
         ActiveWarmup warmup = this.activeWarmups.get(player.getUniqueId());
-        if (warmup != null) {
-            Location start = warmup.startLocation();
-            Location current = player.getLocation();
-
-            if (start.getWorld() == null || !start.getWorld().equals(current.getWorld())
-                || start.distanceSquared(current) > 0.25) {
-                this.cancelWarmup(player.getUniqueId(), this.config.messages().warmupCancelledMove());
-            }
+        if (warmup != null && warmup.hasMoved(player.getLocation())) {
+            this.cancelWarmup(player.getUniqueId(), this.config.messages().warmupCancelledMove());
         }
     }
 
@@ -254,6 +279,10 @@ public final class DefaultSpawnService implements SpawnService {
             .orElseGet(() -> player.getWorld().getSpawnLocation());
 
         this.sendMessage(player, this.config.messages().voidRescued());
+
+        if (player.isInsideVehicle()) {
+            player.leaveVehicle();
+        }
 
         player.teleportAsync(dest).thenAccept(success -> {
             player.getScheduler().runDelayed(this.plugin, task -> {
