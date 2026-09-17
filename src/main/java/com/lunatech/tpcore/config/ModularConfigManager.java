@@ -70,18 +70,10 @@ public final class ModularConfigManager {
         Path file = this.dataDirectory.resolve("config.yml");
         this.extractResourceIfMissing("config.yml", file);
 
-        YamlConfigurationLoader loader = YamlConfigurationLoader.builder()
-            .path(file)
-            .nodeStyle(NodeStyle.BLOCK)
-            .build();
-
         try {
-            CommentedConfigurationNode root = loader.load();
-            CoreConfig result = root.get(CoreConfig.class);
-            if (result != null) {
-                this.coreConfigRef.set(result);
-                return result;
-            }
+            CoreConfig result = this.loadAndMergeConfig(file, CoreConfig.class, CoreConfig.createDefault());
+            this.coreConfigRef.set(result);
+            return result;
         } catch (ConfigurateException e) {
             this.logger.error("Error parsing root configuration config.yml. Falling back to default settings.", e);
         }
@@ -97,18 +89,10 @@ public final class ModularConfigManager {
             this.extractResourceIfMissing("config.yml", file);
         }
 
-        YamlConfigurationLoader loader = YamlConfigurationLoader.builder()
-            .path(file)
-            .nodeStyle(NodeStyle.BLOCK)
-            .build();
-
         try {
-            CommentedConfigurationNode root = loader.load();
-            CoreConfig newConfig = root.get(CoreConfig.class);
-            if (newConfig != null) {
-                this.coreConfigRef.set(newConfig);
-                return true;
-            }
+            CoreConfig newConfig = this.loadAndMergeConfig(file, CoreConfig.class, CoreConfig.createDefault());
+            this.coreConfigRef.set(newConfig);
+            return true;
         } catch (ConfigurateException e) {
             this.logger.error("Failed to reload root configuration config.yml. Retaining previous configuration.", e);
         }
@@ -161,17 +145,8 @@ public final class ModularConfigManager {
         Path file = this.modulesDirectory.resolve(moduleName + ".yml");
         this.extractResourceIfMissing("modules/" + moduleName + ".yml", file);
 
-        YamlConfigurationLoader loader = YamlConfigurationLoader.builder()
-            .path(file)
-            .nodeStyle(NodeStyle.BLOCK)
-            .build();
-
         try {
-            CommentedConfigurationNode root = loader.load();
-            T result = root.get(configClass);
-            if (result != null) {
-                return result;
-            }
+            return this.loadAndMergeConfig(file, configClass, defaultConfig);
         } catch (ConfigurateException e) {
             this.logger.error("Error parsing module configuration {}.yml. Falling back to default settings.", moduleName, e);
         }
@@ -179,22 +154,33 @@ public final class ModularConfigManager {
         return defaultConfig;
     }
 
-    public <T> T tryLoadModuleConfig(String moduleName, Class<T> configClass) throws ConfigurateException {
+    public <T> T tryLoadModuleConfig(String moduleName, Class<T> configClass, T defaultConfig) throws ConfigurateException {
         Path file = this.modulesDirectory.resolve(moduleName + ".yml");
         if (!Files.exists(file)) {
             this.extractResourceIfMissing("modules/" + moduleName + ".yml", file);
         }
         if (!Files.exists(file)) {
-            return null;
+            return defaultConfig;
         }
 
+        return this.loadAndMergeConfig(file, configClass, defaultConfig);
+    }
+
+    private <T> T loadAndMergeConfig(Path file, Class<T> configClass, T defaultConfig) throws ConfigurateException {
         YamlConfigurationLoader loader = YamlConfigurationLoader.builder()
             .path(file)
             .nodeStyle(NodeStyle.BLOCK)
             .build();
 
-        CommentedConfigurationNode root = loader.load();
-        return root.get(configClass);
+        CommentedConfigurationNode rootNode = loader.load();
+        CommentedConfigurationNode defaultNode = CommentedConfigurationNode.root();
+        defaultNode.set(configClass, defaultConfig);
+
+        defaultNode.mergeFrom(rootNode);
+        loader.save(defaultNode);
+
+        T result = defaultNode.get(configClass);
+        return (result != null) ? result : defaultConfig;
     }
 
     private void extractResourceIfMissing(String resourcePath, Path targetPath) {

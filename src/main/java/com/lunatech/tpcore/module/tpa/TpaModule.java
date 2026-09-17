@@ -37,7 +37,7 @@ public final class TpaModule implements ReloadableModule {
     @Override
     public boolean reloadConfig() {
         try {
-            TpaConfig newConfig = this.configManager.tryLoadModuleConfig("tpa", TpaConfig.class);
+            TpaConfig newConfig = this.configManager.tryLoadModuleConfig("tpa", TpaConfig.class, TpaConfig.createDefault());
             if (newConfig != null) {
                 this.config = newConfig;
                 if (this.service != null) {

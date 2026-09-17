@@ -41,7 +41,7 @@ public final class SpawnModule implements ReloadableModule {
     @Override
     public boolean reloadConfig() {
         try {
-            SpawnConfig newConfig = this.configManager.tryLoadModuleConfig("spawn", SpawnConfig.class);
+            SpawnConfig newConfig = this.configManager.tryLoadModuleConfig("spawn", SpawnConfig.class, SpawnConfig.createDefault());
             if (newConfig != null) {
                 this.config = newConfig;
                 if (this.service != null) {
