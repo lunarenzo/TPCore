@@ -24,6 +24,7 @@ public final class YamlSpawnRepository implements SpawnRepository {
     private final Path dataFile;
     private final Logger logger;
     private final YamlConfigurationLoader loader;
+    private final Object fileLock = new Object();
 
     private final AtomicReference<SpawnLocation> globalSpawn = new AtomicReference<>(null);
     private final Map<String, SpawnLocation> worldSpawns = new ConcurrentHashMap<>();
@@ -85,35 +86,37 @@ public final class YamlSpawnRepository implements SpawnRepository {
     }
 
     @Override
-    public synchronized void load() {
-        if (!Files.exists(this.dataFile)) {
-            return;
-        }
-
-        try {
-            CommentedConfigurationNode root = this.loader.load();
-
-            CommentedConfigurationNode globalNode = root.node("global-spawn");
-            if (!globalNode.virtual()) {
-                SpawnLocation globalLoc = globalNode.get(SpawnLocation.class);
-                this.globalSpawn.set(globalLoc);
-            } else {
-                this.globalSpawn.set(null);
+    public void load() {
+        synchronized (this.fileLock) {
+            if (!Files.exists(this.dataFile)) {
+                return;
             }
 
-            this.worldSpawns.clear();
-            CommentedConfigurationNode worldsNode = root.node("world-spawns");
-            if (!worldsNode.virtual() && worldsNode.isMap()) {
-                for (Map.Entry<Object, ? extends CommentedConfigurationNode> entry : worldsNode.childrenMap().entrySet()) {
-                    String world = String.valueOf(entry.getKey());
-                    SpawnLocation loc = entry.getValue().get(SpawnLocation.class);
-                    if (loc != null) {
-                        this.worldSpawns.put(world.toLowerCase(), loc);
+            try {
+                CommentedConfigurationNode root = this.loader.load();
+
+                CommentedConfigurationNode globalNode = root.node("global-spawn");
+                if (!globalNode.virtual()) {
+                    SpawnLocation globalLoc = globalNode.get(SpawnLocation.class);
+                    this.globalSpawn.set(globalLoc);
+                } else {
+                    this.globalSpawn.set(null);
+                }
+
+                this.worldSpawns.clear();
+                CommentedConfigurationNode worldsNode = root.node("world-spawns");
+                if (!worldsNode.virtual() && worldsNode.isMap()) {
+                    for (Map.Entry<Object, ? extends CommentedConfigurationNode> entry : worldsNode.childrenMap().entrySet()) {
+                        String world = String.valueOf(entry.getKey());
+                        SpawnLocation loc = entry.getValue().get(SpawnLocation.class);
+                        if (loc != null) {
+                            this.worldSpawns.put(world.toLowerCase(), loc);
+                        }
                     }
                 }
+            } catch (ConfigurateException e) {
+                this.logger.error("Failed to load spawn locations from {}", this.dataFile, e);
             }
-        } catch (ConfigurateException e) {
-            this.logger.error("Failed to load spawn locations from {}", this.dataFile, e);
         }
     }
 
@@ -122,23 +125,25 @@ public final class YamlSpawnRepository implements SpawnRepository {
     }
 
     @Override
-    public synchronized void save() {
-        try {
-            CommentedConfigurationNode root = this.loader.createNode();
+    public void save() {
+        synchronized (this.fileLock) {
+            try {
+                CommentedConfigurationNode root = this.loader.createNode();
 
-            SpawnLocation globalLoc = this.globalSpawn.get();
-            if (globalLoc != null) {
-                root.node("global-spawn").set(SpawnLocation.class, globalLoc);
+                SpawnLocation globalLoc = this.globalSpawn.get();
+                if (globalLoc != null) {
+                    root.node("global-spawn").set(SpawnLocation.class, globalLoc);
+                }
+
+                CommentedConfigurationNode worldsNode = root.node("world-spawns");
+                for (Map.Entry<String, SpawnLocation> entry : this.worldSpawns.entrySet()) {
+                    worldsNode.node(entry.getKey()).set(SpawnLocation.class, entry.getValue());
+                }
+
+                this.loader.save(root);
+            } catch (ConfigurateException e) {
+                this.logger.error("Failed to save spawn locations to {}", this.dataFile, e);
             }
-
-            CommentedConfigurationNode worldsNode = root.node("world-spawns");
-            for (Map.Entry<String, SpawnLocation> entry : this.worldSpawns.entrySet()) {
-                worldsNode.node(entry.getKey()).set(SpawnLocation.class, entry.getValue());
-            }
-
-            this.loader.save(root);
-        } catch (ConfigurateException e) {
-            this.logger.error("Failed to save spawn locations to {}", this.dataFile, e);
         }
     }
 }

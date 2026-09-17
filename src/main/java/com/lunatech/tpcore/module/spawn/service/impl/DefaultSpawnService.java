@@ -12,11 +12,13 @@ import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.World;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -28,6 +30,7 @@ public final class DefaultSpawnService implements SpawnService {
     private final MiniMessage miniMessage;
 
     private final Map<UUID, ActiveWarmup> activeWarmups = new ConcurrentHashMap<>();
+    private final Set<UUID> pendingVoidRescues = ConcurrentHashMap.newKeySet();
     private final Object2LongOpenHashMap<UUID> cooldowns = new Object2LongOpenHashMap<>();
     private final Object cooldownLock = new Object();
 
@@ -62,6 +65,14 @@ public final class DefaultSpawnService implements SpawnService {
             Location loc = globalSpawn.get().toBukkit();
             if (loc != null) {
                 return Optional.of(loc);
+            }
+        }
+
+        // Fallback to vanilla world spawn if world is valid
+        if (worldName != null && !worldName.isBlank()) {
+            World world = Bukkit.getWorld(worldName);
+            if (world != null) {
+                return Optional.of(world.getSpawnLocation());
             }
         }
 
@@ -201,7 +212,7 @@ public final class DefaultSpawnService implements SpawnService {
 
     @Override
     public void handlePlayerMove(Player player) {
-        if (!this.config.cancelOnMove()) {
+        if (!this.config.cancelOnMove() || this.activeWarmups.isEmpty()) {
             return;
         }
         ActiveWarmup warmup = this.activeWarmups.get(player.getUniqueId());
@@ -226,6 +237,7 @@ public final class DefaultSpawnService implements SpawnService {
     @Override
     public void handlePlayerQuit(UUID playerId) {
         this.cancelWarmup(playerId, null);
+        this.pendingVoidRescues.remove(playerId);
         synchronized (this.cooldownLock) {
             this.cooldowns.remove(playerId);
         }
@@ -233,16 +245,21 @@ public final class DefaultSpawnService implements SpawnService {
 
     @Override
     public void rescueFromVoid(Player player) {
-        if (!this.config.voidFallProtection()) {
+        if (!this.config.voidFallProtection() || !this.pendingVoidRescues.add(player.getUniqueId())) {
             return;
         }
 
         player.setFallDistance(0.0f);
-        Optional<Location> spawnLocOpt = this.getEffectiveSpawnLocation(player.getWorld().getName());
-        if (spawnLocOpt.isPresent()) {
-            player.teleportAsync(spawnLocOpt.get());
-            this.sendMessage(player, this.config.messages().voidRescued());
-        }
+        Location dest = this.getEffectiveSpawnLocation(player.getWorld().getName())
+            .orElseGet(() -> player.getWorld().getSpawnLocation());
+
+        this.sendMessage(player, this.config.messages().voidRescued());
+
+        player.teleportAsync(dest).thenAccept(success -> {
+            player.getScheduler().runDelayed(this.plugin, task -> {
+                this.pendingVoidRescues.remove(player.getUniqueId());
+            }, null, 40L);
+        });
     }
 
     private void cancelWarmup(UUID playerId, String cancelMessageTemplate) {
@@ -279,6 +296,7 @@ public final class DefaultSpawnService implements SpawnService {
             }
         }
         this.activeWarmups.clear();
+        this.pendingVoidRescues.clear();
         synchronized (this.cooldownLock) {
             this.cooldowns.clear();
         }
