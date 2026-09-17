@@ -3,6 +3,7 @@ package com.lunatech.tpcore.module.home.service.impl;
 import com.lunatech.tpcore.config.model.HomeConfig;
 import com.lunatech.tpcore.constant.Permissions;
 import com.lunatech.tpcore.module.home.cache.HomeCache;
+import com.lunatech.tpcore.module.home.engine.ConcurrentTeleportPipelineEngine;
 import com.lunatech.tpcore.module.home.model.Home;
 import com.lunatech.tpcore.module.home.repository.HomeRepository;
 import com.lunatech.tpcore.module.home.service.HomeResultStatus;
@@ -22,8 +23,6 @@ import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.World;
-import org.bukkit.block.Block;
-import org.bukkit.block.BlockFace;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.HandlerList;
@@ -40,6 +39,7 @@ public final class DefaultHomeService implements HomeService, Listener {
     private final HomeRepository repository;
     private final HomeCache cache;
     private final Supplier<HomeConfig> configSupplier;
+    private final ConcurrentTeleportPipelineEngine pipelineEngine;
     private final MiniMessage miniMessage = MiniMessage.miniMessage();
     private final Map<UUID, Long> cooldownMap = new ConcurrentHashMap<>();
     private final Map<UUID, ActiveWarmup> activeWarmups = new ConcurrentHashMap<>();
@@ -51,6 +51,7 @@ public final class DefaultHomeService implements HomeService, Listener {
         this.repository = Objects.requireNonNull(repository, "repository cannot be null");
         this.cache = Objects.requireNonNull(cache, "cache cannot be null");
         this.configSupplier = Objects.requireNonNull(configSupplier, "configSupplier cannot be null");
+        this.pipelineEngine = new ConcurrentTeleportPipelineEngine(plugin, configSupplier);
 
         Bukkit.getPluginManager().registerEvents(this, plugin);
     }
@@ -252,8 +253,7 @@ public final class DefaultHomeService implements HomeService, Listener {
             if (optHome.isEmpty()) {
                 return CompletableFuture.completedFuture(false);
             }
-            return supplyOnPlayerThread(player, () -> optHome.get())
-                .thenCompose(home -> executeTeleport(player, home));
+            return executeTeleport(player, optHome.get());
         });
     }
 
@@ -272,8 +272,7 @@ public final class DefaultHomeService implements HomeService, Listener {
             if (optHome.isEmpty() || !optHome.get().isSharedWith(player.getUniqueId())) {
                 return CompletableFuture.completedFuture(false);
             }
-            return supplyOnPlayerThread(player, () -> optHome.get())
-                .thenCompose(home -> executeTeleport(player, home));
+            return executeTeleport(player, optHome.get());
         });
     }
 
@@ -324,33 +323,7 @@ public final class DefaultHomeService implements HomeService, Listener {
 
     @Override
     public boolean isLocationSafe(Location location) {
-        if (location == null || location.getWorld() == null) {
-            return false;
-        }
-
-        World world = location.getWorld();
-        if (location.getY() < world.getMinHeight() || location.getY() >= world.getMaxHeight()) {
-            return false;
-        }
-
-        HomeConfig config = configSupplier.get();
-        HomeConfig.HomeSafetyConfig safety = config.safetyChecks();
-
-        if (safety.preventNetherRoof() && world.getEnvironment() == World.Environment.NETHER) {
-            if (location.getY() > safety.maxNetherHeight()) {
-                return false;
-            }
-        }
-
-        if (!safety.preventUnsafeTeleport()) {
-            return true;
-        }
-
-        Block feet = location.getBlock();
-        Block head = feet.getRelative(BlockFace.UP);
-        Block ground = feet.getRelative(BlockFace.DOWN);
-
-        return feet.isPassable() && head.isPassable() && !feet.isLiquid() && !head.isLiquid() && !ground.isPassable();
+        return pipelineEngine.isLocationSafe(location);
     }
 
     public long getRemainingCooldownSeconds(Player player) {
@@ -370,6 +343,7 @@ public final class DefaultHomeService implements HomeService, Listener {
         });
         activeWarmups.clear();
         cooldownMap.clear();
+        pipelineEngine.close();
     }
 
     private CompletableFuture<Boolean> executeTeleport(Player player, Home home) {
@@ -389,91 +363,39 @@ public final class DefaultHomeService implements HomeService, Listener {
         }
 
         Location target = new Location(world, home.x(), home.y(), home.z(), home.yaw(), home.pitch());
+        int warmup = config.warmupSeconds();
+        int cooldown = config.cooldownSeconds();
 
-        return ensureChunkLoaded(target).thenCompose(v -> supplyOnPlayerThread(player, () -> {
-            if (!isLocationSafe(target)) {
-                String msg = config.messages().prefix() + config.messages().unsafeLocation();
-                player.sendMessage(miniMessage.deserialize(msg));
-                return false;
-            }
-
-            int warmup = config.warmupSeconds();
-            int cooldown = config.cooldownSeconds();
-
-            ActiveWarmup existing = activeWarmups.remove(uuid);
-            if (existing != null) {
-                cancelScheduledTask(existing.scheduledTask());
-                existing.future().complete(false);
-            }
-
-            if (warmup <= 0 || player.hasPermission(Permissions.HOME_BYPASS_WARMUP)) {
-                if (cooldown > 0 && !player.hasPermission(Permissions.HOME_BYPASS_COOLDOWN)) {
-                    cooldownMap.put(uuid, System.currentTimeMillis() + (cooldown * 1000L));
-                }
-                String msg = config.messages().prefix() + config.messages().teleportSuccess();
-                player.sendMessage(miniMessage.deserialize(msg, Placeholder.parsed("home", home.name())));
-                player.teleportAsync(target);
-                return true;
-            }
-
-            CompletableFuture<Boolean> future = new CompletableFuture<>();
-            String warmupMsg = config.messages().prefix() + config.messages().warmupStart();
-            player.sendMessage(miniMessage.deserialize(
-                warmupMsg,
-                Placeholder.parsed("home", home.name()),
-                Placeholder.parsed("seconds", String.valueOf(warmup))
-            ));
-
-            Object task = schedulePlayerTask(player, warmup * 20L, () -> {
-                activeWarmups.remove(uuid);
-                if (cooldown > 0 && !player.hasPermission(Permissions.HOME_BYPASS_COOLDOWN)) {
-                    cooldownMap.put(uuid, System.currentTimeMillis() + (cooldown * 1000L));
-                }
-                String successMsg = config.messages().prefix() + config.messages().teleportSuccess();
-                player.sendMessage(miniMessage.deserialize(successMsg, Placeholder.parsed("home", home.name())));
-                player.teleportAsync(target).thenAccept(future::complete);
-            });
-
-            activeWarmups.put(uuid, new ActiveWarmup(player.getLocation().clone(), future, task));
-            return true;
-        }).thenCompose(b -> {
-            if (b instanceof Boolean bool && !bool) {
-                return CompletableFuture.completedFuture(false);
-            }
-            return CompletableFuture.completedFuture(true);
-        }));
-    }
-
-    private CompletableFuture<Void> ensureChunkLoaded(Location target) {
-        World world = target.getWorld();
-        if (world == null) {
-            return CompletableFuture.completedFuture(null);
+        ActiveWarmup existing = activeWarmups.remove(uuid);
+        if (existing != null) {
+            cancelScheduledTask(existing.scheduledTask());
+            existing.future().complete(false);
         }
-        int chunkX = target.getBlockX() >> 4;
-        int chunkZ = target.getBlockZ() >> 4;
-        if (world.isChunkLoaded(chunkX, chunkZ)) {
-            return CompletableFuture.completedFuture(null);
-        }
-        return world.getChunkAtAsync(target).thenAccept(chunk -> {});
-    }
 
-    private void runOnPlayerThread(Player player, Runnable runnable) {
-        try {
-            player.getScheduler().run(plugin, task -> runnable.run(), null);
-        } catch (NoSuchMethodError | Exception e) {
-            Bukkit.getScheduler().runTask(plugin, runnable);
-        }
-    }
-
-    private <T> CompletableFuture<T> supplyOnPlayerThread(Player player, Supplier<T> supplier) {
-        CompletableFuture<T> future = new CompletableFuture<>();
-        runOnPlayerThread(player, () -> {
-            try {
-                future.complete(supplier.get());
-            } catch (Throwable t) {
-                future.completeExceptionally(t);
+        if (warmup <= 0 || player.hasPermission(Permissions.HOME_BYPASS_WARMUP)) {
+            if (cooldown > 0 && !player.hasPermission(Permissions.HOME_BYPASS_COOLDOWN)) {
+                cooldownMap.put(uuid, System.currentTimeMillis() + (cooldown * 1000L));
             }
+            return pipelineEngine.submitTeleport(player, home, target);
+        }
+
+        CompletableFuture<Boolean> future = new CompletableFuture<>();
+        String warmupMsg = config.messages().prefix() + config.messages().warmupStart();
+        player.sendMessage(miniMessage.deserialize(
+            warmupMsg,
+            Placeholder.parsed("home", home.name()),
+            Placeholder.parsed("seconds", String.valueOf(warmup))
+        ));
+
+        Object task = schedulePlayerTask(player, warmup * 20L, () -> {
+            activeWarmups.remove(uuid);
+            if (cooldown > 0 && !player.hasPermission(Permissions.HOME_BYPASS_COOLDOWN)) {
+                cooldownMap.put(uuid, System.currentTimeMillis() + (cooldown * 1000L));
+            }
+            pipelineEngine.submitTeleport(player, home, target).thenAccept(future::complete);
         });
+
+        activeWarmups.put(uuid, new ActiveWarmup(player.getLocation().clone(), future, task));
         return future;
     }
 

@@ -73,10 +73,11 @@ public record HomeConfig(
     public record HomeSafetyConfig(
         boolean preventUnsafeTeleport,
         boolean preventNetherRoof,
-        int maxNetherHeight
+        int maxNetherHeight,
+        int maxConcurrentChunkLoads
     ) {
         public static HomeSafetyConfig createDefault() {
-            return new HomeSafetyConfig(true, true, 128);
+            return new HomeSafetyConfig(true, true, 128, 8);
         }
     }
 
