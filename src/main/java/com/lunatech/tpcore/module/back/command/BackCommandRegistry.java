@@ -202,8 +202,9 @@ public final class BackCommandRegistry {
             String timeAgo = formatTimeAgo(now - loc.timestamp());
             String causeName = loc.cause() != null ? loc.cause().name() : "TELEPORT";
 
+            String rawItemPattern = config.messages().backListItem().replace("<index>", String.valueOf(i));
             Component item = miniMessage.deserialize(
-                config.messages().backListItem(),
+                rawItemPattern,
                 Placeholder.unparsed("index", String.valueOf(i)),
                 Placeholder.unparsed("cause", causeName),
                 Placeholder.unparsed("world", loc.worldName()),
@@ -214,6 +215,7 @@ public final class BackCommandRegistry {
             );
             sender.sendMessage(item);
         }
+
 
         return com.mojang.brigadier.Command.SINGLE_SUCCESS;
     }
