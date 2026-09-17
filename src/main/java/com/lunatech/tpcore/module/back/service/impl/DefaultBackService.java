@@ -271,14 +271,15 @@ public final class DefaultBackService implements BackService {
         Optional<BackLocation> lastOpt = cache.peekLastLocation(uuid);
         if (lastOpt.isPresent()) {
             BackLocation last = lastOpt.get();
-            if (Objects.equals(last.worldId(), location.getWorld().getUID())) {
-                double distSq = location.distanceSquared(new Location(location.getWorld(), last.x(), last.y(), last.z()));
+            if (last.isSameWorld(location.getWorld().getUID(), location.getWorld().getName())) {
+                double distSq = last.distanceSquared(location.getX(), location.getY(), location.getZ());
                 double minDist = config.minTeleportDistance();
                 if (distSq < (minDist * minDist)) {
                     return;
                 }
             }
         }
+
 
         BackLocation backLoc = new BackLocation(
             location.getWorld().getUID(),
