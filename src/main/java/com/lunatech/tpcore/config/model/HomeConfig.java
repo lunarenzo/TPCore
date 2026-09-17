@@ -95,6 +95,7 @@ public record HomeConfig(
     public record HomeMessages(
         String alreadyShared,
         String benchmarkHeader,
+        String benchmarkReportSaved,
         String benchmarkResults,
         String cooldownActive,
         String delHomeSuccess,
@@ -129,6 +130,7 @@ public record HomeConfig(
             return new HomeMessages(
                 "<prefix><red>Home <yellow><home></yellow> is already shared with <green><target></green>!</red>",
                 "<prefix><gradient:#00D2FF:#3A7BD5><bold>CTCPE Engine Full Benchmark Running...</bold></gradient> <gray>(Simulating <gold><count></gold> sethome/home/delhome operations across <yellow><worlds></yellow>...)</gray>",
+                "<prefix><gray>Diagnostic report file saved to: <gold><path></gold></gray>",
                 "<prefix><green><bold>CTCPE Full Benchmark Complete!</bold></green><br><gray>• Tasks: <gold><total></gold> across <yellow><worlds></yellow> | Dedup Ratio: <gold><dedup>%</gold> (<gold><unique></gold> unique chunk reads)</gray><br><gray>• DB Writes (sethome): <gold><dbwrite>ms</gold> | DB Deletes (delhome): <gold><dbdel>ms</gold></gray><br><gray>• Real Chunk Disk I/O: <gold><time>ms</gold> over <gold><batches></gold> tick batches (<gold><cap></gold> loads/tick)</gray><br><gray>• Processing Overhead: <gold><mspt> mspt</gold> (<green>20.0 TPS</green>)</gray><br><gray>• Safe Ground / Safe Landing: <green><success></green> safe | <red><fail></red> unsafe/rejected</gray>",
                 "<prefix><red>You must wait <gold><seconds>s</gold> before using /home again!</red>",
                 "<prefix><green>Home <yellow><home></yellow> has been deleted.</green>",

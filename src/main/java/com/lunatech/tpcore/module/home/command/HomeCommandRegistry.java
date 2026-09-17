@@ -388,6 +388,11 @@ public final class HomeCommandRegistry {
                 Placeholder.parsed("success", String.valueOf(result.successCount())),
                 Placeholder.parsed("fail", String.valueOf(result.failCount()))
             ));
+
+            if (result.reportFilePath() != null && !result.reportFilePath().isEmpty() && !"N/A".equals(result.reportFilePath())) {
+                String reportMsg = config.messages().prefix() + config.messages().benchmarkReportSaved();
+                player.sendMessage(miniMessage.deserialize(reportMsg, Placeholder.parsed("path", result.reportFilePath())));
+            }
         });
 
         return com.mojang.brigadier.Command.SINGLE_SUCCESS;

@@ -3,8 +3,11 @@ package com.lunatech.tpcore.module.home.engine;
 import com.lunatech.tpcore.config.model.HomeConfig;
 import com.lunatech.tpcore.module.home.model.Home;
 import com.lunatech.tpcore.module.home.repository.HomeRepository;
+import java.io.File;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -20,6 +23,7 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import org.bukkit.Bukkit;
 import org.bukkit.Chunk;
+import org.bukkit.HeightMap;
 import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.block.Block;
@@ -46,6 +50,18 @@ public final class ConcurrentTeleportPipelineEngine {
         long requestedAt
     ) {}
 
+    public record TaskDetail(
+        int taskId,
+        String worldName,
+        int x,
+        int y,
+        int z,
+        int chunkX,
+        int chunkZ,
+        String preFlightStatus,
+        String terrainSafetyStatus
+    ) {}
+
     public record BenchmarkResult(
         int totalTasks,
         String targetWorlds,
@@ -59,7 +75,9 @@ public final class ConcurrentTeleportPipelineEngine {
         long totalTimeMs,
         double mspt,
         int successCount,
-        int failCount
+        int failCount,
+        String reportFilePath,
+        List<TaskDetail> details
     ) {}
 
     public ConcurrentTeleportPipelineEngine(Plugin plugin, Supplier<HomeConfig> configSupplier) {
@@ -151,11 +169,15 @@ public final class ConcurrentTeleportPipelineEngine {
             AtomicInteger successCounter = new AtomicInteger(0);
             AtomicInteger failCounter = new AtomicInteger(0);
             List<CompletableFuture<Void>> chunkFutures = new ArrayList<>(count);
+            List<TaskDetail> detailsList = Collections.synchronizedList(new ArrayList<>());
 
-            for (Home home : testHomes) {
+            for (int i = 0; i < testHomes.size(); i++) {
+                final int taskId = i;
+                Home home = testHomes.get(i);
                 World world = Bukkit.getWorld(home.worldName());
                 if (world == null) {
                     failCounter.incrementAndGet();
+                    detailsList.add(new TaskDetail(taskId, home.worldName(), (int) home.x(), (int) home.y(), (int) home.z(), ((int) home.x()) >> 4, ((int) home.z()) >> 4, "REJECTED_NULL_WORLD", "SKIPPED_UNSAFE_PREFLIGHT"));
                     continue;
                 }
 
@@ -163,6 +185,13 @@ public final class ConcurrentTeleportPipelineEngine {
 
                 if (!isPreFlightSafe(target, config)) {
                     failCounter.incrementAndGet();
+                    String preFlightStatus = "REJECTED_BOUNDS";
+                    if (isWorldRestricted(world.getName(), config)) {
+                        preFlightStatus = "REJECTED_WORLD_RESTRICTED";
+                    } else if (config.safetyChecks().preventNetherRoof() && world.getEnvironment() == World.Environment.NETHER && target.getY() > config.safetyChecks().maxNetherHeight()) {
+                        preFlightStatus = "REJECTED_NETHER_ROOF";
+                    }
+                    detailsList.add(new TaskDetail(taskId, world.getName(), target.getBlockX(), target.getBlockY(), target.getBlockZ(), target.getBlockX() >> 4, target.getBlockZ() >> 4, preFlightStatus, "SKIPPED_UNSAFE_PREFLIGHT"));
                     continue;
                 }
 
@@ -179,14 +208,22 @@ public final class ConcurrentTeleportPipelineEngine {
 
                 CompletableFuture<Void> taskFuture = chunkFuture.thenAcceptAsync(chunk -> {
                     addTicket(chunk);
-                    if (isLocationSafe(target)) {
+                    Location safeLoc = findSafeGroundLocation(world, target.getBlockX(), target.getBlockZ(), target.getY(), config);
+                    boolean safe = safeLoc != null && isLocationSafe(safeLoc);
+                    String safetyStatus = safe ? "SAFE_GROUND" : "UNSAFE_TERRAIN";
+
+                    if (safe) {
                         successCounter.incrementAndGet();
                     } else {
                         failCounter.incrementAndGet();
                     }
+
+                    int finalY = (safeLoc != null) ? safeLoc.getBlockY() : target.getBlockY();
+                    detailsList.add(new TaskDetail(taskId, home.worldName(), target.getBlockX(), finalY, target.getBlockZ(), chunkX, chunkZ, "PASSED", safetyStatus));
                     removeTicket(chunk);
                 }, runnable -> runOnGlobalThread(runnable)).exceptionally(ex -> {
                     failCounter.incrementAndGet();
+                    detailsList.add(new TaskDetail(taskId, home.worldName(), target.getBlockX(), target.getBlockY(), target.getBlockZ(), chunkX, chunkZ, "PASSED", "LOAD_FAILED"));
                     return null;
                 });
 
@@ -214,6 +251,25 @@ public final class ConcurrentTeleportPipelineEngine {
                     double dedupRatio = count > 0 ? (1.0 - ((double) uniqueChunkReads / count)) * 100.0 : 0.0;
                     int totalBatches = (int) Math.ceil((double) count / maxLoadsPerTick);
 
+                    BenchmarkResult interimResult = new BenchmarkResult(
+                        count,
+                        worldsDisplay,
+                        uniqueChunkReads,
+                        dedupRatio,
+                        maxLoadsPerTick,
+                        totalBatches,
+                        dbWriteTimeMs,
+                        chunkLoadTimeMs,
+                        dbDeleteTimeMs,
+                        totalTimeMs,
+                        mspt,
+                        successCounter.get(),
+                        failCounter.get(),
+                        "N/A",
+                        detailsList
+                    );
+
+                    String reportPath = saveReportFile(interimResult, detailsList);
                     return new BenchmarkResult(
                         count,
                         worldsDisplay,
@@ -227,11 +283,106 @@ public final class ConcurrentTeleportPipelineEngine {
                         totalTimeMs,
                         mspt,
                         successCounter.get(),
-                        failCounter.get()
+                        failCounter.get(),
+                        reportPath,
+                        detailsList
                     );
                 });
             }).thenCompose(stage3Future -> stage3Future);
         });
+    }
+
+    public Location findSafeGroundLocation(World world, int x, int z, double preferredY, HomeConfig config) {
+        if (world == null) {
+            return null;
+        }
+
+        HomeConfig.HomeSafetyConfig safety = config.safetyChecks();
+        int minY = world.getMinHeight() + 1;
+        int maxY = world.getMaxHeight() - 2;
+
+        if (world.getEnvironment() == World.Environment.NETHER) {
+            if (safety.preventNetherRoof()) {
+                maxY = Math.min(maxY, safety.maxNetherHeight());
+            }
+            for (int y = maxY; y >= minY; y--) {
+                Location loc = new Location(world, x + 0.5, y, z + 0.5);
+                if (isLocationSafe(loc)) {
+                    return loc;
+                }
+            }
+        } else {
+            Block topBlock = world.getHighestBlockAt(x, z, HeightMap.MOTION_BLOCKING);
+            int topY = topBlock.getY();
+            if (topY >= minY && topY < maxY) {
+                Location candidate = new Location(world, x + 0.5, topY + 1.0, z + 0.5);
+                if (isLocationSafe(candidate)) {
+                    return candidate;
+                }
+            }
+
+            int startY = Math.min(Math.max((int) preferredY, minY), maxY);
+            for (int dy = 0; dy <= 30; dy++) {
+                int yUp = startY + dy;
+                if (yUp <= maxY) {
+                    Location locUp = new Location(world, x + 0.5, yUp, z + 0.5);
+                    if (isLocationSafe(locUp)) return locUp;
+                }
+                int yDown = startY - dy;
+                if (yDown >= minY) {
+                    Location locDown = new Location(world, x + 0.5, yDown, z + 0.5);
+                    if (isLocationSafe(locDown)) return locDown;
+                }
+            }
+        }
+
+        return new Location(world, x + 0.5, preferredY, z + 0.5);
+    }
+
+    private String saveReportFile(BenchmarkResult result, List<TaskDetail> details) {
+        try {
+            File benchDir = new File(plugin.getDataFolder(), "benchmarks");
+            if (!benchDir.exists()) {
+                benchDir.mkdirs();
+            }
+            String fileName = "benchmark-" + System.currentTimeMillis() + ".json";
+            File reportFile = new File(benchDir, fileName);
+
+            StringBuilder json = new StringBuilder();
+            json.append("{\n");
+            json.append("  \"timestamp\": \"").append(new Date()).append("\",\n");
+            json.append("  \"totalTasks\": ").append(result.totalTasks()).append(",\n");
+            json.append("  \"targetWorlds\": \"").append(result.targetWorlds()).append("\",\n");
+            json.append("  \"uniqueChunkReads\": ").append(result.uniqueChunkReads()).append(",\n");
+            json.append("  \"dedupRatio\": \"").append(String.format("%.2f", result.dedupRatio())).append("%\",\n");
+            json.append("  \"dbWriteTimeMs\": ").append(result.dbWriteTimeMs()).append(",\n");
+            json.append("  \"chunkLoadTimeMs\": ").append(result.chunkLoadTimeMs()).append(",\n");
+            json.append("  \"dbDeleteTimeMs\": ").append(result.dbDeleteTimeMs()).append(",\n");
+            json.append("  \"totalTimeMs\": ").append(result.totalTimeMs()).append(",\n");
+            json.append("  \"msptOverhead\": ").append(String.format("%.4f", result.mspt())).append(",\n");
+            json.append("  \"successCount\": ").append(result.successCount()).append(",\n");
+            json.append("  \"failCount\": ").append(result.failCount()).append(",\n");
+            json.append("  \"taskDetails\": [\n");
+
+            for (int i = 0; i < details.size(); i++) {
+                TaskDetail d = details.get(i);
+                json.append("    {\"id\": ").append(d.taskId())
+                    .append(", \"world\": \"").append(d.worldName()).append("\"")
+                    .append(", \"coords\": [").append(d.x()).append(", ").append(d.y()).append(", ").append(d.z()).append("]")
+                    .append(", \"chunk\": [").append(d.chunkX()).append(", ").append(d.chunkZ()).append("]")
+                    .append(", \"preFlight\": \"").append(d.preFlightStatus()).append("\"")
+                    .append(", \"safety\": \"").append(d.terrainSafetyStatus()).append("\"}")
+                    .append(i < details.size() - 1 ? ",\n" : "\n");
+            }
+            json.append("  ]\n");
+            json.append("}\n");
+
+            Files.writeString(reportFile.toPath(), json.toString());
+            return reportFile.getAbsolutePath();
+        } catch (Throwable t) {
+            plugin.getLogger().warning("Failed to write benchmark report file: " + t.getMessage());
+            return "N/A";
+        }
     }
 
     public boolean isPreFlightSafe(Location target, HomeConfig config) {
