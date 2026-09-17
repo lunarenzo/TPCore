@@ -22,16 +22,14 @@ import org.spongepowered.configurate.yaml.YamlConfigurationLoader;
 
 public final class YamlBackRepository implements BackRepository {
 
-    private final File backFile;
+    private final File playersFolder;
     private final Logger logger;
     private final ExecutorService virtualExecutor;
-
-    private final Object fileLock = new Object();
 
     public YamlBackRepository(File dataFolder, Logger logger) {
         Objects.requireNonNull(dataFolder, "dataFolder cannot be null");
         File backDir = new File(dataFolder, "back");
-        this.backFile = new File(backDir, "back.yml");
+        this.playersFolder = new File(backDir, "players");
         this.logger = Objects.requireNonNull(logger, "logger cannot be null");
         this.virtualExecutor = Executors.newVirtualThreadPerTaskExecutor();
     }
@@ -39,9 +37,8 @@ public final class YamlBackRepository implements BackRepository {
     @Override
     public CompletableFuture<Void> initialize() {
         return CompletableFuture.runAsync(() -> {
-            File parent = backFile.getParentFile();
-            if (parent != null && !parent.exists() && !parent.mkdirs()) {
-                logger.warn("Failed to create back YAML directory: {}", parent.getAbsolutePath());
+            if (!playersFolder.exists() && !playersFolder.mkdirs()) {
+                logger.warn("Failed to create back players YAML directory: {}", playersFolder.getAbsolutePath());
             }
         }, virtualExecutor);
     }
@@ -49,78 +46,79 @@ public final class YamlBackRepository implements BackRepository {
     @Override
     public CompletableFuture<Map<UUID, List<BackLocation>>> loadAll() {
         return CompletableFuture.supplyAsync(() -> {
-            synchronized (fileLock) {
-                if (!backFile.exists()) {
-                    return Collections.emptyMap();
-                }
-
-                YamlConfigurationLoader loader = createLoader(backFile);
-                Map<UUID, List<BackLocation>> map = new HashMap<>();
-
-                try {
-                    CommentedConfigurationNode root = loader.load();
-                    CommentedConfigurationNode playersNode = root.node("players");
-                    if (playersNode.isMap()) {
-                        for (Map.Entry<Object, ? extends CommentedConfigurationNode> entry : playersNode.childrenMap().entrySet()) {
-                            String uuidRaw = entry.getKey().toString();
-                            UUID playerUuid;
-                            try {
-                                playerUuid = UUID.fromString(uuidRaw);
-                            } catch (IllegalArgumentException e) {
-                                continue;
-                            }
-
-                            List<BackLocation> history = parseHistoryNode(entry.getValue());
-                            map.put(playerUuid, history);
-                        }
-                    }
-                } catch (ConfigurateException e) {
-                    logger.error("Failed to load back history from YAML file {}", backFile.getAbsolutePath(), e);
-                }
-                return map;
+            if (!playersFolder.exists()) {
+                return Collections.emptyMap();
             }
+
+            File[] files = playersFolder.listFiles((dir, name) -> name.endsWith(".yml"));
+            if (files == null || files.length == 0) {
+                return Collections.emptyMap();
+            }
+
+            Map<UUID, List<BackLocation>> map = new HashMap<>();
+            for (File file : files) {
+                String filename = file.getName();
+                String uuidRaw = filename.substring(0, filename.length() - 4);
+                UUID playerUuid;
+                try {
+                    playerUuid = UUID.fromString(uuidRaw);
+                } catch (IllegalArgumentException e) {
+                    continue;
+                }
+
+                List<BackLocation> history = loadPlayerHistoryFromFile(file);
+                if (!history.isEmpty()) {
+                    map.put(playerUuid, history);
+                }
+            }
+            return map;
         }, virtualExecutor);
     }
 
     @Override
     public CompletableFuture<List<BackLocation>> loadPlayerHistory(UUID playerUuid) {
         Objects.requireNonNull(playerUuid, "playerUuid cannot be null");
-        return loadAll().thenApply(map -> map.getOrDefault(playerUuid, Collections.emptyList()));
+        return CompletableFuture.supplyAsync(() -> {
+            File playerFile = new File(playersFolder, playerUuid + ".yml");
+            if (!playerFile.exists()) {
+                return Collections.emptyList();
+            }
+            return loadPlayerHistoryFromFile(playerFile);
+        }, virtualExecutor);
     }
 
     @Override
     public CompletableFuture<Void> savePlayerHistory(UUID playerUuid, List<BackLocation> history) {
         Objects.requireNonNull(playerUuid, "playerUuid cannot be null");
         return CompletableFuture.runAsync(() -> {
-            synchronized (fileLock) {
-                YamlConfigurationLoader loader = createLoader(backFile);
-                try {
-                    CommentedConfigurationNode root = loader.load();
-                    CommentedConfigurationNode playerNode = root.node("players", playerUuid.toString());
-
-                    if (history == null || history.isEmpty()) {
-                        playerNode.set(null);
-                    } else {
-                        playerNode.set(null); // Clear previous array
-                        for (int i = 0; i < history.size(); i++) {
-                            BackLocation loc = history.get(i);
-                            CommentedConfigurationNode itemNode = playerNode.node(i);
-                            itemNode.node("world-id").set(loc.worldId() != null ? loc.worldId().toString() : null);
-                            itemNode.node("world").set(loc.worldName());
-                            itemNode.node("x").set(loc.x());
-                            itemNode.node("y").set(loc.y());
-                            itemNode.node("z").set(loc.z());
-                            itemNode.node("yaw").set(loc.yaw());
-                            itemNode.node("pitch").set(loc.pitch());
-                            itemNode.node("timestamp").set(loc.timestamp());
-                            itemNode.node("cause").set(loc.cause() != null ? loc.cause().name() : "TELEPORT");
-                        }
-                    }
-
-                    loader.save(root);
-                } catch (ConfigurateException e) {
-                    logger.error("Failed to save back history for player {} to YAML file", playerUuid, e);
+            File playerFile = new File(playersFolder, playerUuid + ".yml");
+            if (history == null || history.isEmpty()) {
+                if (playerFile.exists() && !playerFile.delete()) {
+                    logger.warn("Failed to delete empty back history file for player {}", playerUuid);
                 }
+                return;
+            }
+
+            YamlConfigurationLoader loader = createLoader(playerFile);
+            try {
+                CommentedConfigurationNode root = loader.createNode();
+                CommentedConfigurationNode historyNode = root.node("history");
+                for (int i = 0; i < history.size(); i++) {
+                    BackLocation loc = history.get(i);
+                    CommentedConfigurationNode itemNode = historyNode.node(i);
+                    itemNode.node("world-id").set(loc.worldId() != null ? loc.worldId().toString() : null);
+                    itemNode.node("world").set(loc.worldName());
+                    itemNode.node("x").set(loc.x());
+                    itemNode.node("y").set(loc.y());
+                    itemNode.node("z").set(loc.z());
+                    itemNode.node("yaw").set(loc.yaw());
+                    itemNode.node("pitch").set(loc.pitch());
+                    itemNode.node("timestamp").set(loc.timestamp());
+                    itemNode.node("cause").set(loc.cause() != null ? loc.cause().name() : "TELEPORT");
+                }
+                loader.save(root);
+            } catch (ConfigurateException e) {
+                logger.error("Failed to save back history for player {} to YAML file", playerUuid, e);
             }
         }, virtualExecutor);
     }
@@ -128,7 +126,12 @@ public final class YamlBackRepository implements BackRepository {
     @Override
     public CompletableFuture<Void> deletePlayerHistory(UUID playerUuid) {
         Objects.requireNonNull(playerUuid, "playerUuid cannot be null");
-        return savePlayerHistory(playerUuid, Collections.emptyList());
+        return CompletableFuture.runAsync(() -> {
+            File playerFile = new File(playersFolder, playerUuid + ".yml");
+            if (playerFile.exists() && !playerFile.delete()) {
+                logger.warn("Failed to delete back history file for player {}", playerUuid);
+            }
+        }, virtualExecutor);
     }
 
     @Override
@@ -146,6 +149,19 @@ public final class YamlBackRepository implements BackRepository {
             }
         });
     }
+
+    private List<BackLocation> loadPlayerHistoryFromFile(File file) {
+        YamlConfigurationLoader loader = createLoader(file);
+        try {
+            CommentedConfigurationNode root = loader.load();
+            CommentedConfigurationNode historyNode = root.node("history");
+            return parseHistoryNode(historyNode);
+        } catch (ConfigurateException e) {
+            logger.error("Failed to load back history from player YAML file {}", file.getAbsolutePath(), e);
+            return Collections.emptyList();
+        }
+    }
+
 
 
     private List<BackLocation> parseHistoryNode(CommentedConfigurationNode node) {
