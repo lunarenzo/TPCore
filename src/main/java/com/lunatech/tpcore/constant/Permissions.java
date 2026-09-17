@@ -32,6 +32,7 @@ public final class Permissions {
     public static final String WARP_BYPASS_WARMUP = "tpcore.warp.bypass.warmup";
     public static final String WARP_BYPASS_COOLDOWN = "tpcore.warp.bypass.cooldown";
     public static final String ADMIN_RELOAD = "tpcore.admin.reload";
+    public static final String ADMIN_MIGRATE = "tpcore.admin.migrate";
 
     private Permissions() {
         throw new UnsupportedOperationException("Constant utility class cannot be instantiated.");

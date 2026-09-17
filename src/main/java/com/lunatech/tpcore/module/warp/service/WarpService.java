@@ -31,5 +31,7 @@ public interface WarpService {
 
     void updateConfig(WarpConfig newConfig);
 
+    CompletableFuture<Integer> migrateData(String fromStorage, String toStorage);
+
     CompletableFuture<Void> close();
 }

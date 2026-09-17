@@ -4,6 +4,8 @@ import com.lunatech.tpcore.config.model.WarpConfig;
 import com.lunatech.tpcore.module.warp.cache.WarpCache;
 import com.lunatech.tpcore.module.warp.model.Warp;
 import com.lunatech.tpcore.module.warp.repository.WarpRepository;
+import com.lunatech.tpcore.module.warp.repository.impl.SqliteWarpRepository;
+import com.lunatech.tpcore.module.warp.repository.impl.YamlWarpRepository;
 import com.lunatech.tpcore.module.warp.service.WarpResultStatus;
 import com.lunatech.tpcore.module.warp.service.WarpService;
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
@@ -19,6 +21,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import org.bukkit.Bukkit;
@@ -327,6 +330,83 @@ public final class DefaultWarpService implements WarpService {
     public void updateConfig(WarpConfig newConfig) {
         if (newConfig != null) {
             this.config = newConfig;
+        }
+    }
+
+    @Override
+    public CompletableFuture<Integer> migrateData(String fromStorage, String toStorage) {
+        if (fromStorage == null || toStorage == null) {
+            return CompletableFuture.failedFuture(new IllegalArgumentException("Storage engine types cannot be null"));
+        }
+        String from = fromStorage.trim().toUpperCase();
+        String to = toStorage.trim().toUpperCase();
+
+        if (!isValidStorageType(from) || !isValidStorageType(to)) {
+            return CompletableFuture.failedFuture(new IllegalArgumentException("INVALID_STORAGE_TYPE"));
+        }
+        if (from.equals(to)) {
+            return CompletableFuture.failedFuture(new IllegalArgumentException("SAME_STORAGE_TYPE"));
+        }
+
+        return CompletableFuture.supplyAsync(() -> {
+            String activeType = (config.storage() != null && "YAML".equalsIgnoreCase(config.storage().type())) ? "YAML" : "SQLITE";
+
+            boolean isFromActive = from.equals(activeType);
+            boolean isToActive = to.equals(activeType);
+
+            WarpRepository fromRepo = isFromActive ? repository : createRepoForType(from);
+            WarpRepository toRepo = isToActive ? repository : createRepoForType(to);
+
+            boolean tempFrom = !isFromActive;
+            boolean tempTo = !isToActive;
+
+            try {
+                if (tempFrom) {
+                    fromRepo.initialize().join();
+                }
+                if (tempTo) {
+                    toRepo.initialize().join();
+                }
+
+                Map<String, Warp> warps = fromRepo.loadAll().join();
+                int count = 0;
+                for (Warp warp : warps.values()) {
+                    toRepo.save(warp).join();
+                    if (isToActive) {
+                        cache.putWarp(warp);
+                    }
+                    count++;
+                }
+                logger.info("Successfully migrated {} warps from {} storage to {} storage.", count, from, to);
+                return count;
+            } finally {
+                if (tempFrom && fromRepo != null) {
+                    try {
+                        fromRepo.close().join();
+                    } catch (Exception e) {
+                        logger.error("Failed to close temporary migration source repository", e);
+                    }
+                }
+                if (tempTo && toRepo != null) {
+                    try {
+                        toRepo.close().join();
+                    } catch (Exception e) {
+                        logger.error("Failed to close temporary migration target repository", e);
+                    }
+                }
+            }
+        }, Executors.newVirtualThreadPerTaskExecutor());
+    }
+
+    private boolean isValidStorageType(String type) {
+        return "SQLITE".equalsIgnoreCase(type) || "YAML".equalsIgnoreCase(type);
+    }
+
+    private WarpRepository createRepoForType(String type) {
+        if ("YAML".equalsIgnoreCase(type)) {
+            return new YamlWarpRepository(plugin.getDataFolder(), logger);
+        } else {
+            return new SqliteWarpRepository(plugin.getDataFolder(), logger);
         }
     }
 

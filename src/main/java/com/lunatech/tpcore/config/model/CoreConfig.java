@@ -25,6 +25,11 @@ public record CoreConfig(
     @ConfigSerializable
     public record CoreMessages(
         String adminHelp,
+        String migrateFail,
+        String migrateInvalidEngine,
+        String migrateNotSupported,
+        String migrateSameEngine,
+        String migrateSuccess,
         String onlyPlayers,
         String reloadAllComplete,
         String reloadCoreFail,
@@ -37,7 +42,12 @@ public record CoreConfig(
     ) {
         public static CoreMessages createDefault() {
             return new CoreMessages(
-                "<prefix><gray>Admin Commands:\n <gold>/tpcore reload [all|core|module]</gold> <dark_gray>-</dark_gray> <gray>Reload configuration files</gray>\n <gold>/tpcore version</gold> <dark_gray>-</dark_gray> <gray>Display plugin version & active modules</gray></gray>",
+                "<prefix><gray>Admin Commands:\n <gold>/tpcore reload [all|core|module]</gold> <dark_gray>-</dark_gray> <gray>Reload configuration files</gray>\n <gold>/tpcore migrate <module> <from> <to></gold> <dark_gray>-</dark_gray> <gray>Migrate module data</gray>\n <gold>/tpcore version</gold> <dark_gray>-</dark_gray> <gray>Display plugin version & active modules</gray></gray>",
+                "<prefix><red>Failed to migrate data for module <yellow><module></yellow> from <yellow><from></yellow> to <yellow><to></yellow>! Check server console for errors.</red>",
+                "<prefix><red>Invalid storage engine '<yellow><engine></yellow>'. Valid engines: SQLITE, YAML.</red>",
+                "<prefix><red>Module <yellow><module></yellow> does not support data migration.</red>",
+                "<prefix><red>Source and target storage engines cannot be identical!</red>",
+                "<prefix><green>Successfully migrated <gold><count></gold> record(s) for module <yellow><module></yellow> from <yellow><from></yellow> to <yellow><to></yellow>!</green>",
                 "<prefix><red>Only players can execute this command!</red>",
                 "<prefix><green>Reload complete. (<gold><success>/<total></gold> modules reloaded)</green>",
                 "<prefix><red>Failed to reload root configuration (config.yml)! Check server console for errors.</red>",

@@ -13,6 +13,7 @@ import com.lunatech.tpcore.module.warp.repository.impl.YamlWarpRepository;
 import com.lunatech.tpcore.module.warp.service.WarpService;
 import com.lunatech.tpcore.module.warp.service.impl.DefaultWarpService;
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
 import org.bukkit.event.HandlerList;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -39,6 +40,19 @@ public final class WarpModule implements ReloadableModule {
     @Override
     public String getModuleName() {
         return "warp";
+    }
+
+    @Override
+    public boolean supportsMigration() {
+        return true;
+    }
+
+    @Override
+    public CompletableFuture<Integer> migrateData(String fromStorage, String toStorage) {
+        if (this.service == null) {
+            return CompletableFuture.failedFuture(new IllegalStateException("Warp service is not initialized."));
+        }
+        return this.service.migrateData(fromStorage, toStorage);
     }
 
     @Override

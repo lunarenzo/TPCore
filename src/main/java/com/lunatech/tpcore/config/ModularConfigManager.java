@@ -116,6 +116,13 @@ public final class ModularConfigManager {
         return Collections.unmodifiableSet(this.registeredModules.keySet());
     }
 
+    public ReloadableModule getModule(String moduleName) {
+        if (moduleName == null) {
+            return null;
+        }
+        return this.registeredModules.get(moduleName.toLowerCase());
+    }
+
     public boolean reloadModule(String moduleName) {
         if (moduleName == null) {
             return false;

@@ -1,6 +1,7 @@
 package com.lunatech.tpcore.command;
 
 import com.lunatech.tpcore.config.ModularConfigManager;
+import com.lunatech.tpcore.config.ReloadableModule;
 import com.lunatech.tpcore.config.model.CoreConfig;
 import com.lunatech.tpcore.constant.Permissions;
 import com.lunatech.tpcore.platform.ServerVersion;
@@ -66,6 +67,42 @@ public final class TPCoreAdminCommandRegistry {
                                 this.executeReload(ctx.getSource().getSender(), target);
                                 return com.mojang.brigadier.Command.SINGLE_SUCCESS;
                             })
+                        )
+                    )
+                    .then(Commands.literal("migrate")
+                        .requires(src -> src.getSender().hasPermission(Permissions.ADMIN_MIGRATE) || src.getSender().hasPermission(Permissions.ADMIN_RELOAD))
+                        .then(Commands.argument("module", StringArgumentType.string())
+                            .suggests((context, builder) -> {
+                                String remaining = builder.getRemaining().toLowerCase();
+                                for (String name : this.configManager.getRegisteredModuleNames()) {
+                                    ReloadableModule mod = this.configManager.getModule(name);
+                                    if (mod != null && mod.supportsMigration() && name.toLowerCase().startsWith(remaining)) {
+                                        builder.suggest(name);
+                                    }
+                                }
+                                return builder.buildFuture();
+                            })
+                            .then(Commands.argument("from", StringArgumentType.string())
+                                .suggests((context, builder) -> {
+                                    builder.suggest("sqlite");
+                                    builder.suggest("yaml");
+                                    return builder.buildFuture();
+                                })
+                                .then(Commands.argument("to", StringArgumentType.string())
+                                    .suggests((context, builder) -> {
+                                        builder.suggest("sqlite");
+                                        builder.suggest("yaml");
+                                        return builder.buildFuture();
+                                    })
+                                    .executes(ctx -> {
+                                        String moduleName = StringArgumentType.getString(ctx, "module");
+                                        String from = StringArgumentType.getString(ctx, "from");
+                                        String to = StringArgumentType.getString(ctx, "to");
+                                        this.executeMigration(ctx.getSource().getSender(), moduleName, from, to);
+                                        return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+                                    })
+                                )
+                            )
                         )
                     )
                     .build(),
@@ -143,6 +180,58 @@ public final class TPCoreAdminCommandRegistry {
             } finally {
                 this.configManager.unlockReload();
             }
+        });
+    }
+
+    private void executeMigration(CommandSender sender, String moduleName, String fromStorage, String toStorage) {
+        CoreConfig.CoreMessages msgs = this.configSupplier.get().messages();
+        ReloadableModule module = this.configManager.getModule(moduleName);
+
+        if (module == null) {
+            this.sendFormatted(sender, msgs.reloadUnknownModule(), Map.of(
+                "module", moduleName,
+                "modules", String.join(", ", this.configManager.getRegisteredModuleNames())
+            ));
+            return;
+        }
+
+        if (!module.supportsMigration()) {
+            this.sendFormatted(sender, msgs.migrateNotSupported(), Map.of("module", moduleName));
+            return;
+        }
+
+        if (fromStorage.equalsIgnoreCase(toStorage)) {
+            this.sendFormatted(sender, msgs.migrateSameEngine(), Map.of());
+            return;
+        }
+
+        this.sendFormatted(sender, "<prefix><gray>Starting data migration for module <yellow>" + moduleName + "</yellow> (<yellow>" + fromStorage + "</yellow> -> <yellow>" + toStorage + "</yellow>)...</gray>", Map.of());
+
+        module.migrateData(fromStorage, toStorage).whenComplete((count, throwable) -> {
+            if (throwable != null) {
+                Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
+                if ("INVALID_STORAGE_TYPE".equals(cause.getMessage())) {
+                    String invalid = (!fromStorage.equalsIgnoreCase("SQLITE") && !fromStorage.equalsIgnoreCase("YAML")) ? fromStorage : toStorage;
+                    this.sendFormatted(sender, msgs.migrateInvalidEngine(), Map.of("engine", invalid));
+                } else if ("SAME_STORAGE_TYPE".equals(cause.getMessage())) {
+                    this.sendFormatted(sender, msgs.migrateSameEngine(), Map.of());
+                } else {
+                    this.plugin.getSLF4JLogger().error("Data migration failure for module {}", moduleName, cause);
+                    this.sendFormatted(sender, msgs.migrateFail(), Map.of(
+                        "module", moduleName,
+                        "from", fromStorage,
+                        "to", toStorage
+                    ));
+                }
+                return;
+            }
+
+            this.sendFormatted(sender, msgs.migrateSuccess(), Map.of(
+                "count", String.valueOf(count),
+                "module", moduleName,
+                "from", fromStorage,
+                "to", toStorage
+            ));
         });
     }
 
