@@ -128,8 +128,8 @@ public record HomeConfig(
         public static HomeMessages createDefault() {
             return new HomeMessages(
                 "<prefix><red>Home <yellow><home></yellow> is already shared with <green><target></green>!</red>",
-                "<prefix><gradient:#00D2FF:#3A7BD5><bold>CTCPE Engine Benchmark Running...</bold></gradient> <gray>(Simulating <gold><count></gold> tasks across <yellow><worlds></yellow>)</gray>",
-                "<prefix><green><bold>CTCPE Benchmark Complete!</bold></green><br><gray>• Tasks: <gold><total></gold> across <yellow><worlds></yellow> | Dedup Ratio: <gold><dedup>%</gold> (<gold><unique></gold> unique chunk reads)</gray><br><gray>• Rate Limiting: <gold><cap></gold> loads/tick over <gold><batches></gold> ticks (<gold><time>ms</gold>)</gray><br><gray>• Processing Overhead: <gold><mspt> mspt</gold> (<green>20.0 TPS</green>)</gray><br><gray>• Success/Fail: <green><success></green>/<red><fail></red></gray>",
+                "<prefix><gradient:#00D2FF:#3A7BD5><bold>CTCPE Engine Live Benchmark Running...</bold></gradient> <gray>(Loading <gold><count></gold> real chunk targets across <yellow><worlds></yellow>...)</gray>",
+                "<prefix><green><bold>CTCPE Live Benchmark Complete!</bold></green><br><gray>• Tasks: <gold><total></gold> across <yellow><worlds></yellow> | Dedup Ratio: <gold><dedup>%</gold> (<gold><unique></gold> unique disk reads)</gray><br><gray>• Real Disk I/O Latency: <gold><time>ms</gold> over <gold><batches></gold> tick batches (<gold><cap></gold> loads/tick)</gray><br><gray>• Processing Overhead: <gold><mspt> mspt</gold> (<green>20.0 TPS</green>)</gray><br><gray>• Safe Ground / Safe Landing: <green><success></green> safe | <red><fail></red> unsafe/rejected</gray>",
                 "<prefix><red>You must wait <gold><seconds>s</gold> before using /home again!</red>",
                 "<prefix><green>Home <yellow><home></yellow> has been deleted.</green>",
                 "<prefix><green>Deleted home <yellow><home></yellow> for player <gold><target></gold>.</green>",

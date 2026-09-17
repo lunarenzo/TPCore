@@ -10,6 +10,7 @@ import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import net.kyori.adventure.text.minimessage.MiniMessage;
@@ -93,13 +94,13 @@ public final class ConcurrentTeleportPipelineEngine {
         String worldsDisplay = targetWorlds.stream().map(World::getName).collect(Collectors.joining(", "));
 
         int uniqueChunksCount = Math.max(1, count / 4);
-        int uniqueChunkReads = 0;
-        int successCount = 0;
-        int failCount = 0;
+        AtomicInteger uniqueChunkReadsCounter = new AtomicInteger(0);
+        AtomicInteger successCounter = new AtomicInteger(0);
+        AtomicInteger failCounter = new AtomicInteger(0);
 
-        Map<ChunkKey, CompletableFuture<Chunk>> testInFlight = new ConcurrentHashMap<>();
-
+        List<CompletableFuture<Void>> taskFutures = new ArrayList<>(count);
         Location playerLoc = player.getLocation();
+
         for (int i = 0; i < count; i++) {
             World world = targetWorlds.get(i % targetWorlds.size());
             int chunkOffset = i % uniqueChunksCount;
@@ -113,7 +114,7 @@ public final class ConcurrentTeleportPipelineEngine {
             );
 
             if (isWorldRestricted(world.getName(), config) || target.getY() < world.getMinHeight() || target.getY() >= world.getMaxHeight()) {
-                failCount++;
+                failCounter.incrementAndGet();
                 continue;
             }
 
@@ -121,39 +122,53 @@ public final class ConcurrentTeleportPipelineEngine {
             int chunkZ = target.getBlockZ() >> 4;
             ChunkKey key = new ChunkKey(world.getName(), chunkX, chunkZ);
 
-            boolean wasAbsent = !testInFlight.containsKey(key);
-            testInFlight.computeIfAbsent(key, k -> CompletableFuture.completedFuture(null));
-            if (wasAbsent) {
-                uniqueChunkReads++;
-            }
+            CompletableFuture<Chunk> chunkFuture = inFlightChunkLoads.computeIfAbsent(key, k -> {
+                uniqueChunkReadsCounter.incrementAndGet();
+                CompletableFuture<Chunk> cf = world.getChunkAtAsync(target);
+                cf.whenComplete((c, ex) -> inFlightChunkLoads.remove(k));
+                return cf;
+            });
 
-            if (isLocationSafe(target)) {
-                successCount++;
-            } else {
-                failCount++;
-            }
+            CompletableFuture<Void> taskFuture = chunkFuture.thenAccept(chunk -> {
+                addTicket(chunk);
+                if (isLocationSafe(target)) {
+                    successCounter.incrementAndGet();
+                } else {
+                    failCounter.incrementAndGet();
+                }
+                removeTicket(chunk);
+            }).exceptionally(ex -> {
+                failCounter.incrementAndGet();
+                return null;
+            });
+
+            taskFutures.add(taskFuture);
         }
 
+        int uniqueChunkReads = uniqueChunkReadsCounter.get();
         double dedupRatio = count > 0 ? (1.0 - ((double) uniqueChunkReads / count)) * 100.0 : 0.0;
         int totalBatches = (int) Math.ceil((double) count / maxLoadsPerTick);
-        long totalNano = System.nanoTime() - startTime;
-        double mspt = totalNano / 1_000_000.0;
-        long totalTimeMs = Math.round(mspt);
 
-        BenchmarkResult result = new BenchmarkResult(
-            count,
-            worldsDisplay,
-            uniqueChunkReads,
-            dedupRatio,
-            maxLoadsPerTick,
-            totalBatches,
-            totalTimeMs,
-            mspt,
-            successCount,
-            failCount
-        );
+        CompletableFuture<Void> allDone = CompletableFuture.allOf(taskFutures.toArray(new CompletableFuture[0]));
 
-        return CompletableFuture.completedFuture(result);
+        return allDone.thenApply(v -> {
+            long totalNano = System.nanoTime() - startTime;
+            double mspt = totalNano / 1_000_000.0;
+            long totalTimeMs = Math.round(mspt);
+
+            return new BenchmarkResult(
+                count,
+                worldsDisplay,
+                uniqueChunkReads,
+                dedupRatio,
+                maxLoadsPerTick,
+                totalBatches,
+                totalTimeMs,
+                mspt,
+                successCounter.get(),
+                failCounter.get()
+            );
+        });
     }
 
     public CompletableFuture<Boolean> submitTeleport(Player player, Home home, Location target) {
