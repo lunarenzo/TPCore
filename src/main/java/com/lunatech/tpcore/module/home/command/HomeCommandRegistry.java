@@ -42,6 +42,9 @@ public final class HomeCommandRegistry {
             final Commands commands = event.registrar();
 
             SuggestionProvider<CommandSourceStack> homeNameSuggestions = (context, builder) -> {
+                if (!configSupplier.get().enabled()) {
+                    return builder.buildFuture();
+                }
                 if (context.getSource().getSender() instanceof Player player) {
                     Map<String, Home> homes = homeService.getHomes(player.getUniqueId());
                     for (String name : homes.keySet()) {
@@ -54,6 +57,9 @@ public final class HomeCommandRegistry {
             };
 
             SuggestionProvider<CommandSourceStack> onlinePlayerSuggestions = (context, builder) -> {
+                if (!configSupplier.get().enabled()) {
+                    return builder.buildFuture();
+                }
                 for (Player player : Bukkit.getOnlinePlayers()) {
                     if (player.getName().toLowerCase().startsWith(builder.getRemaining().toLowerCase())) {
                         builder.suggest(player.getName());
@@ -138,12 +144,17 @@ public final class HomeCommandRegistry {
     }
 
     private int executeHome(CommandSender sender, String homeName) {
+        HomeConfig config = configSupplier.get();
+        if (!config.enabled()) {
+            sendDisabledMessage(sender);
+            return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+        }
+
         if (!(sender instanceof Player player)) {
             sendOnlyPlayersMessage(sender);
             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
         }
 
-        HomeConfig config = configSupplier.get();
         String targetHome = (homeName != null && !homeName.isBlank()) ? homeName : config.defaultHomeName();
 
         if (homeService instanceof DefaultHomeService defaultService) {
@@ -165,12 +176,17 @@ public final class HomeCommandRegistry {
     }
 
     private int executeSetHome(CommandSender sender, String homeName, boolean force) {
+        HomeConfig config = configSupplier.get();
+        if (!config.enabled()) {
+            sendDisabledMessage(sender);
+            return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+        }
+
         if (!(sender instanceof Player player)) {
             sendOnlyPlayersMessage(sender);
             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
         }
 
-        HomeConfig config = configSupplier.get();
         String targetHome = (homeName != null && !homeName.isBlank()) ? homeName : config.defaultHomeName();
 
         this.homeService.setHome(player, targetHome, force).thenAccept(status -> {
@@ -191,12 +207,17 @@ public final class HomeCommandRegistry {
     }
 
     private int executeDelHome(CommandSender sender, String homeName) {
+        HomeConfig config = configSupplier.get();
+        if (!config.enabled()) {
+            sendDisabledMessage(sender);
+            return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+        }
+
         if (!(sender instanceof Player player)) {
             sendOnlyPlayersMessage(sender);
             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
         }
 
-        HomeConfig config = configSupplier.get();
         this.homeService.deleteHome(player, homeName).thenAccept(status -> {
             String rawMsg = (status == HomeResultStatus.SUCCESS)
                 ? config.messages().prefix() + config.messages().delHomeSuccess()
@@ -207,12 +228,17 @@ public final class HomeCommandRegistry {
     }
 
     private int executeHomesList(CommandSender sender) {
+        HomeConfig config = configSupplier.get();
+        if (!config.enabled()) {
+            sendDisabledMessage(sender);
+            return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+        }
+
         if (!(sender instanceof Player player)) {
             sendOnlyPlayersMessage(sender);
             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
         }
 
-        HomeConfig config = configSupplier.get();
         Map<String, Home> homes = homeService.getHomes(player.getUniqueId());
 
         if (homes.isEmpty()) {
@@ -243,12 +269,17 @@ public final class HomeCommandRegistry {
     }
 
     private int executeHomeOther(CommandSender sender, String targetName, String homeName) {
+        HomeConfig config = configSupplier.get();
+        if (!config.enabled()) {
+            sendDisabledMessage(sender);
+            return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+        }
+
         if (!(sender instanceof Player player)) {
             sendOnlyPlayersMessage(sender);
             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
         }
 
-        HomeConfig config = configSupplier.get();
         OfflinePlayer target = Bukkit.getOfflinePlayer(targetName);
 
         this.homeService.teleportHomeOther(player, target.getUniqueId(), homeName).thenAccept(success -> {
@@ -269,6 +300,13 @@ public final class HomeCommandRegistry {
         sender.sendMessage(miniMessage.deserialize(
             config.messages().onlyPlayers(),
             Placeholder.parsed("prefix", config.messages().prefix())
+        ));
+    }
+
+    private void sendDisabledMessage(CommandSender sender) {
+        HomeConfig config = configSupplier.get();
+        sender.sendMessage(miniMessage.deserialize(
+            config.messages().prefix() + "<red>Home module is currently disabled.</red>"
         ));
     }
 }

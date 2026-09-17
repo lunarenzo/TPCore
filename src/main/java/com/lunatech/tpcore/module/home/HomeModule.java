@@ -21,6 +21,7 @@ public final class HomeModule implements ReloadableModule {
     private final JavaPlugin plugin;
     private final ModularConfigManager configManager;
     private volatile HomeConfig config;
+    private boolean isInitialized = false;
 
     private HomeRepository repository;
     private HomeCache cache;
@@ -45,7 +46,15 @@ public final class HomeModule implements ReloadableModule {
         try {
             HomeConfig newConfig = this.configManager.tryLoadModuleConfig("home", HomeConfig.class, HomeConfig.createDefault());
             if (newConfig != null) {
+                boolean wasEnabled = this.isInitialized;
+                boolean isEnabled = newConfig.enabled();
                 this.config = newConfig;
+
+                if (wasEnabled && !isEnabled) {
+                    disable();
+                } else if (!wasEnabled && isEnabled) {
+                    enable();
+                }
                 return true;
             }
         } catch (Exception e) {
@@ -60,13 +69,17 @@ public final class HomeModule implements ReloadableModule {
             return;
         }
 
+        if (this.isInitialized) {
+            return;
+        }
+
         this.repository = new SqliteHomeRepository(this.plugin.getDataFolder(), this.plugin.getSLF4JLogger());
         this.repository.initialize();
 
         this.cache = new DefaultHomeCache();
         this.service = new DefaultHomeService(this.plugin, this.repository, this.cache, () -> this.config);
 
-        this.joinQuitListener = new HomeJoinQuitListener(this.repository, this.cache);
+        this.joinQuitListener = new HomeJoinQuitListener(this.repository, this.cache, () -> this.config);
         this.respawnListener = new HomeRespawnListener(this.service, () -> this.config);
         this.commandRegistry = new HomeCommandRegistry(this.plugin, this.service, () -> this.config);
 
@@ -75,11 +88,16 @@ public final class HomeModule implements ReloadableModule {
 
         this.commandRegistry.registerAll();
         this.configManager.registerModule(this);
+        this.isInitialized = true;
 
         this.plugin.getSLF4JLogger().info("Home Module successfully enabled with SQLite primary storage.");
     }
 
     public void disable() {
+        if (!this.isInitialized) {
+            return;
+        }
+
         this.configManager.unregisterModule("home");
 
         if (this.joinQuitListener != null) {
@@ -95,6 +113,7 @@ public final class HomeModule implements ReloadableModule {
             this.repository.close();
         }
 
+        this.isInitialized = false;
         this.plugin.getSLF4JLogger().info("Home Module disabled.");
     }
 
