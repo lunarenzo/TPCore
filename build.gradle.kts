@@ -49,6 +49,10 @@ tasks {
         }
     }
 
+    jar {
+        archiveClassifier.set("raw")
+    }
+
     shadowJar {
         archiveClassifier.set("")
         archiveFileName.set("TPCore-$pluginVersion.jar")
@@ -57,7 +61,7 @@ tasks {
     }
 
     register<proguard.gradle.ProGuardTask>("proguard") {
-        dependsOn("jar", shadowJar)
+        dependsOn(shadowJar)
 
         val shadowJarTask = shadowJar.get()
         val inputFile = shadowJarTask.archiveFile.get().asFile
