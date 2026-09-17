@@ -159,20 +159,29 @@ public final class HomeCommandRegistry {
                 List.of()
             );
 
-            // /homebenchmark [count] [world]
+            // /homebenchmark [count] [world] [offset]
             commands.register(
                 Commands.literal("homebenchmark")
                     .requires(src -> src.getSender().hasPermission(Permissions.HOME_ADMIN_BENCHMARK))
-                    .executes(ctx -> executeBenchmark(ctx.getSource().getSender(), 100, "all"))
+                    .executes(ctx -> executeBenchmark(ctx.getSource().getSender(), 100, "all", 0))
                     .then(Commands.argument("count", IntegerArgumentType.integer(1, 1000))
-                        .executes(ctx -> executeBenchmark(ctx.getSource().getSender(), IntegerArgumentType.getInteger(ctx, "count"), "all"))
+                        .executes(ctx -> executeBenchmark(ctx.getSource().getSender(), IntegerArgumentType.getInteger(ctx, "count"), "all", 0))
                         .then(Commands.argument("world", StringArgumentType.string())
                             .suggests(worldSuggestions)
                             .executes(ctx -> executeBenchmark(
                                 ctx.getSource().getSender(),
                                 IntegerArgumentType.getInteger(ctx, "count"),
-                                StringArgumentType.getString(ctx, "world")
+                                StringArgumentType.getString(ctx, "world"),
+                                0
                             ))
+                            .then(Commands.argument("offset", IntegerArgumentType.integer(0, 10000))
+                                .executes(ctx -> executeBenchmark(
+                                    ctx.getSource().getSender(),
+                                    IntegerArgumentType.getInteger(ctx, "count"),
+                                    StringArgumentType.getString(ctx, "world"),
+                                    IntegerArgumentType.getInteger(ctx, "offset")
+                                ))
+                            )
                         )
                     )
                     .build(),
@@ -350,7 +359,7 @@ public final class HomeCommandRegistry {
         return com.mojang.brigadier.Command.SINGLE_SUCCESS;
     }
 
-    private int executeBenchmark(CommandSender sender, int taskCount, String targetWorldFilter) {
+    private int executeBenchmark(CommandSender sender, int taskCount, String targetWorldFilter, int chunkOffsetStart) {
         HomeConfig config = configSupplier.get();
         if (!config.enabled()) {
             sendDisabledMessage(sender);
@@ -371,7 +380,7 @@ public final class HomeCommandRegistry {
             Placeholder.parsed("worlds", worldFilter)
         ));
 
-        this.homeService.runBenchmark(player, taskCount, worldFilter).thenAccept(result -> {
+        this.homeService.runBenchmark(player, taskCount, worldFilter, chunkOffsetStart).thenAccept(result -> {
             String msg = config.messages().prefix() + config.messages().benchmarkResults();
             player.sendMessage(miniMessage.deserialize(
                 msg,

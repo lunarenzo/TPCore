@@ -31,6 +31,8 @@ public interface HomeService {
 
     CompletableFuture<BenchmarkResult> runBenchmark(Player player, int taskCount, String targetWorldFilter);
 
+    CompletableFuture<BenchmarkResult> runBenchmark(Player player, int taskCount, String targetWorldFilter, int chunkOffsetStart);
+
     Optional<Home> getHome(UUID ownerUuid, String homeName);
 
     Map<String, Home> getHomes(UUID ownerUuid);

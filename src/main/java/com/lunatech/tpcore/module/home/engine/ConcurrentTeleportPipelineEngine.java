@@ -87,7 +87,7 @@ public final class ConcurrentTeleportPipelineEngine {
         startBatchProcessor();
     }
 
-    public CompletableFuture<BenchmarkResult> runBenchmark(Player player, int taskCount, String targetWorldFilter, HomeRepository repository) {
+    public CompletableFuture<BenchmarkResult> runBenchmark(Player player, int taskCount, String targetWorldFilter, int chunkOffsetStart, HomeRepository repository) {
         Objects.requireNonNull(player, "player cannot be null");
         int count = Math.max(1, Math.min(1000, taskCount));
         long totalStartNano = System.nanoTime();
@@ -128,7 +128,9 @@ public final class ConcurrentTeleportPipelineEngine {
 
         for (int i = 0; i < count; i++) {
             World world = targetWorlds.get(i % targetWorlds.size());
-            int chunkOffset = i % uniqueChunksCount;
+            int chunkX = chunkOffsetStart + (i % uniqueChunksCount);
+            double targetX = (chunkX * 16.0) + 8.0;
+            double targetZ = ((playerLoc.getBlockZ() >> 4) * 16.0) + 8.0;
 
             double targetY;
             if (i % 20 == 19 && world.getEnvironment() == World.Environment.NETHER) {
@@ -141,9 +143,9 @@ public final class ConcurrentTeleportPipelineEngine {
                 benchmarkUuid,
                 "bench_" + i,
                 world.getName(),
-                playerLoc.getBlockX() + (chunkOffset * 16) + 8.0,
+                targetX,
                 targetY,
-                playerLoc.getBlockZ() + 8.0,
+                targetZ,
                 0.0f,
                 0.0f,
                 System.currentTimeMillis(),
