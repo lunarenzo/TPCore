@@ -44,13 +44,10 @@ public final class DefaultWarpCache implements WarpCache {
         // If replacing existing warp whose category changed, clean up old index entry
         if (existing != null && !existing.category().equalsIgnoreCase(warp.category())) {
             String oldCatKey = existing.category().toLowerCase();
-            Set<String> oldSet = categoryIndex.get(oldCatKey);
-            if (oldSet != null) {
-                oldSet.remove(key);
-                if (oldSet.isEmpty()) {
-                    categoryIndex.remove(oldCatKey, oldSet);
-                }
-            }
+            categoryIndex.computeIfPresent(oldCatKey, (k, set) -> {
+                set.remove(key);
+                return set.isEmpty() ? null : set;
+            });
         }
 
         // Add to new category index
@@ -67,13 +64,10 @@ public final class DefaultWarpCache implements WarpCache {
         Warp removed = warpMap.remove(key);
         if (removed != null) {
             String catKey = removed.category().toLowerCase();
-            Set<String> set = categoryIndex.get(catKey);
-            if (set != null) {
+            categoryIndex.computeIfPresent(catKey, (k, set) -> {
                 set.remove(key);
-                if (set.isEmpty()) {
-                    categoryIndex.remove(catKey, set);
-                }
-            }
+                return set.isEmpty() ? null : set;
+            });
         }
     }
 

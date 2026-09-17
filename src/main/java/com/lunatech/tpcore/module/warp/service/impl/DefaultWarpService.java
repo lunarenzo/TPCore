@@ -131,7 +131,11 @@ public final class DefaultWarpService implements WarpService {
 
         // Send warmup start notification
         String startMsg = config.messages().prefix() + config.messages().warmupStart();
-        player.sendMessage(miniMessage.deserialize(startMsg, Placeholder.unparsed("seconds", String.valueOf(warmupSeconds))));
+        player.sendMessage(miniMessage.deserialize(
+            startMsg,
+            Placeholder.unparsed("warp", warp.name()),
+            Placeholder.unparsed("seconds", String.valueOf(warmupSeconds))
+        ));
 
         CompletableFuture<WarpResultStatus> futureResult = new CompletableFuture<>();
 
@@ -169,16 +173,25 @@ public final class DefaultWarpService implements WarpService {
             if (!isLocationSafe(targetLocation)) {
                 return CompletableFuture.completedFuture(WarpResultStatus.UNSAFE_LOCATION);
             }
+            return performAsyncTeleport(player, targetLocation);
         }
 
         // If chunk is not loaded, request async chunk load before safety verification
         if (requireSafety && !world.isChunkLoaded(chunkX, chunkZ)) {
-            return world.getChunkAtAsync(targetLocation).thenCompose(chunk -> {
-                if (!isLocationSafe(targetLocation)) {
-                    return CompletableFuture.completedFuture(WarpResultStatus.UNSAFE_LOCATION);
-                }
-                return performAsyncTeleport(player, targetLocation);
+            CompletableFuture<WarpResultStatus> future = new CompletableFuture<>();
+            world.getChunkAtAsync(targetLocation).thenAccept(chunk -> {
+                player.getScheduler().run(plugin, task -> {
+                    if (!isLocationSafe(targetLocation)) {
+                        future.complete(WarpResultStatus.UNSAFE_LOCATION);
+                        return;
+                    }
+                    performAsyncTeleport(player, targetLocation).thenAccept(future::complete);
+                }, () -> future.complete(WarpResultStatus.ERROR));
+            }).exceptionally(ex -> {
+                future.complete(WarpResultStatus.ERROR);
+                return null;
             });
+            return future;
         }
 
         return performAsyncTeleport(player, targetLocation);
@@ -273,6 +286,7 @@ public final class DefaultWarpService implements WarpService {
         return repository.delete(warpName).thenApply(v -> WarpResultStatus.SUCCESS);
     }
 
+    @Override
     public void cancelWarmupOnMove(Player player) {
         WarmupSession session = activeWarmups.remove(player.getUniqueId());
         if (session != null) {
@@ -282,6 +296,7 @@ public final class DefaultWarpService implements WarpService {
         }
     }
 
+    @Override
     public void cancelWarmupOnDamage(Player player) {
         WarmupSession session = activeWarmups.remove(player.getUniqueId());
         if (session != null) {
@@ -291,9 +306,21 @@ public final class DefaultWarpService implements WarpService {
         }
     }
 
+    @Override
     public void cancelWarmupOnQuit(UUID playerUuid) {
         cancelWarmupSession(playerUuid);
         cooldowns.remove(playerUuid);
+    }
+
+    @Override
+    public long getRemainingCooldownSeconds(UUID playerUuid) {
+        if (playerUuid == null) return 0;
+        Long lastTime = cooldowns.get(playerUuid);
+        if (lastTime == null) return 0;
+        long passedMs = System.currentTimeMillis() - lastTime;
+        long cooldownMs = config.cooldownSeconds() * 1000L;
+        if (passedMs >= cooldownMs) return 0;
+        return Math.max(1, (cooldownMs - passedMs + 999) / 1000);
     }
 
     private void cancelWarmupSession(UUID uuid) {

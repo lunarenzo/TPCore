@@ -227,7 +227,16 @@ public final class WarpCommandRegistry {
                 case COOLDOWN_ACTIVE -> config.messages().prefix() + config.messages().cooldownActive();
                 default -> config.messages().prefix() + config.messages().warpNotFound();
             };
-            player.sendMessage(miniMessage.deserialize(rawMsg, Placeholder.unparsed("warp", warpName)));
+
+            long remainingSecs = service.getRemainingCooldownSeconds(player.getUniqueId());
+            String worldName = service.getWarp(warpName).map(Warp::worldName).orElse("unknown");
+
+            player.sendMessage(miniMessage.deserialize(
+                rawMsg,
+                Placeholder.unparsed("warp", warpName),
+                Placeholder.unparsed("seconds", String.valueOf(remainingSecs)),
+                Placeholder.unparsed("world", worldName)
+            ));
         });
 
         return com.mojang.brigadier.Command.SINGLE_SUCCESS;
@@ -352,8 +361,8 @@ public final class WarpCommandRegistry {
         Player target = Bukkit.getPlayerExact(targetName);
         if (target == null) {
             sender.sendMessage(miniMessage.deserialize(
-                config.messages().prefix() + config.messages().warpNotFound(),
-                Placeholder.unparsed("warp", warpName)
+                config.messages().prefix() + "<red>Player <yellow><target></yellow> is not currently online!</red>",
+                Placeholder.unparsed("target", targetName)
             ));
             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
         }

@@ -6,6 +6,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import org.bukkit.entity.Player;
 
@@ -28,6 +29,14 @@ public interface WarpService {
     List<Warp> getWarpsByCategory(String category);
 
     Set<String> getCategories();
+
+    void cancelWarmupOnMove(Player player);
+
+    void cancelWarmupOnDamage(Player player);
+
+    void cancelWarmupOnQuit(UUID playerUuid);
+
+    long getRemainingCooldownSeconds(UUID playerUuid);
 
     void updateConfig(WarpConfig newConfig);
 

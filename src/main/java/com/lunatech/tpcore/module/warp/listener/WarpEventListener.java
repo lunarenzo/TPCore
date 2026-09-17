@@ -2,7 +2,6 @@ package com.lunatech.tpcore.module.warp.listener;
 
 import com.lunatech.tpcore.config.model.WarpConfig;
 import com.lunatech.tpcore.module.warp.service.WarpService;
-import com.lunatech.tpcore.module.warp.service.impl.DefaultWarpService;
 import java.util.Objects;
 import java.util.function.Supplier;
 import org.bukkit.entity.Player;
@@ -30,6 +29,10 @@ public final class WarpEventListener implements Listener {
             return;
         }
 
+        if (event.getTo() == null) {
+            return;
+        }
+
         if (event.getFrom().getBlockX() == event.getTo().getBlockX()
             && event.getFrom().getBlockY() == event.getTo().getBlockY()
             && event.getFrom().getBlockZ() == event.getTo().getBlockZ()) {
@@ -37,8 +40,8 @@ public final class WarpEventListener implements Listener {
         }
 
         WarpService service = serviceSupplier.get();
-        if (service instanceof DefaultWarpService defaultService) {
-            defaultService.cancelWarmupOnMove(event.getPlayer());
+        if (service != null) {
+            service.cancelWarmupOnMove(event.getPlayer());
         }
     }
 
@@ -51,8 +54,8 @@ public final class WarpEventListener implements Listener {
 
         if (event.getEntity() instanceof Player player) {
             WarpService service = serviceSupplier.get();
-            if (service instanceof DefaultWarpService defaultService) {
-                defaultService.cancelWarmupOnDamage(player);
+            if (service != null) {
+                service.cancelWarmupOnDamage(player);
             }
         }
     }
@@ -60,8 +63,8 @@ public final class WarpEventListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerQuit(PlayerQuitEvent event) {
         WarpService service = serviceSupplier.get();
-        if (service instanceof DefaultWarpService defaultService) {
-            defaultService.cancelWarmupOnQuit(event.getPlayer().getUniqueId());
+        if (service != null) {
+            service.cancelWarmupOnQuit(event.getPlayer().getUniqueId());
         }
     }
 }
