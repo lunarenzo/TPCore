@@ -42,5 +42,10 @@ public interface BackService {
 
     CompletableFuture<Integer> migrateData(String fromStorage, String toStorage);
 
+    CompletableFuture<Void> loadPlayerHistoryAsync(UUID playerUuid);
+
     CompletableFuture<Void> close();
 }
+
+
+

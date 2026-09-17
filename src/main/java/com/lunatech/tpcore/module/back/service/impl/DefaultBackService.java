@@ -481,7 +481,21 @@ public final class DefaultBackService implements BackService {
     }
 
     @Override
+    public CompletableFuture<Void> loadPlayerHistoryAsync(UUID playerUuid) {
+        Objects.requireNonNull(playerUuid, "playerUuid cannot be null");
+        return repository.loadPlayerHistory(playerUuid).thenAccept(history -> {
+            if (history != null && !history.isEmpty()) {
+                cache.clearPlayerHistory(playerUuid);
+                for (BackLocation loc : history) {
+                    cache.pushLocation(playerUuid, loc, config.maxHistoryDepth());
+                }
+            }
+        });
+    }
+
+    @Override
     public CompletableFuture<Void> close() {
+
         for (WarmupSession session : activeWarmups.values()) {
             if (session.task() != null) {
                 session.task().cancel();

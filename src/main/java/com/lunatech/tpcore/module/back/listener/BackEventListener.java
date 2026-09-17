@@ -11,6 +11,7 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
@@ -25,6 +26,14 @@ public final class BackEventListener implements Listener {
         this.configSupplier = Objects.requireNonNull(configSupplier, "configSupplier cannot be null");
     }
 
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onPlayerJoin(PlayerJoinEvent event) {
+        BackService service = serviceSupplier.get();
+        if (service != null) {
+            service.loadPlayerHistoryAsync(event.getPlayer().getUniqueId());
+        }
+    }
+
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlayerTeleport(PlayerTeleportEvent event) {
         BackConfig config = configSupplier.get();
@@ -32,17 +41,18 @@ public final class BackEventListener implements Listener {
 
         if (event.getFrom() == null || event.getTo() == null) return;
 
-        PlayerTeleportEvent.TeleportCause cause = event.getCause();
-        BackCause backCause = switch (cause) {
+        BackCause backCause = switch (event.getCause()) {
             case NETHER_PORTAL, END_PORTAL, END_GATEWAY -> BackCause.PORTAL;
             default -> BackCause.TELEPORT;
         };
+
 
         BackService service = serviceSupplier.get();
         if (service != null) {
             service.recordLocation(event.getPlayer(), event.getFrom(), backCause);
         }
     }
+
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlayerDeath(PlayerDeathEvent event) {
