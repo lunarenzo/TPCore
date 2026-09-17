@@ -1,0 +1,16 @@
+# TPCore - Root Configuration & Universal Settings
+prefix: "<gradient:#00D2FF:#3A7BD5><bold>TPCore</bold></gradient> <dark_gray>»</dark_gray> "
+debug: false
+
+# Universal & Admin Messages (Alphabetically ordered keys)
+messages:
+  admin-help: "<prefix><gray>Admin Commands:\n <gold>/tpcore reload [all|core|module]</gold> <dark_gray>-</dark_gray> <gray>Reload configuration files</gray>\n <gold>/tpcore version</gold> <dark_gray>-</dark_gray> <gray>Display plugin version & active modules</gray></gray>"
+  only-players: "<prefix><red>Only players can execute this command!</red>"
+  reload-all-complete: "<prefix><green>Reload complete. (<gold><success>/<total></gold> modules reloaded)</green>"
+  reload-core-fail: "<prefix><red>Failed to reload root configuration (config.yml)! Check server console for errors.</red>"
+  reload-core-success: "<prefix><green>Root configuration (config.yml) reloaded successfully.</green>"
+  reload-module-fail: "<prefix><gray>Module <yellow><module></yellow>: <red>Failed to reload! Check server console for errors.</red></gray>"
+  reload-module-success: "<prefix><gray>Module <yellow><module></yellow>: <green>Reloaded successfully.</green></gray>"
+  reload-no-modules: "<prefix><yellow>No modules currently registered to reload.</yellow>"
+  reload-unknown-module: "<prefix><red>Unknown module: <yellow><module></yellow>. Registered: <gold><modules></gold></red>"
+  version-info: "<prefix><green>TPCore Version: <gold>v<version></gold></green>\n<prefix><gray>Server Engine: <white>Minecraft <mcversion></white></gray>\n<prefix><gray>Active Modules: <gold><modules></gold></gray>"

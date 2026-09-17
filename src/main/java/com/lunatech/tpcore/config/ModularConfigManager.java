@@ -1,5 +1,6 @@
 package com.lunatech.tpcore.config;
 
+import com.lunatech.tpcore.config.model.CoreConfig;
 import org.slf4j.Logger;
 import org.spongepowered.configurate.CommentedConfigurationNode;
 import org.spongepowered.configurate.ConfigurateException;
@@ -15,6 +16,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 
 public final class ModularConfigManager {
 
@@ -23,6 +25,7 @@ public final class ModularConfigManager {
     private final Logger logger;
     private final ClassLoader classLoader;
 
+    private final AtomicReference<CoreConfig> coreConfigRef = new AtomicReference<>(CoreConfig.createDefault());
     private final Map<String, ReloadableModule> registeredModules = new ConcurrentHashMap<>();
 
     public ModularConfigManager(Path dataDirectory, Logger logger, ClassLoader classLoader) {
@@ -45,6 +48,60 @@ public final class ModularConfigManager {
         }
     }
 
+    public CoreConfig getCoreConfig() {
+        return this.coreConfigRef.get();
+    }
+
+    public CoreConfig loadCoreConfig() {
+        Path file = this.dataDirectory.resolve("config.yml");
+        this.extractResourceIfMissing("config.yml", file);
+
+        YamlConfigurationLoader loader = YamlConfigurationLoader.builder()
+            .path(file)
+            .nodeStyle(NodeStyle.BLOCK)
+            .build();
+
+        try {
+            CommentedConfigurationNode root = loader.load();
+            CoreConfig result = root.get(CoreConfig.class);
+            if (result != null) {
+                this.coreConfigRef.set(result);
+                return result;
+            }
+        } catch (ConfigurateException e) {
+            this.logger.error("Error parsing root configuration config.yml. Falling back to default settings.", e);
+        }
+
+        CoreConfig defaultConfig = CoreConfig.createDefault();
+        this.coreConfigRef.set(defaultConfig);
+        return defaultConfig;
+    }
+
+    public boolean reloadCoreConfig() {
+        Path file = this.dataDirectory.resolve("config.yml");
+        if (!Files.exists(file)) {
+            this.extractResourceIfMissing("config.yml", file);
+        }
+
+        YamlConfigurationLoader loader = YamlConfigurationLoader.builder()
+            .path(file)
+            .nodeStyle(NodeStyle.BLOCK)
+            .build();
+
+        try {
+            CommentedConfigurationNode root = loader.load();
+            CoreConfig newConfig = root.get(CoreConfig.class);
+            if (newConfig != null) {
+                this.coreConfigRef.set(newConfig);
+                return true;
+            }
+        } catch (ConfigurateException e) {
+            this.logger.error("Failed to reload root configuration config.yml. Retaining previous configuration.", e);
+        }
+
+        return false;
+    }
+
     public void registerModule(ReloadableModule module) {
         if (module != null) {
             this.registeredModules.put(module.getModuleName().toLowerCase(), module);
@@ -65,6 +122,9 @@ public final class ModularConfigManager {
         if (moduleName == null) {
             return false;
         }
+        if (moduleName.equalsIgnoreCase("core")) {
+            return reloadCoreConfig();
+        }
         ReloadableModule module = this.registeredModules.get(moduleName.toLowerCase());
         if (module == null) {
             return false;
@@ -74,6 +134,8 @@ public final class ModularConfigManager {
 
     public Map<String, Boolean> reloadAllModules() {
         Map<String, Boolean> results = new LinkedHashMap<>();
+        results.put("core", reloadCoreConfig());
+
         for (Map.Entry<String, ReloadableModule> entry : this.registeredModules.entrySet()) {
             boolean success = entry.getValue().reloadConfig();
             results.put(entry.getKey(), success);

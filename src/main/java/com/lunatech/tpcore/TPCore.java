@@ -26,6 +26,7 @@ public final class TPCore extends JavaPlugin {
             this.getClassLoader()
         );
         this.configManager.initializeDirectories();
+        this.configManager.loadCoreConfig();
 
         TpaConfig tpaConfig = this.configManager.loadModuleConfig("tpa", TpaConfig.class, TpaConfig.createDefault());
         this.tpaModule = new TpaModule(this, this.configManager, tpaConfig);
@@ -35,7 +36,7 @@ public final class TPCore extends JavaPlugin {
         this.spawnModule = new SpawnModule(this, this.configManager, spawnConfig);
         this.spawnModule.enable();
 
-        this.adminCommandRegistry = new TPCoreAdminCommandRegistry(this, this.configManager);
+        this.adminCommandRegistry = new TPCoreAdminCommandRegistry(this, this.configManager, this.configManager::getCoreConfig);
         this.adminCommandRegistry.registerAll();
 
         this.getSLF4JLogger().info("TPCore successfully loaded and enabled!");
