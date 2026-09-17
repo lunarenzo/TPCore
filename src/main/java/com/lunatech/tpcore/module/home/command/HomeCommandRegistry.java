@@ -6,6 +6,7 @@ import com.lunatech.tpcore.module.home.model.Home;
 import com.lunatech.tpcore.module.home.service.HomeResultStatus;
 import com.lunatech.tpcore.module.home.service.HomeService;
 import com.lunatech.tpcore.module.home.service.impl.DefaultHomeService;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
@@ -139,6 +140,19 @@ public final class HomeCommandRegistry {
                     .build(),
                 "Teleport to another player's home",
                 List.of()
+            );
+
+            // /homebenchmark [count]
+            commands.register(
+                Commands.literal("homebenchmark")
+                    .requires(src -> src.getSender().hasPermission(Permissions.HOME_ADMIN_BENCHMARK))
+                    .executes(ctx -> executeBenchmark(ctx.getSource().getSender(), 100))
+                    .then(Commands.argument("count", IntegerArgumentType.integer(1, 1000))
+                        .executes(ctx -> executeBenchmark(ctx.getSource().getSender(), IntegerArgumentType.getInteger(ctx, "count")))
+                    )
+                    .build(),
+                "Run stress test benchmark for CTCPE teleport engine",
+                List.of("homebench")
             );
         });
     }
@@ -308,6 +322,40 @@ public final class HomeCommandRegistry {
                 ));
             }
         });
+        return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+    }
+
+    private int executeBenchmark(CommandSender sender, int taskCount) {
+        HomeConfig config = configSupplier.get();
+        if (!config.enabled()) {
+            sendDisabledMessage(sender);
+            return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+        }
+
+        if (!(sender instanceof Player player)) {
+            sendOnlyPlayersMessage(sender);
+            return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+        }
+
+        String header = config.messages().prefix() + config.messages().benchmarkHeader();
+        player.sendMessage(miniMessage.deserialize(header, Placeholder.parsed("count", String.valueOf(taskCount))));
+
+        this.homeService.runBenchmark(player, taskCount).thenAccept(result -> {
+            String msg = config.messages().prefix() + config.messages().benchmarkResults();
+            player.sendMessage(miniMessage.deserialize(
+                msg,
+                Placeholder.parsed("total", String.valueOf(result.totalTasks())),
+                Placeholder.parsed("dedup", String.format("%.1f", result.dedupRatio())),
+                Placeholder.parsed("unique", String.valueOf(result.uniqueChunkReads())),
+                Placeholder.parsed("cap", String.valueOf(result.batchCap())),
+                Placeholder.parsed("batches", String.valueOf(result.totalBatches())),
+                Placeholder.parsed("time", String.valueOf(result.totalTimeMs())),
+                Placeholder.parsed("mspt", String.format("%.4f", result.mspt())),
+                Placeholder.parsed("success", String.valueOf(result.successCount())),
+                Placeholder.parsed("fail", String.valueOf(result.failCount()))
+            ));
+        });
+
         return com.mojang.brigadier.Command.SINGLE_SUCCESS;
     }
 

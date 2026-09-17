@@ -1,5 +1,6 @@
 package com.lunatech.tpcore.module.home.service;
 
+import com.lunatech.tpcore.module.home.engine.ConcurrentTeleportPipelineEngine.BenchmarkResult;
 import com.lunatech.tpcore.module.home.model.Home;
 import java.util.Map;
 import java.util.Optional;
@@ -27,6 +28,8 @@ public interface HomeService {
     CompletableFuture<Boolean> teleportHomeOther(Player player, UUID targetUuid, String homeName);
 
     CompletableFuture<Boolean> teleportSharedHome(Player player, UUID ownerUuid, String homeName);
+
+    CompletableFuture<BenchmarkResult> runBenchmark(Player player, int taskCount);
 
     Optional<Home> getHome(UUID ownerUuid, String homeName);
 

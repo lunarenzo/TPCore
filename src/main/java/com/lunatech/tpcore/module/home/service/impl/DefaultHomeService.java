@@ -277,6 +277,12 @@ public final class DefaultHomeService implements HomeService, Listener {
     }
 
     @Override
+    public CompletableFuture<ConcurrentTeleportPipelineEngine.BenchmarkResult> runBenchmark(Player player, int taskCount) {
+        Objects.requireNonNull(player, "player cannot be null");
+        return pipelineEngine.runBenchmark(player, taskCount);
+    }
+
+    @Override
     public Optional<Home> getHome(UUID ownerUuid, String homeName) {
         if (ownerUuid == null || homeName == null) {
             return Optional.empty();

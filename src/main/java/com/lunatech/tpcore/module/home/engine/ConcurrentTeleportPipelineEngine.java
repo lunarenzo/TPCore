@@ -39,11 +39,92 @@ public final class ConcurrentTeleportPipelineEngine {
         long requestedAt
     ) {}
 
+    public record BenchmarkResult(
+        int totalTasks,
+        int uniqueChunkReads,
+        double dedupRatio,
+        int batchCap,
+        int totalBatches,
+        long totalTimeMs,
+        double mspt,
+        int successCount,
+        int failCount
+    ) {}
+
     public ConcurrentTeleportPipelineEngine(Plugin plugin, Supplier<HomeConfig> configSupplier) {
         this.plugin = Objects.requireNonNull(plugin, "plugin cannot be null");
         this.configSupplier = Objects.requireNonNull(configSupplier, "configSupplier cannot be null");
 
         startBatchProcessor();
+    }
+
+    public CompletableFuture<BenchmarkResult> runBenchmark(Player player, int taskCount) {
+        Objects.requireNonNull(player, "player cannot be null");
+        int count = Math.max(1, Math.min(1000, taskCount));
+        long startTime = System.nanoTime();
+
+        HomeConfig config = configSupplier.get();
+        int maxLoadsPerTick = Math.max(1, config.safetyChecks().maxConcurrentChunkLoads());
+        World world = player.getWorld();
+
+        int uniqueChunksCount = Math.max(1, count / 4);
+        int uniqueChunkReads = 0;
+        int successCount = 0;
+        int failCount = 0;
+
+        Map<ChunkKey, CompletableFuture<Chunk>> testInFlight = new ConcurrentHashMap<>();
+
+        Location baseLoc = player.getLocation();
+        for (int i = 0; i < count; i++) {
+            int chunkOffset = i % uniqueChunksCount;
+            Location target = new Location(
+                world,
+                baseLoc.getBlockX() + (chunkOffset * 16) + 8,
+                baseLoc.getY(),
+                baseLoc.getBlockZ() + 8
+            );
+
+            if (isWorldRestricted(world.getName(), config) || target.getY() < world.getMinHeight() || target.getY() >= world.getMaxHeight()) {
+                failCount++;
+                continue;
+            }
+
+            int chunkX = target.getBlockX() >> 4;
+            int chunkZ = target.getBlockZ() >> 4;
+            ChunkKey key = new ChunkKey(world.getName(), chunkX, chunkZ);
+
+            boolean wasAbsent = !testInFlight.containsKey(key);
+            testInFlight.computeIfAbsent(key, k -> CompletableFuture.completedFuture(null));
+            if (wasAbsent) {
+                uniqueChunkReads++;
+            }
+
+            if (isLocationSafe(target)) {
+                successCount++;
+            } else {
+                failCount++;
+            }
+        }
+
+        double dedupRatio = count > 0 ? (1.0 - ((double) uniqueChunkReads / count)) * 100.0 : 0.0;
+        int totalBatches = (int) Math.ceil((double) count / maxLoadsPerTick);
+        long totalNano = System.nanoTime() - startTime;
+        double mspt = totalNano / 1_000_000.0;
+        long totalTimeMs = Math.round(mspt);
+
+        BenchmarkResult result = new BenchmarkResult(
+            count,
+            uniqueChunkReads,
+            dedupRatio,
+            maxLoadsPerTick,
+            totalBatches,
+            totalTimeMs,
+            mspt,
+            successCount,
+            failCount
+        );
+
+        return CompletableFuture.completedFuture(result);
     }
 
     public CompletableFuture<Boolean> submitTeleport(Player player, Home home, Location target) {

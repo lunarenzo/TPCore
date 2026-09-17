@@ -22,6 +22,7 @@ public final class Permissions {
     public static final String HOME_BYPASS_WARMUP = "tpcore.home.bypass.warmup";
     public static final String HOME_BYPASS_COOLDOWN = "tpcore.home.bypass.cooldown";
     public static final String HOME_BYPASS_LIMIT = "tpcore.home.bypass.limit";
+    public static final String HOME_ADMIN_BENCHMARK = "tpcore.home.admin.benchmark";
     public static final String ADMIN_RELOAD = "tpcore.admin.reload";
 
     private Permissions() {
