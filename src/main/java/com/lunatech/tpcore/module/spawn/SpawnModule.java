@@ -1,5 +1,7 @@
 package com.lunatech.tpcore.module.spawn;
 
+import com.lunatech.tpcore.config.ModularConfigManager;
+import com.lunatech.tpcore.config.ReloadableModule;
 import com.lunatech.tpcore.config.model.SpawnConfig;
 import com.lunatech.tpcore.module.spawn.command.SpawnCommandRegistry;
 import com.lunatech.tpcore.module.spawn.listener.SpawnJoinListener;
@@ -12,10 +14,11 @@ import com.lunatech.tpcore.module.spawn.service.impl.DefaultSpawnService;
 import org.bukkit.event.HandlerList;
 import org.bukkit.plugin.java.JavaPlugin;
 
-public final class SpawnModule {
+public final class SpawnModule implements ReloadableModule {
 
     private final JavaPlugin plugin;
-    private final SpawnConfig config;
+    private final ModularConfigManager configManager;
+    private SpawnConfig config;
 
     private SpawnRepository repository;
     private SpawnService service;
@@ -24,9 +27,32 @@ public final class SpawnModule {
     private SpawnVoidListener voidListener;
     private SpawnCommandRegistry commandRegistry;
 
-    public SpawnModule(JavaPlugin plugin, SpawnConfig config) {
+    public SpawnModule(JavaPlugin plugin, ModularConfigManager configManager, SpawnConfig config) {
         this.plugin = plugin;
+        this.configManager = configManager;
         this.config = config;
+    }
+
+    @Override
+    public String getModuleName() {
+        return "spawn";
+    }
+
+    @Override
+    public boolean reloadConfig() {
+        try {
+            SpawnConfig newConfig = this.configManager.tryLoadModuleConfig("spawn", SpawnConfig.class);
+            if (newConfig != null) {
+                this.config = newConfig;
+                if (this.service != null) {
+                    this.service.updateConfig(newConfig);
+                }
+                return true;
+            }
+        } catch (Exception e) {
+            this.plugin.getSLF4JLogger().error("Failed to reload Spawn module configuration.", e);
+        }
+        return false;
     }
 
     public void enable() {
@@ -49,11 +75,13 @@ public final class SpawnModule {
         this.plugin.getServer().getPluginManager().registerEvents(this.voidListener, this.plugin);
 
         this.commandRegistry.registerAll();
+        this.configManager.registerModule(this);
 
         this.plugin.getSLF4JLogger().info("Spawn Module successfully enabled.");
     }
 
     public void disable() {
+        this.configManager.unregisterModule("spawn");
         if (this.joinListener != null) {
             HandlerList.unregisterAll(this.joinListener);
         }

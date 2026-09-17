@@ -1,5 +1,6 @@
 package com.lunatech.tpcore;
 
+import com.lunatech.tpcore.command.TPCoreAdminCommandRegistry;
 import com.lunatech.tpcore.config.ModularConfigManager;
 import com.lunatech.tpcore.config.model.SpawnConfig;
 import com.lunatech.tpcore.config.model.TpaConfig;
@@ -13,6 +14,7 @@ public final class TPCore extends JavaPlugin {
     private ModularConfigManager configManager;
     private TpaModule tpaModule;
     private SpawnModule spawnModule;
+    private TPCoreAdminCommandRegistry adminCommandRegistry;
 
     @Override
     public void onEnable() {
@@ -26,12 +28,15 @@ public final class TPCore extends JavaPlugin {
         this.configManager.initializeDirectories();
 
         TpaConfig tpaConfig = this.configManager.loadModuleConfig("tpa", TpaConfig.class, TpaConfig.createDefault());
-        this.tpaModule = new TpaModule(this, tpaConfig);
+        this.tpaModule = new TpaModule(this, this.configManager, tpaConfig);
         this.tpaModule.enable();
 
         SpawnConfig spawnConfig = this.configManager.loadModuleConfig("spawn", SpawnConfig.class, SpawnConfig.createDefault());
-        this.spawnModule = new SpawnModule(this, spawnConfig);
+        this.spawnModule = new SpawnModule(this, this.configManager, spawnConfig);
         this.spawnModule.enable();
+
+        this.adminCommandRegistry = new TPCoreAdminCommandRegistry(this, this.configManager);
+        this.adminCommandRegistry.registerAll();
 
         this.getSLF4JLogger().info("TPCore successfully loaded and enabled!");
     }

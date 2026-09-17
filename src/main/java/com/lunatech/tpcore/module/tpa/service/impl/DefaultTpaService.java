@@ -21,12 +21,13 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 public final class DefaultTpaService implements TpaService {
 
     private final JavaPlugin plugin;
     private final TpaRepository repository;
-    private final TpaConfig config;
+    private final AtomicReference<TpaConfig> configRef;
     private final MiniMessage miniMessage;
 
     private final Map<UUID, ActiveWarmup> activeWarmups = new ConcurrentHashMap<>();
@@ -57,9 +58,20 @@ public final class DefaultTpaService implements TpaService {
     public DefaultTpaService(JavaPlugin plugin, TpaRepository repository, TpaConfig config) {
         this.plugin = plugin;
         this.repository = repository;
-        this.config = config;
+        this.configRef = new AtomicReference<>(config);
         this.miniMessage = MiniMessage.miniMessage();
         this.sweeperTask = this.startExpirationSweeper();
+    }
+
+    private TpaConfig config() {
+        return this.configRef.get();
+    }
+
+    @Override
+    public void updateConfig(TpaConfig newConfig) {
+        if (newConfig != null) {
+            this.configRef.set(newConfig);
+        }
     }
 
     private ScheduledTask startExpirationSweeper() {
@@ -67,7 +79,7 @@ public final class DefaultTpaService implements TpaService {
             this.plugin,
             task -> {
                 for (TpaRequest request : this.repository.getAllRequests()) {
-                    if (request.isExpired(this.config.requestTimeoutSeconds())) {
+                    if (request.isExpired(this.config().requestTimeoutSeconds())) {
                         this.repository.removeRequest(request.targetId(), request.senderId());
 
                         Player sender = Bukkit.getPlayer(request.senderId());
@@ -75,7 +87,7 @@ public final class DefaultTpaService implements TpaService {
                             Player target = Bukkit.getPlayer(request.targetId());
                             this.sendMessage(
                                 sender,
-                                this.config.messages().requestExpired(),
+                                this.config().messages().requestExpired(),
                                 Placeholder.unparsed("player", (target != null) ? target.getName() : "Player")
                             );
                         }
@@ -85,7 +97,7 @@ public final class DefaultTpaService implements TpaService {
                             Player senderPlayer = Bukkit.getPlayer(request.senderId());
                             this.sendMessage(
                                 target,
-                                this.config.messages().requestExpired(),
+                                this.config().messages().requestExpired(),
                                 Placeholder.unparsed("player", (senderPlayer != null) ? senderPlayer.getName() : "Player")
                             );
                         }
@@ -100,15 +112,15 @@ public final class DefaultTpaService implements TpaService {
 
     @Override
     public void sendRequest(Player sender, Player target, TpaType type) {
-        if (!this.config.allowSelfTpa() && sender.getUniqueId().equals(target.getUniqueId())) {
-            this.sendMessage(sender, this.config.messages().rejectSelfTpa());
+        if (!this.config().allowSelfTpa() && sender.getUniqueId().equals(target.getUniqueId())) {
+            this.sendMessage(sender, this.config().messages().rejectSelfTpa());
             return;
         }
 
         if (this.repository.isTpaToggledOff(target.getUniqueId())) {
             this.sendMessage(
                 sender,
-                this.config.messages().targetToggledOff(),
+                this.config().messages().targetToggledOff(),
                 Placeholder.unparsed("target", target.getName())
             );
             return;
@@ -126,27 +138,27 @@ public final class DefaultTpaService implements TpaService {
         if (type == TpaType.TPA_TO) {
             this.sendMessage(
                 sender,
-                this.config.messages().senderTpaSent(),
+                this.config().messages().senderTpaSent(),
                 Placeholder.unparsed("target", target.getName()),
-                Placeholder.unparsed("seconds", String.valueOf(this.config.requestTimeoutSeconds()))
+                Placeholder.unparsed("seconds", String.valueOf(this.config().requestTimeoutSeconds()))
             );
 
             this.sendMessage(
                 target,
-                this.config.messages().targetTpaReceived(),
+                this.config().messages().targetTpaReceived(),
                 Placeholder.unparsed("sender", sender.getName())
             );
         } else {
             this.sendMessage(
                 sender,
-                this.config.messages().senderTpaHereSent(),
+                this.config().messages().senderTpaHereSent(),
                 Placeholder.unparsed("target", target.getName()),
-                Placeholder.unparsed("seconds", String.valueOf(this.config.requestTimeoutSeconds()))
+                Placeholder.unparsed("seconds", String.valueOf(this.config().requestTimeoutSeconds()))
             );
 
             this.sendMessage(
                 target,
-                this.config.messages().targetTpaHereReceived(),
+                this.config().messages().targetTpaHereReceived(),
                 Placeholder.unparsed("sender", sender.getName())
             );
         }
@@ -157,7 +169,7 @@ public final class DefaultTpaService implements TpaService {
         Collection<TpaRequest> incoming = this.repository.getIncomingRequests(target.getUniqueId());
 
         if (incoming.isEmpty()) {
-            this.sendMessage(target, this.config.messages().noPendingRequests());
+            this.sendMessage(target, this.config().messages().noPendingRequests());
             return;
         }
 
@@ -174,12 +186,12 @@ public final class DefaultTpaService implements TpaService {
         } else if (incoming.size() == 1) {
             targetRequest = incoming.iterator().next();
         } else {
-            this.sendMessage(target, this.config.messages().multiplePendingRequests());
+            this.sendMessage(target, this.config().messages().multiplePendingRequests());
             return;
         }
 
-        if (targetRequest == null || targetRequest.isExpired(this.config.requestTimeoutSeconds())) {
-            this.sendMessage(target, this.config.messages().noPendingRequests());
+        if (targetRequest == null || targetRequest.isExpired(this.config().requestTimeoutSeconds())) {
+            this.sendMessage(target, this.config().messages().noPendingRequests());
             if (targetRequest != null) {
                 this.repository.removeRequest(targetRequest.targetId(), targetRequest.senderId());
             }
@@ -190,19 +202,19 @@ public final class DefaultTpaService implements TpaService {
 
         Player sender = Bukkit.getPlayer(targetRequest.senderId());
         if (sender == null || !sender.isOnline()) {
-            this.sendMessage(target, this.config.messages().noPendingRequests());
+            this.sendMessage(target, this.config().messages().noPendingRequests());
             return;
         }
 
         this.sendMessage(
             target,
-            this.config.messages().requestAcceptedTarget(),
+            this.config().messages().requestAcceptedTarget(),
             Placeholder.unparsed("sender", sender.getName())
         );
 
         this.sendMessage(
             sender,
-            this.config.messages().requestAcceptedSender(),
+            this.config().messages().requestAcceptedSender(),
             Placeholder.unparsed("target", target.getName())
         );
 
@@ -216,7 +228,7 @@ public final class DefaultTpaService implements TpaService {
     public void denyRequest(Player target, String optionalSenderName) {
         Collection<TpaRequest> incoming = this.repository.getIncomingRequests(target.getUniqueId());
         if (incoming.isEmpty()) {
-            this.sendMessage(target, this.config.messages().noPendingRequests());
+            this.sendMessage(target, this.config().messages().noPendingRequests());
             return;
         }
 
@@ -239,17 +251,17 @@ public final class DefaultTpaService implements TpaService {
             if (sender != null && sender.isOnline()) {
                 this.sendMessage(
                     sender,
-                    this.config.messages().requestDeniedSender(),
+                    this.config().messages().requestDeniedSender(),
                     Placeholder.unparsed("target", target.getName())
                 );
             }
             this.sendMessage(
                 target,
-                this.config.messages().requestDeniedTarget(),
+                this.config().messages().requestDeniedTarget(),
                 Placeholder.unparsed("sender", (sender != null) ? sender.getName() : "Player")
             );
         } else {
-            this.sendMessage(target, this.config.messages().noPendingRequests());
+            this.sendMessage(target, this.config().messages().noPendingRequests());
         }
     }
 
@@ -257,7 +269,7 @@ public final class DefaultTpaService implements TpaService {
     public void cancelRequest(Player sender, String optionalTargetName) {
         Collection<TpaRequest> outgoing = this.repository.getOutgoingRequests(sender.getUniqueId());
         if (outgoing.isEmpty()) {
-            this.sendMessage(sender, this.config.messages().noPendingRequests());
+            this.sendMessage(sender, this.config().messages().noPendingRequests());
             return;
         }
 
@@ -280,17 +292,17 @@ public final class DefaultTpaService implements TpaService {
             if (target != null && target.isOnline()) {
                 this.sendMessage(
                     target,
-                    this.config.messages().requestCancelledTarget(),
+                    this.config().messages().requestCancelledTarget(),
                     Placeholder.unparsed("sender", sender.getName())
                 );
             }
             this.sendMessage(
                 sender,
-                this.config.messages().requestCancelledSender(),
+                this.config().messages().requestCancelledSender(),
                 Placeholder.unparsed("target", (target != null) ? target.getName() : "Player")
             );
         } else {
-            this.sendMessage(sender, this.config.messages().noPendingRequests());
+            this.sendMessage(sender, this.config().messages().noPendingRequests());
         }
     }
 
@@ -301,9 +313,9 @@ public final class DefaultTpaService implements TpaService {
         this.repository.setTpaToggledOff(player.getUniqueId(), newStatus);
 
         if (newStatus) {
-            this.sendMessage(player, this.config.messages().toggleOff());
+            this.sendMessage(player, this.config().messages().toggleOff());
         } else {
-            this.sendMessage(player, this.config.messages().toggleOn());
+            this.sendMessage(player, this.config().messages().toggleOn());
         }
         return !newStatus;
     }
@@ -316,24 +328,24 @@ public final class DefaultTpaService implements TpaService {
 
     @Override
     public void handlePlayerDamage(UUID playerId) {
-        if (this.config.cancelOnDamage()) {
-            this.cancelWarmup(playerId, this.config.messages().warmupCancelledDamage());
+        if (this.config().cancelOnDamage()) {
+            this.cancelWarmup(playerId, this.config().messages().warmupCancelledDamage());
         }
     }
 
     @Override
     public void handlePlayerMove(Player player) {
-        if (!this.config.cancelOnMove() || this.activeWarmups.isEmpty()) {
+        if (!this.config().cancelOnMove() || this.activeWarmups.isEmpty()) {
             return;
         }
         ActiveWarmup warmup = this.activeWarmups.get(player.getUniqueId());
         if (warmup != null && warmup.hasMoved(player.getLocation())) {
-            this.cancelWarmup(player.getUniqueId(), this.config.messages().warmupCancelledMove());
+            this.cancelWarmup(player.getUniqueId(), this.config().messages().warmupCancelledMove());
         }
     }
 
     private void executeTeleportSequence(Player player, Location targetLocation) {
-        int warmupSeconds = this.config.warmupSeconds();
+        int warmupSeconds = this.config().warmupSeconds();
         if (warmupSeconds <= 0 || player.hasPermission(Permissions.TPA_BYPASS_WARMUP)) {
             if (player.isInsideVehicle()) {
                 player.leaveVehicle();
@@ -346,7 +358,7 @@ public final class DefaultTpaService implements TpaService {
 
         this.sendMessage(
             player,
-            this.config.messages().warmupStart(),
+            this.config().messages().warmupStart(),
             Placeholder.unparsed("seconds", String.valueOf(warmupSeconds))
         );
 
@@ -397,7 +409,7 @@ public final class DefaultTpaService implements TpaService {
     }
 
     private void sendMessage(Player player, String template, TagResolver... resolvers) {
-        TagResolver prefixResolver = Placeholder.parsed("prefix", this.config.messages().prefix());
+        TagResolver prefixResolver = Placeholder.parsed("prefix", this.config().messages().prefix());
         TagResolver combined = TagResolver.resolver(prefixResolver, TagResolver.resolver(resolvers));
         player.sendMessage(this.miniMessage.deserialize(template, combined));
     }

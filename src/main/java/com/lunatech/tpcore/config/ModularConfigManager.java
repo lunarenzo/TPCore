@@ -10,6 +10,11 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 public final class ModularConfigManager {
 
@@ -17,6 +22,8 @@ public final class ModularConfigManager {
     private final Path modulesDirectory;
     private final Logger logger;
     private final ClassLoader classLoader;
+
+    private final Map<String, ReloadableModule> registeredModules = new ConcurrentHashMap<>();
 
     public ModularConfigManager(Path dataDirectory, Logger logger, ClassLoader classLoader) {
         this.dataDirectory = dataDirectory;
@@ -36,6 +43,42 @@ public final class ModularConfigManager {
         } catch (Exception e) {
             this.logger.error("Failed to create TPCore configuration directories.", e);
         }
+    }
+
+    public void registerModule(ReloadableModule module) {
+        if (module != null) {
+            this.registeredModules.put(module.getModuleName().toLowerCase(), module);
+        }
+    }
+
+    public void unregisterModule(String moduleName) {
+        if (moduleName != null) {
+            this.registeredModules.remove(moduleName.toLowerCase());
+        }
+    }
+
+    public Set<String> getRegisteredModuleNames() {
+        return Collections.unmodifiableSet(this.registeredModules.keySet());
+    }
+
+    public boolean reloadModule(String moduleName) {
+        if (moduleName == null) {
+            return false;
+        }
+        ReloadableModule module = this.registeredModules.get(moduleName.toLowerCase());
+        if (module == null) {
+            return false;
+        }
+        return module.reloadConfig();
+    }
+
+    public Map<String, Boolean> reloadAllModules() {
+        Map<String, Boolean> results = new LinkedHashMap<>();
+        for (Map.Entry<String, ReloadableModule> entry : this.registeredModules.entrySet()) {
+            boolean success = entry.getValue().reloadConfig();
+            results.put(entry.getKey(), success);
+        }
+        return results;
     }
 
     public <T> T loadModuleConfig(String moduleName, Class<T> configClass, T defaultConfig) {
@@ -58,6 +101,21 @@ public final class ModularConfigManager {
         }
 
         return defaultConfig;
+    }
+
+    public <T> T tryLoadModuleConfig(String moduleName, Class<T> configClass) throws ConfigurateException {
+        Path file = this.modulesDirectory.resolve(moduleName + ".yml");
+        if (!Files.exists(file)) {
+            return null;
+        }
+
+        YamlConfigurationLoader loader = YamlConfigurationLoader.builder()
+            .path(file)
+            .nodeStyle(NodeStyle.BLOCK)
+            .build();
+
+        CommentedConfigurationNode root = loader.load();
+        return root.get(configClass);
     }
 
     private void extractResourceIfMissing(String resourcePath, Path targetPath) {

@@ -1,5 +1,6 @@
 package com.lunatech.tpcore.module.tpa.service;
 
+import com.lunatech.tpcore.config.model.TpaConfig;
 import com.lunatech.tpcore.module.tpa.model.TpaType;
 import org.bukkit.entity.Player;
 
@@ -22,6 +23,8 @@ public interface TpaService {
     void handlePlayerDamage(UUID playerId);
 
     void handlePlayerMove(Player player);
+
+    void updateConfig(TpaConfig newConfig);
 
     void shutdown();
 }

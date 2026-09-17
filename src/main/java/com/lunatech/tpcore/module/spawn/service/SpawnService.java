@@ -1,5 +1,6 @@
 package com.lunatech.tpcore.module.spawn.service;
 
+import com.lunatech.tpcore.config.model.SpawnConfig;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 
@@ -27,6 +28,8 @@ public interface SpawnService {
     void handlePlayerQuit(UUID playerId);
 
     void rescueFromVoid(Player player);
+
+    void updateConfig(SpawnConfig newConfig);
 
     void shutdown();
 }

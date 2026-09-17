@@ -21,12 +21,13 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 
 public final class DefaultSpawnService implements SpawnService {
 
     private final JavaPlugin plugin;
     private final SpawnRepository repository;
-    private final SpawnConfig config;
+    private final AtomicReference<SpawnConfig> configRef;
     private final MiniMessage miniMessage;
 
     private final Map<UUID, ActiveWarmup> activeWarmups = new ConcurrentHashMap<>();
@@ -59,9 +60,20 @@ public final class DefaultSpawnService implements SpawnService {
     public DefaultSpawnService(JavaPlugin plugin, SpawnRepository repository, SpawnConfig config) {
         this.plugin = plugin;
         this.repository = repository;
-        this.config = config;
+        this.configRef = new AtomicReference<>(config);
         this.miniMessage = MiniMessage.miniMessage();
         this.repository.load();
+    }
+
+    private SpawnConfig config() {
+        return this.configRef.get();
+    }
+
+    @Override
+    public void updateConfig(SpawnConfig newConfig) {
+        if (newConfig != null) {
+            this.configRef.set(newConfig);
+        }
     }
 
     @Override
@@ -110,11 +122,11 @@ public final class DefaultSpawnService implements SpawnService {
             if (optionalWorldName != null && !optionalWorldName.isBlank()) {
                 this.sendMessage(
                     player,
-                    this.config.messages().noSpawnSetWorld(),
+                    this.config().messages().noSpawnSetWorld(),
                     Placeholder.unparsed("world", optionalWorldName)
                 );
             } else {
-                this.sendMessage(player, this.config.messages().noSpawnSet());
+                this.sendMessage(player, this.config().messages().noSpawnSet());
             }
             return;
         }
@@ -127,14 +139,14 @@ public final class DefaultSpawnService implements SpawnService {
                 long remainingSeconds = (remainingMs + 999L) / 1000L;
                 this.sendMessage(
                     player,
-                    this.config.messages().cooldownActive(),
+                    this.config().messages().cooldownActive(),
                     Placeholder.unparsed("seconds", String.valueOf(remainingSeconds))
                 );
                 return;
             }
         }
 
-        int warmupSeconds = this.config.warmupSeconds();
+        int warmupSeconds = this.config().warmupSeconds();
         if (warmupSeconds <= 0 || player.hasPermission(Permissions.SPAWN_BYPASS)) {
             this.executeTeleport(player, spawnLocation);
             return;
@@ -144,7 +156,7 @@ public final class DefaultSpawnService implements SpawnService {
 
         this.sendMessage(
             player,
-            this.config.messages().warmupStart(),
+            this.config().messages().warmupStart(),
             Placeholder.unparsed("seconds", String.valueOf(warmupSeconds))
         );
 
@@ -184,7 +196,7 @@ public final class DefaultSpawnService implements SpawnService {
             this.cooldowns.put(player.getUniqueId(), System.currentTimeMillis());
         }
         player.teleportAsync(targetLocation);
-        this.sendMessage(player, this.config.messages().spawnTeleportSuccess());
+        this.sendMessage(player, this.config().messages().spawnTeleportSuccess());
     }
 
     private long getRemainingCooldownMs(UUID playerId) {
@@ -196,7 +208,7 @@ public final class DefaultSpawnService implements SpawnService {
             return 0L;
         }
         long elapsed = System.currentTimeMillis() - lastTime;
-        long cooldownMs = this.config.cooldownSeconds() * 1000L;
+        long cooldownMs = this.config().cooldownSeconds() * 1000L;
         return Math.max(0L, cooldownMs - elapsed);
     }
 
@@ -206,7 +218,7 @@ public final class DefaultSpawnService implements SpawnService {
         this.repository.setGlobalSpawn(spawnLoc);
         this.sendMessage(
             player,
-            this.config.messages().setSpawnGlobalSuccess(),
+            this.config().messages().setSpawnGlobalSuccess(),
             Placeholder.unparsed("location", this.formatLocation(player.getLocation()))
         );
     }
@@ -218,7 +230,7 @@ public final class DefaultSpawnService implements SpawnService {
         this.repository.setWorldSpawn(targetWorld, spawnLoc);
         this.sendMessage(
             player,
-            this.config.messages().setSpawnWorldSuccess(),
+            this.config().messages().setSpawnWorldSuccess(),
             Placeholder.unparsed("world", targetWorld),
             Placeholder.unparsed("location", this.formatLocation(player.getLocation()))
         );
@@ -227,7 +239,7 @@ public final class DefaultSpawnService implements SpawnService {
     @Override
     public void deleteGlobalSpawn(Player player) {
         this.repository.removeGlobalSpawn();
-        this.sendMessage(player, this.config.messages().delSpawnGlobalSuccess());
+        this.sendMessage(player, this.config().messages().delSpawnGlobalSuccess());
     }
 
     @Override
@@ -236,26 +248,26 @@ public final class DefaultSpawnService implements SpawnService {
         this.repository.removeWorldSpawn(targetWorld);
         this.sendMessage(
             player,
-            this.config.messages().delSpawnWorldSuccess(),
+            this.config().messages().delSpawnWorldSuccess(),
             Placeholder.unparsed("world", targetWorld)
         );
     }
 
     @Override
     public void handlePlayerMove(Player player) {
-        if (!this.config.cancelOnMove() || this.activeWarmups.isEmpty()) {
+        if (!this.config().cancelOnMove() || this.activeWarmups.isEmpty()) {
             return;
         }
         ActiveWarmup warmup = this.activeWarmups.get(player.getUniqueId());
         if (warmup != null && warmup.hasMoved(player.getLocation())) {
-            this.cancelWarmup(player.getUniqueId(), this.config.messages().warmupCancelledMove());
+            this.cancelWarmup(player.getUniqueId(), this.config().messages().warmupCancelledMove());
         }
     }
 
     @Override
     public void handlePlayerDamage(UUID playerId) {
-        if (this.config.cancelOnDamage()) {
-            this.cancelWarmup(playerId, this.config.messages().warmupCancelledDamage());
+        if (this.config().cancelOnDamage()) {
+            this.cancelWarmup(playerId, this.config().messages().warmupCancelledDamage());
         }
     }
 
@@ -270,7 +282,7 @@ public final class DefaultSpawnService implements SpawnService {
 
     @Override
     public void rescueFromVoid(Player player) {
-        if (!this.config.voidFallProtection() || !this.pendingVoidRescues.add(player.getUniqueId())) {
+        if (!this.config().voidFallProtection() || !this.pendingVoidRescues.add(player.getUniqueId())) {
             return;
         }
 
@@ -278,7 +290,7 @@ public final class DefaultSpawnService implements SpawnService {
         Location dest = this.getEffectiveSpawnLocation(player.getWorld().getName())
             .orElseGet(() -> player.getWorld().getSpawnLocation());
 
-        this.sendMessage(player, this.config.messages().voidRescued());
+        this.sendMessage(player, this.config().messages().voidRescued());
 
         if (player.isInsideVehicle()) {
             player.leaveVehicle();
@@ -312,7 +324,7 @@ public final class DefaultSpawnService implements SpawnService {
     }
 
     private void sendMessage(Player player, String template, TagResolver... resolvers) {
-        TagResolver prefixResolver = Placeholder.parsed("prefix", this.config.messages().prefix());
+        TagResolver prefixResolver = Placeholder.parsed("prefix", this.config().messages().prefix());
         TagResolver combined = TagResolver.resolver(prefixResolver, TagResolver.resolver(resolvers));
         player.sendMessage(this.miniMessage.deserialize(template, combined));
     }

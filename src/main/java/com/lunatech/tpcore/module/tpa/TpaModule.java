@@ -1,5 +1,7 @@
 package com.lunatech.tpcore.module.tpa;
 
+import com.lunatech.tpcore.config.ModularConfigManager;
+import com.lunatech.tpcore.config.ReloadableModule;
 import com.lunatech.tpcore.config.model.TpaConfig;
 import com.lunatech.tpcore.module.tpa.command.TpaCommandRegistry;
 import com.lunatech.tpcore.module.tpa.listener.TpaEventListener;
@@ -10,19 +12,43 @@ import com.lunatech.tpcore.module.tpa.service.impl.DefaultTpaService;
 import org.bukkit.event.HandlerList;
 import org.bukkit.plugin.java.JavaPlugin;
 
-public final class TpaModule {
+public final class TpaModule implements ReloadableModule {
 
     private final JavaPlugin plugin;
-    private final TpaConfig config;
+    private final ModularConfigManager configManager;
+    private TpaConfig config;
 
     private TpaRepository repository;
     private TpaService service;
     private TpaEventListener listener;
     private TpaCommandRegistry commandRegistry;
 
-    public TpaModule(JavaPlugin plugin, TpaConfig config) {
+    public TpaModule(JavaPlugin plugin, ModularConfigManager configManager, TpaConfig config) {
         this.plugin = plugin;
+        this.configManager = configManager;
         this.config = config;
+    }
+
+    @Override
+    public String getModuleName() {
+        return "tpa";
+    }
+
+    @Override
+    public boolean reloadConfig() {
+        try {
+            TpaConfig newConfig = this.configManager.tryLoadModuleConfig("tpa", TpaConfig.class);
+            if (newConfig != null) {
+                this.config = newConfig;
+                if (this.service != null) {
+                    this.service.updateConfig(newConfig);
+                }
+                return true;
+            }
+        } catch (Exception e) {
+            this.plugin.getSLF4JLogger().error("Failed to reload TPA module configuration.", e);
+        }
+        return false;
     }
 
     public void enable() {
@@ -38,11 +64,13 @@ public final class TpaModule {
 
         this.plugin.getServer().getPluginManager().registerEvents(this.listener, this.plugin);
         this.commandRegistry.registerAll();
+        this.configManager.registerModule(this);
 
         this.plugin.getSLF4JLogger().info("TPA Module successfully enabled.");
     }
 
     public void disable() {
+        this.configManager.unregisterModule("tpa");
         if (this.listener != null) {
             HandlerList.unregisterAll(this.listener);
         }
