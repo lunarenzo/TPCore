@@ -2,6 +2,7 @@ package com.lunatech.tpcore.module.spawn.repository.impl;
 
 import com.lunatech.tpcore.module.spawn.model.SpawnLocation;
 import com.lunatech.tpcore.module.spawn.repository.SpawnRepository;
+import org.bukkit.plugin.java.JavaPlugin;
 import org.slf4j.Logger;
 import org.spongepowered.configurate.CommentedConfigurationNode;
 import org.spongepowered.configurate.ConfigurateException;
@@ -19,6 +20,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public final class YamlSpawnRepository implements SpawnRepository {
 
+    private final JavaPlugin plugin;
     private final Path dataFile;
     private final Logger logger;
     private final YamlConfigurationLoader loader;
@@ -26,7 +28,8 @@ public final class YamlSpawnRepository implements SpawnRepository {
     private final AtomicReference<SpawnLocation> globalSpawn = new AtomicReference<>(null);
     private final Map<String, SpawnLocation> worldSpawns = new ConcurrentHashMap<>();
 
-    public YamlSpawnRepository(Path dataDirectory, Logger logger) {
+    public YamlSpawnRepository(JavaPlugin plugin, Path dataDirectory, Logger logger) {
+        this.plugin = plugin;
         this.dataFile = dataDirectory.resolve("modules").resolve("spawn_data.yml");
         this.logger = logger;
         this.loader = YamlConfigurationLoader.builder()
@@ -43,13 +46,13 @@ public final class YamlSpawnRepository implements SpawnRepository {
     @Override
     public void setGlobalSpawn(SpawnLocation spawnLocation) {
         this.globalSpawn.set(spawnLocation);
-        this.save();
+        this.saveAsync();
     }
 
     @Override
     public void removeGlobalSpawn() {
         this.globalSpawn.set(null);
-        this.save();
+        this.saveAsync();
     }
 
     @Override
@@ -64,7 +67,7 @@ public final class YamlSpawnRepository implements SpawnRepository {
     public void setWorldSpawn(String worldName, SpawnLocation spawnLocation) {
         if (worldName != null && spawnLocation != null) {
             this.worldSpawns.put(worldName.toLowerCase(), spawnLocation);
-            this.save();
+            this.saveAsync();
         }
     }
 
@@ -72,7 +75,7 @@ public final class YamlSpawnRepository implements SpawnRepository {
     public void removeWorldSpawn(String worldName) {
         if (worldName != null) {
             this.worldSpawns.remove(worldName.toLowerCase());
-            this.save();
+            this.saveAsync();
         }
     }
 
@@ -112,6 +115,10 @@ public final class YamlSpawnRepository implements SpawnRepository {
         } catch (ConfigurateException e) {
             this.logger.error("Failed to load spawn locations from {}", this.dataFile, e);
         }
+    }
+
+    private void saveAsync() {
+        this.plugin.getServer().getAsyncScheduler().runNow(this.plugin, task -> this.save());
     }
 
     @Override

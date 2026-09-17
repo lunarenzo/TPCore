@@ -35,7 +35,7 @@ public final class SpawnModule {
             return;
         }
 
-        this.repository = new YamlSpawnRepository(this.plugin.getDataFolder().toPath(), this.plugin.getSLF4JLogger());
+        this.repository = new YamlSpawnRepository(this.plugin, this.plugin.getDataFolder().toPath(), this.plugin.getSLF4JLogger());
         this.service = new DefaultSpawnService(this.plugin, this.repository, this.config);
 
         this.joinListener = new SpawnJoinListener(this.service, this.config);

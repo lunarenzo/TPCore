@@ -5,6 +5,7 @@ import com.lunatech.tpcore.constant.Permissions;
 import com.lunatech.tpcore.module.spawn.model.SpawnLocation;
 import com.lunatech.tpcore.module.spawn.repository.SpawnRepository;
 import com.lunatech.tpcore.module.spawn.service.SpawnService;
+import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
@@ -32,7 +33,8 @@ public final class DefaultSpawnService implements SpawnService {
 
     private record ActiveWarmup(
         UUID playerId,
-        Location startLocation
+        Location startLocation,
+        ScheduledTask task
     ) {}
 
     public DefaultSpawnService(JavaPlugin plugin, SpawnRepository repository, SpawnConfig config) {
@@ -107,20 +109,17 @@ public final class DefaultSpawnService implements SpawnService {
             return;
         }
 
+        this.cancelWarmup(player.getUniqueId(), null);
+
         this.sendMessage(
             player,
             this.config.messages().warmupStart(),
             Placeholder.unparsed("seconds", String.valueOf(warmupSeconds))
         );
 
-        this.activeWarmups.put(
-            player.getUniqueId(),
-            new ActiveWarmup(player.getUniqueId(), player.getLocation().clone())
-        );
-
-        player.getScheduler().runDelayed(
+        ScheduledTask task = player.getScheduler().runDelayed(
             this.plugin,
-            task -> {
+            scheduledTask -> {
                 ActiveWarmup warmup = this.activeWarmups.remove(player.getUniqueId());
                 if (warmup != null && player.isOnline()) {
                     this.executeTeleport(player, spawnLocation);
@@ -129,6 +128,13 @@ public final class DefaultSpawnService implements SpawnService {
             null,
             warmupSeconds * 20L
         );
+
+        if (task != null) {
+            this.activeWarmups.put(
+                player.getUniqueId(),
+                new ActiveWarmup(player.getUniqueId(), player.getLocation().clone(), task)
+            );
+        }
     }
 
     private void executeTeleport(Player player, Location targetLocation) {
@@ -200,8 +206,11 @@ public final class DefaultSpawnService implements SpawnService {
         }
         ActiveWarmup warmup = this.activeWarmups.get(player.getUniqueId());
         if (warmup != null) {
-            if (!warmup.startLocation().getWorld().equals(player.getWorld())
-                || warmup.startLocation().distanceSquared(player.getLocation()) > 0.25) {
+            Location start = warmup.startLocation();
+            Location current = player.getLocation();
+
+            if (start.getWorld() == null || !start.getWorld().equals(current.getWorld())
+                || start.distanceSquared(current) > 0.25) {
                 this.cancelWarmup(player.getUniqueId(), this.config.messages().warmupCancelledMove());
             }
         }
@@ -238,29 +247,37 @@ public final class DefaultSpawnService implements SpawnService {
 
     private void cancelWarmup(UUID playerId, String cancelMessageTemplate) {
         ActiveWarmup warmup = this.activeWarmups.remove(playerId);
-        if (warmup != null && cancelMessageTemplate != null) {
-            Player player = Bukkit.getPlayer(playerId);
-            if (player != null && player.isOnline()) {
-                this.sendMessage(player, cancelMessageTemplate);
+        if (warmup != null) {
+            if (warmup.task() != null) {
+                warmup.task().cancel();
+            }
+            if (cancelMessageTemplate != null) {
+                Player player = Bukkit.getPlayer(playerId);
+                if (player != null && player.isOnline()) {
+                    this.sendMessage(player, cancelMessageTemplate);
+                }
             }
         }
     }
 
     private String formatLocation(Location loc) {
-        return String.format("%s (%.1f, %.1f, %.1f)", loc.getWorld().getName(), loc.getX(), loc.getY(), loc.getZ());
+        String worldName = (loc.getWorld() != null) ? loc.getWorld().getName() : "unknown";
+        return String.format("%s (%.1f, %.1f, %.1f)", worldName, loc.getX(), loc.getY(), loc.getZ());
     }
 
     private void sendMessage(Player player, String template, TagResolver... resolvers) {
         TagResolver prefixResolver = Placeholder.parsed("prefix", this.config.messages().prefix());
-        TagResolver[] combinedResolvers = new TagResolver[resolvers.length + 1];
-        combinedResolvers[0] = prefixResolver;
-        System.arraycopy(resolvers, 0, combinedResolvers, 1, resolvers.length);
-
-        player.sendMessage(this.miniMessage.deserialize(template, combinedResolvers));
+        TagResolver combined = TagResolver.resolver(prefixResolver, TagResolver.resolver(resolvers));
+        player.sendMessage(this.miniMessage.deserialize(template, combined));
     }
 
     @Override
     public void shutdown() {
+        for (ActiveWarmup warmup : this.activeWarmups.values()) {
+            if (warmup.task() != null) {
+                warmup.task().cancel();
+            }
+        }
         this.activeWarmups.clear();
         synchronized (this.cooldownLock) {
             this.cooldowns.clear();
