@@ -44,7 +44,12 @@ public final class DefaultHomeService implements HomeService, Listener {
     private final Map<UUID, Long> cooldownMap = new ConcurrentHashMap<>();
     private final Map<UUID, ActiveWarmup> activeWarmups = new ConcurrentHashMap<>();
 
-    private record ActiveWarmup(Location startLocation, CompletableFuture<Boolean> future, Object scheduledTask) {}
+    @FunctionalInterface
+    private interface TaskHandle {
+        void cancel();
+    }
+
+    private record ActiveWarmup(Location startLocation, CompletableFuture<Boolean> future, TaskHandle taskHandle) {}
 
     public DefaultHomeService(Plugin plugin, HomeRepository repository, HomeCache cache, Supplier<HomeConfig> configSupplier) {
         this.plugin = Objects.requireNonNull(plugin, "plugin cannot be null");
@@ -284,6 +289,10 @@ public final class DefaultHomeService implements HomeService, Listener {
     @Override
     public CompletableFuture<ConcurrentTeleportPipelineEngine.BenchmarkResult> runBenchmark(Player player, int taskCount, String targetWorldFilter, int chunkOffsetStart) {
         Objects.requireNonNull(player, "player cannot be null");
+        HomeConfig config = configSupplier.get();
+        if (config.benchmark() == null || !config.benchmark().enabled()) {
+            return CompletableFuture.failedFuture(new IllegalStateException("Benchmark feature is disabled in home.yml"));
+        }
         return pipelineEngine.runBenchmark(player, taskCount, targetWorldFilter, chunkOffsetStart, repository);
     }
 
@@ -337,6 +346,10 @@ public final class DefaultHomeService implements HomeService, Listener {
         return pipelineEngine.isLocationSafe(location);
     }
 
+    public boolean isPreFlightSafe(Location target) {
+        return pipelineEngine.isPreFlightSafe(target, configSupplier.get());
+    }
+
     public long getRemainingCooldownSeconds(Player player) {
         UUID uuid = player.getUniqueId();
         Long expiresAt = cooldownMap.get(uuid);
@@ -349,7 +362,9 @@ public final class DefaultHomeService implements HomeService, Listener {
     public void close() {
         HandlerList.unregisterAll(this);
         activeWarmups.forEach((uuid, warmup) -> {
-            cancelScheduledTask(warmup.scheduledTask());
+            if (warmup.taskHandle() != null) {
+                warmup.taskHandle().cancel();
+            }
             warmup.future().complete(false);
         });
         activeWarmups.clear();
@@ -379,15 +394,19 @@ public final class DefaultHomeService implements HomeService, Listener {
 
         ActiveWarmup existing = activeWarmups.remove(uuid);
         if (existing != null) {
-            cancelScheduledTask(existing.scheduledTask());
+            if (existing.taskHandle() != null) {
+                existing.taskHandle().cancel();
+            }
             existing.future().complete(false);
         }
 
         if (warmup <= 0 || player.hasPermission(Permissions.HOME_BYPASS_WARMUP)) {
-            if (cooldown > 0 && !player.hasPermission(Permissions.HOME_BYPASS_COOLDOWN)) {
-                cooldownMap.put(uuid, System.currentTimeMillis() + (cooldown * 1000L));
-            }
-            return pipelineEngine.submitTeleport(player, home, target);
+            return pipelineEngine.submitTeleport(player, home, target).thenApply(success -> {
+                if (success && cooldown > 0 && !player.hasPermission(Permissions.HOME_BYPASS_COOLDOWN)) {
+                    cooldownMap.put(uuid, System.currentTimeMillis() + (cooldown * 1000L));
+                }
+                return success;
+            });
         }
 
         CompletableFuture<Boolean> future = new CompletableFuture<>();
@@ -398,35 +417,27 @@ public final class DefaultHomeService implements HomeService, Listener {
             Placeholder.parsed("seconds", String.valueOf(warmup))
         ));
 
-        Object task = schedulePlayerTask(player, warmup * 20L, () -> {
+        TaskHandle taskHandle = schedulePlayerTask(player, warmup * 20L, () -> {
             activeWarmups.remove(uuid);
-            if (cooldown > 0 && !player.hasPermission(Permissions.HOME_BYPASS_COOLDOWN)) {
-                cooldownMap.put(uuid, System.currentTimeMillis() + (cooldown * 1000L));
-            }
-            pipelineEngine.submitTeleport(player, home, target).thenAccept(future::complete);
+            pipelineEngine.submitTeleport(player, home, target).thenAccept(success -> {
+                if (success && cooldown > 0 && !player.hasPermission(Permissions.HOME_BYPASS_COOLDOWN)) {
+                    cooldownMap.put(uuid, System.currentTimeMillis() + (cooldown * 1000L));
+                }
+                future.complete(success);
+            });
         });
 
-        activeWarmups.put(uuid, new ActiveWarmup(player.getLocation().clone(), future, task));
+        activeWarmups.put(uuid, new ActiveWarmup(player.getLocation().clone(), future, taskHandle));
         return future;
     }
 
-    private Object schedulePlayerTask(Player player, long delayTicks, Runnable runnable) {
+    private TaskHandle schedulePlayerTask(Player player, long delayTicks, Runnable runnable) {
         try {
-            return player.getScheduler().runDelayed(plugin, task -> runnable.run(), null, delayTicks);
+            io.papermc.paper.threadedregions.scheduler.ScheduledTask task = player.getScheduler().runDelayed(plugin, t -> runnable.run(), null, delayTicks);
+            return task::cancel;
         } catch (NoSuchMethodError | Exception e) {
             int taskId = Bukkit.getScheduler().scheduleSyncDelayedTask(plugin, runnable, delayTicks);
-            return Integer.valueOf(taskId);
-        }
-    }
-
-    private void cancelScheduledTask(Object task) {
-        if (task == null) return;
-        if (task instanceof Integer taskId) {
-            Bukkit.getScheduler().cancelTask(taskId);
-        } else {
-            try {
-                task.getClass().getMethod("cancel").invoke(task);
-            } catch (Throwable ignored) {}
+            return () -> Bukkit.getScheduler().cancelTask(taskId);
         }
     }
 
@@ -441,7 +452,7 @@ public final class DefaultHomeService implements HomeService, Listener {
 
     @EventHandler
     public void onPlayerMove(PlayerMoveEvent event) {
-        if (activeWarmups.isEmpty()) {
+        if (activeWarmups.isEmpty() || !activeWarmups.containsKey(event.getPlayer().getUniqueId())) {
             return;
         }
 
@@ -459,7 +470,9 @@ public final class DefaultHomeService implements HomeService, Listener {
         Player player = event.getPlayer();
         ActiveWarmup warmup = activeWarmups.remove(player.getUniqueId());
         if (warmup != null) {
-            cancelScheduledTask(warmup.scheduledTask());
+            if (warmup.taskHandle() != null) {
+                warmup.taskHandle().cancel();
+            }
             warmup.future().complete(false);
             String msg = config.messages().prefix() + config.messages().warmupCancelledMove();
             player.sendMessage(miniMessage.deserialize(msg));
@@ -479,7 +492,9 @@ public final class DefaultHomeService implements HomeService, Listener {
 
         ActiveWarmup warmup = activeWarmups.remove(player.getUniqueId());
         if (warmup != null) {
-            cancelScheduledTask(warmup.scheduledTask());
+            if (warmup.taskHandle() != null) {
+                warmup.taskHandle().cancel();
+            }
             warmup.future().complete(false);
             String msg = config.messages().prefix() + config.messages().warmupCancelledDamage();
             player.sendMessage(miniMessage.deserialize(msg));
@@ -492,7 +507,9 @@ public final class DefaultHomeService implements HomeService, Listener {
         cooldownMap.remove(uuid);
         ActiveWarmup warmup = activeWarmups.remove(uuid);
         if (warmup != null) {
-            cancelScheduledTask(warmup.scheduledTask());
+            if (warmup.taskHandle() != null) {
+                warmup.taskHandle().cancel();
+            }
             warmup.future().complete(false);
         }
     }

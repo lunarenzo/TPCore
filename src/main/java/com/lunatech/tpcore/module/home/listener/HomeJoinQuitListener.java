@@ -13,14 +13,17 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.plugin.Plugin;
 
 public final class HomeJoinQuitListener implements Listener {
 
+    private final Plugin plugin;
     private final HomeRepository repository;
     private final HomeCache cache;
     private final Supplier<HomeConfig> configSupplier;
 
-    public HomeJoinQuitListener(HomeRepository repository, HomeCache cache, Supplier<HomeConfig> configSupplier) {
+    public HomeJoinQuitListener(Plugin plugin, HomeRepository repository, HomeCache cache, Supplier<HomeConfig> configSupplier) {
+        this.plugin = Objects.requireNonNull(plugin, "plugin cannot be null");
         this.repository = Objects.requireNonNull(repository, "repository cannot be null");
         this.cache = Objects.requireNonNull(cache, "cache cannot be null");
         this.configSupplier = Objects.requireNonNull(configSupplier, "configSupplier cannot be null");
@@ -35,9 +38,11 @@ public final class HomeJoinQuitListener implements Listener {
         Player player = event.getPlayer();
         UUID uuid = player.getUniqueId();
         repository.loadAll(uuid).thenAccept(homes -> {
-            if (Bukkit.getPlayer(uuid) != null && configSupplier.get().enabled()) {
-                cache.loadPlayer(uuid, homes);
-            }
+            runOnPlayerThread(player, () -> {
+                if (player.isOnline() && configSupplier.get().enabled()) {
+                    cache.loadPlayer(uuid, homes);
+                }
+            });
         });
     }
 
@@ -45,5 +50,13 @@ public final class HomeJoinQuitListener implements Listener {
     public void onPlayerQuit(PlayerQuitEvent event) {
         UUID uuid = event.getPlayer().getUniqueId();
         cache.unloadPlayer(uuid);
+    }
+
+    private void runOnPlayerThread(Player player, Runnable runnable) {
+        try {
+            player.getScheduler().run(plugin, task -> runnable.run(), null);
+        } catch (NoSuchMethodError | Exception e) {
+            Bukkit.getScheduler().runTask(plugin, runnable);
+        }
     }
 }

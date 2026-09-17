@@ -160,34 +160,36 @@ public final class HomeCommandRegistry {
             );
 
             // /homebenchmark [count] [world] [offset]
-            commands.register(
-                Commands.literal("homebenchmark")
-                    .requires(src -> src.getSender().hasPermission(Permissions.HOME_ADMIN_BENCHMARK))
-                    .executes(ctx -> executeBenchmark(ctx.getSource().getSender(), 100, "all", 0))
-                    .then(Commands.argument("count", IntegerArgumentType.integer(1, 1000))
-                        .executes(ctx -> executeBenchmark(ctx.getSource().getSender(), IntegerArgumentType.getInteger(ctx, "count"), "all", 0))
-                        .then(Commands.argument("world", StringArgumentType.string())
-                            .suggests(worldSuggestions)
-                            .executes(ctx -> executeBenchmark(
-                                ctx.getSource().getSender(),
-                                IntegerArgumentType.getInteger(ctx, "count"),
-                                StringArgumentType.getString(ctx, "world"),
-                                0
-                            ))
-                            .then(Commands.argument("offset", IntegerArgumentType.integer(0, 10000))
+            if (configSupplier.get().benchmark() != null && configSupplier.get().benchmark().enabled()) {
+                commands.register(
+                    Commands.literal("homebenchmark")
+                        .requires(src -> src.getSender().hasPermission(Permissions.HOME_ADMIN_BENCHMARK))
+                        .executes(ctx -> executeBenchmark(ctx.getSource().getSender(), 100, "all", 0))
+                        .then(Commands.argument("count", IntegerArgumentType.integer(1, 1000))
+                            .executes(ctx -> executeBenchmark(ctx.getSource().getSender(), IntegerArgumentType.getInteger(ctx, "count"), "all", 0))
+                            .then(Commands.argument("world", StringArgumentType.string())
+                                .suggests(worldSuggestions)
                                 .executes(ctx -> executeBenchmark(
                                     ctx.getSource().getSender(),
                                     IntegerArgumentType.getInteger(ctx, "count"),
                                     StringArgumentType.getString(ctx, "world"),
-                                    IntegerArgumentType.getInteger(ctx, "offset")
+                                    0
                                 ))
+                                .then(Commands.argument("offset", IntegerArgumentType.integer(0, 10000))
+                                    .executes(ctx -> executeBenchmark(
+                                        ctx.getSource().getSender(),
+                                        IntegerArgumentType.getInteger(ctx, "count"),
+                                        StringArgumentType.getString(ctx, "world"),
+                                        IntegerArgumentType.getInteger(ctx, "offset")
+                                    ))
+                                )
                             )
                         )
-                    )
-                    .build(),
-                "Run stress test benchmark for CTCPE teleport engine across worlds",
-                List.of("homebench")
-            );
+                        .build(),
+                    "Run stress test benchmark for CTCPE teleport engine across worlds",
+                    List.of("homebench")
+                );
+            }
         });
     }
 
@@ -363,6 +365,13 @@ public final class HomeCommandRegistry {
         HomeConfig config = configSupplier.get();
         if (!config.enabled()) {
             sendDisabledMessage(sender);
+            return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+        }
+
+        if (config.benchmark() == null || !config.benchmark().enabled()) {
+            sender.sendMessage(miniMessage.deserialize(
+                config.messages().prefix() + config.messages().benchmarkDisabled()
+            ));
             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
         }
 

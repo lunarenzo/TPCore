@@ -48,9 +48,12 @@ public final class SqliteHomeRepository implements HomeRepository {
             config.setPoolName("TPCore-SQLitePool");
             config.setDriverClassName("org.sqlite.JDBC");
             config.setJdbcUrl("jdbc:sqlite:" + dbFile.getAbsolutePath());
-            config.setMaximumPoolSize(1);
+            config.setMaximumPoolSize(4);
+            config.setConnectionTimeout(5000);
             config.setConnectionTestQuery("SELECT 1");
             config.addDataSourceProperty("journal_mode", "WAL");
+            config.addDataSourceProperty("busy_timeout", "5000");
+            config.addDataSourceProperty("synchronous", "NORMAL");
 
             try {
                 this.dataSource = new HikariDataSource(config);
@@ -218,13 +221,6 @@ public final class SqliteHomeRepository implements HomeRepository {
     @Override
     public CompletableFuture<Void> close() {
         return CompletableFuture.runAsync(() -> {
-            if (dataSource != null && !dataSource.isClosed()) {
-                try {
-                    dataSource.close();
-                } catch (Exception e) {
-                    logger.error("Error closing HikariDataSource", e);
-                }
-            }
             if (virtualExecutor != null && !virtualExecutor.isShutdown()) {
                 try {
                     virtualExecutor.shutdown();
@@ -233,6 +229,13 @@ public final class SqliteHomeRepository implements HomeRepository {
                     }
                 } catch (Exception e) {
                     logger.error("Error shutting down virtualExecutor", e);
+                }
+            }
+            if (dataSource != null && !dataSource.isClosed()) {
+                try {
+                    dataSource.close();
+                } catch (Exception e) {
+                    logger.error("Error closing HikariDataSource", e);
                 }
             }
         });

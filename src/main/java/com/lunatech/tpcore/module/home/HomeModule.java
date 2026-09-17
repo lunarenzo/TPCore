@@ -79,7 +79,7 @@ public final class HomeModule implements ReloadableModule {
         this.cache = new DefaultHomeCache();
         this.service = new DefaultHomeService(this.plugin, this.repository, this.cache, () -> this.config);
 
-        this.joinQuitListener = new HomeJoinQuitListener(this.repository, this.cache, () -> this.config);
+        this.joinQuitListener = new HomeJoinQuitListener(this.plugin, this.repository, this.cache, () -> this.config);
         this.respawnListener = new HomeRespawnListener(this.service, () -> this.config);
         this.commandRegistry = new HomeCommandRegistry(this.plugin, this.service, () -> this.config);
 

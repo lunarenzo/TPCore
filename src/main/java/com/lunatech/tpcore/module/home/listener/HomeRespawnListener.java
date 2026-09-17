@@ -55,10 +55,38 @@ public final class HomeRespawnListener implements Listener {
         }
 
         Location target = new Location(world, home.x(), home.y(), home.z(), home.yaw(), home.pitch());
-        if (homeService.isLocationSafe(target)) {
+        int chunkX = target.getBlockX() >> 4;
+        int chunkZ = target.getBlockZ() >> 4;
+
+        boolean safe = false;
+        if (world.isChunkLoaded(chunkX, chunkZ)) {
+            safe = homeService.isLocationSafe(target);
+        } else {
+            // Unloaded chunk: perform pre-flight bounds check to avoid sync chunk loading on main thread
+            safe = isPreFlightRespawnSafe(target, config);
+        }
+
+        if (safe) {
             event.setRespawnLocation(target);
             String msg = config.messages().prefix() + config.messages().respawnAtHome();
             player.sendMessage(miniMessage.deserialize(msg));
         }
+    }
+
+    private boolean isPreFlightRespawnSafe(Location target, HomeConfig config) {
+        if (target == null || target.getWorld() == null) {
+            return false;
+        }
+        World world = target.getWorld();
+        if (target.getY() < world.getMinHeight() || target.getY() >= world.getMaxHeight()) {
+            return false;
+        }
+        HomeConfig.HomeSafetyConfig safety = config.safetyChecks();
+        if (safety != null && safety.preventNetherRoof() && world.getEnvironment() == World.Environment.NETHER) {
+            if (target.getY() > safety.maxNetherHeight()) {
+                return false;
+            }
+        }
+        return true;
     }
 }

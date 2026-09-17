@@ -93,6 +93,9 @@ public final class ConcurrentTeleportPipelineEngine {
         long totalStartNano = System.nanoTime();
 
         HomeConfig config = configSupplier.get();
+        if (config.benchmark() == null || !config.benchmark().enabled()) {
+            return CompletableFuture.failedFuture(new IllegalStateException("Benchmark feature is disabled in home.yml"));
+        }
         int maxLoadsPerTick = Math.max(1, config.safetyChecks().maxConcurrentChunkLoads());
 
         List<World> availableWorlds = Bukkit.getWorlds();
@@ -223,7 +226,7 @@ public final class ConcurrentTeleportPipelineEngine {
                     int finalY = (safeLoc != null) ? safeLoc.getBlockY() : target.getBlockY();
                     detailsList.add(new TaskDetail(taskId, home.worldName(), target.getBlockX(), finalY, target.getBlockZ(), chunkX, chunkZ, "PASSED", safetyStatus));
                     removeTicket(chunk);
-                }, runnable -> runOnGlobalThread(runnable)).exceptionally(ex -> {
+                }, runnable -> runOnRegionThread(world, chunkX, chunkZ, runnable)).exceptionally(ex -> {
                     failCounter.incrementAndGet();
                     detailsList.add(new TaskDetail(taskId, home.worldName(), target.getBlockX(), target.getBlockY(), target.getBlockZ(), chunkX, chunkZ, "PASSED", "LOAD_FAILED"));
                     return null;
@@ -578,6 +581,14 @@ public final class ConcurrentTeleportPipelineEngine {
         try {
             chunk.removePluginChunkTicket(plugin);
         } catch (Throwable ignored) {}
+    }
+
+    private void runOnRegionThread(World world, int chunkX, int chunkZ, Runnable runnable) {
+        try {
+            Bukkit.getRegionScheduler().run(plugin, world, chunkX, chunkZ, task -> runnable.run());
+        } catch (NoSuchMethodError | Exception e) {
+            Bukkit.getScheduler().runTask(plugin, runnable);
+        }
     }
 
     private void runOnGlobalThread(Runnable runnable) {

@@ -10,6 +10,9 @@ public record HomeConfig(
     @Comment("Enable or disable the Home module completely")
     boolean enabled,
 
+    @Comment("Benchmark submodule feature configuration")
+    HomeBenchmarkConfig benchmark,
+
     @Comment("Default home name when /sethome or /home is executed without arguments")
     String defaultHomeName,
 
@@ -49,6 +52,7 @@ public record HomeConfig(
     public static HomeConfig createDefault() {
         return new HomeConfig(
             true,
+            HomeBenchmarkConfig.createDefault(),
             "home",
             3,
             10,
@@ -67,6 +71,16 @@ public record HomeConfig(
             ),
             HomeMessages.createDefault()
         );
+    }
+
+    @ConfigSerializable
+    public record HomeBenchmarkConfig(
+        @Comment("Enable or disable the benchmark submodule feature completely (Disabled by default)")
+        boolean enabled
+    ) {
+        public static HomeBenchmarkConfig createDefault() {
+            return new HomeBenchmarkConfig(false);
+        }
     }
 
     @ConfigSerializable
@@ -94,6 +108,7 @@ public record HomeConfig(
     @ConfigSerializable
     public record HomeMessages(
         String alreadyShared,
+        String benchmarkDisabled,
         String benchmarkHeader,
         String benchmarkReportSaved,
         String benchmarkResults,
@@ -129,6 +144,7 @@ public record HomeConfig(
         public static HomeMessages createDefault() {
             return new HomeMessages(
                 "<prefix><red>Home <yellow><home></yellow> is already shared with <green><target></green>!</red>",
+                "<prefix><red>Benchmark submodule feature is currently disabled in home.yml.</red>",
                 "<prefix><gradient:#00D2FF:#3A7BD5><bold>CTCPE Engine Full Benchmark Running...</bold></gradient> <gray>(Simulating <gold><count></gold> sethome/home/delhome operations across <yellow><worlds></yellow>...)</gray>",
                 "<prefix><gray>Diagnostic report file saved to: <gold><path></gold></gray>",
                 "<prefix><green><bold>CTCPE Full Benchmark Complete!</bold></green><br><gray>• Tasks: <gold><total></gold> across <yellow><worlds></yellow> | Dedup Ratio: <gold><dedup>%</gold> (<gold><unique></gold> unique chunk reads)</gray><br><gray>• DB Writes (sethome): <gold><dbwrite>ms</gold> | DB Deletes (delhome): <gold><dbdel>ms</gold></gray><br><gray>• Real Chunk Disk I/O: <gold><time>ms</gold> over <gold><batches></gold> tick batches (<gold><cap></gold> loads/tick)</gray><br><gray>• Processing Overhead: <gold><mspt> mspt</gold> (<green>20.0 TPS</green>)</gray><br><gray>• Safe Ground / Safe Landing: <green><success></green> safe | <red><fail></red> unsafe/rejected</gray>",
@@ -164,3 +180,4 @@ public record HomeConfig(
         }
     }
 }
+
