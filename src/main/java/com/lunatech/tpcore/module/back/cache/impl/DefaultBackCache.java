@@ -41,8 +41,15 @@ public final class DefaultBackCache implements BackCache {
         ConcurrentLinkedDeque<BackLocation> deque = cache.computeIfAbsent(playerUuid, k -> new ConcurrentLinkedDeque<>());
         deque.addFirst(location);
 
-        while (deque.size() > maxDepth) {
-            deque.removeLast();
+        // Trim excess elements past maxDepth using iterator to avoid O(N) size() re-traversals
+        int count = 0;
+        var iterator = deque.iterator();
+        while (iterator.hasNext()) {
+            iterator.next();
+            count++;
+            if (count > maxDepth) {
+                iterator.remove();
+            }
         }
     }
 
@@ -84,7 +91,7 @@ public final class DefaultBackCache implements BackCache {
             return Optional.empty();
         }
         for (BackLocation loc : deque) {
-            if (loc.cause() == BackCause.DEATH) {
+            if (loc.cause() != null && loc.cause().isDeath()) {
                 return Optional.of(loc);
             }
         }
@@ -100,9 +107,11 @@ public final class DefaultBackCache implements BackCache {
         if (deque == null || deque.isEmpty()) {
             return Optional.empty();
         }
-        for (BackLocation loc : deque) {
-            if (loc.cause() == BackCause.DEATH) {
-                deque.remove(loc);
+        var iterator = deque.iterator();
+        while (iterator.hasNext()) {
+            BackLocation loc = iterator.next();
+            if (loc.cause() != null && loc.cause().isDeath()) {
+                iterator.remove();
                 if (deque.isEmpty()) {
                     cache.remove(playerUuid, deque);
                 }
@@ -111,6 +120,7 @@ public final class DefaultBackCache implements BackCache {
         }
         return Optional.empty();
     }
+
 
     @Override
     public List<BackLocation> getHistory(UUID playerUuid) {
