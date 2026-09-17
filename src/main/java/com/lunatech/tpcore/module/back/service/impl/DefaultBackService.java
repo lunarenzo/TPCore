@@ -486,12 +486,13 @@ public final class DefaultBackService implements BackService {
         return repository.loadPlayerHistory(playerUuid).thenAccept(history -> {
             if (history != null && !history.isEmpty()) {
                 cache.clearPlayerHistory(playerUuid);
-                for (BackLocation loc : history) {
-                    cache.pushLocation(playerUuid, loc, config.maxHistoryDepth());
+                for (int i = history.size() - 1; i >= 0; i--) {
+                    cache.pushLocation(playerUuid, history.get(i), config.maxHistoryDepth());
                 }
             }
         });
     }
+
 
     @Override
     public CompletableFuture<Void> close() {
