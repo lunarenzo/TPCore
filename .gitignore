@@ -4,4 +4,4 @@ build/
 *.out
 *.log
 GEMINI.md
-
+dev-docs/

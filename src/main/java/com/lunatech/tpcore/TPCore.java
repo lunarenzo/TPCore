@@ -9,6 +9,7 @@ import com.lunatech.tpcore.config.model.TpaConfig;
 import com.lunatech.tpcore.config.model.WarpConfig;
 import com.lunatech.tpcore.module.back.BackModule;
 import com.lunatech.tpcore.module.home.HomeModule;
+import com.lunatech.tpcore.module.rtp.RtpModule;
 import com.lunatech.tpcore.module.spawn.SpawnModule;
 import com.lunatech.tpcore.module.tpa.TpaModule;
 import com.lunatech.tpcore.module.warp.WarpModule;
@@ -23,6 +24,7 @@ public final class TPCore extends JavaPlugin {
     private HomeModule homeModule;
     private WarpModule warpModule;
     private BackModule backModule;
+    private RtpModule rtpModule;
     private TPCoreAdminCommandRegistry adminCommandRegistry;
 
     @Override
@@ -57,6 +59,9 @@ public final class TPCore extends JavaPlugin {
         this.backModule = new BackModule(this, this.configManager, backConfig);
         this.backModule.enable();
 
+        this.rtpModule = new RtpModule(this, this.configManager);
+        this.rtpModule.enable();
+
         this.adminCommandRegistry = new TPCoreAdminCommandRegistry(this, this.configManager, this.configManager::getCoreConfig);
         this.adminCommandRegistry.registerAll();
 
@@ -65,6 +70,9 @@ public final class TPCore extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        if (this.rtpModule != null) {
+            this.rtpModule.disable();
+        }
         if (this.backModule != null) {
             this.backModule.disable();
         }
