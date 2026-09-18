@@ -176,9 +176,14 @@ public final class DefaultRtpService implements RtpService {
             );
 
             return player.teleportAsync(dest, TeleportCause.PLUGIN).thenApply(success -> {
-                this.ticketManager.removeCandidateTickets(world, packedLoc);
-
                 if (success) {
+                    player.getScheduler().runDelayed(
+                        this.plugin,
+                        t -> this.ticketManager.removeCandidateTickets(world, packedLoc),
+                        null,
+                        100L
+                    );
+
                     if (worldConfig.cooldownSeconds() > 0) {
                         this.cooldownMap.put(
                             player.getUniqueId(),
@@ -195,6 +200,7 @@ public final class DefaultRtpService implements RtpService {
                         Placeholder.unparsed("world", world.getName())
                     );
                 } else {
+                    this.ticketManager.removeCandidateTickets(world, packedLoc);
                     sendMessage(player, this.configSupplier.get().messages().teleportFailed());
                 }
                 return success;
