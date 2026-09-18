@@ -3,11 +3,13 @@ package com.lunatech.tpcore.module.rtp.anvil;
 import java.io.File;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Set;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 final class AnvilPrefilterTest {
 
@@ -43,5 +45,21 @@ final class AnvilPrefilterTest {
             );
             Assertions.assertNotNull(verdict);
         }
+    }
+
+    @Test
+    @DisplayName("Verify region file resolution for Paper separate world folders and Vanilla subfolders")
+    void testResolveRegionFile(@TempDir Path tempDir) throws Exception {
+        // 1. Paper Nether Structure (world_nether/region)
+        Path paperNether = tempDir.resolve("world_nether");
+        Files.createDirectories(paperNether.resolve("region"));
+        Path paperResolved = AnvilPrefilter.resolveRegionFile(paperNether, "DIM-1", 0, 0);
+        Assertions.assertEquals(paperNether.resolve("region/r.0.0.mca"), paperResolved);
+
+        // 2. Vanilla Nether Structure (world/DIM-1/region)
+        Path vanillaWorld = tempDir.resolve("world");
+        Files.createDirectories(vanillaWorld.resolve("DIM-1/region"));
+        Path vanillaResolved = AnvilPrefilter.resolveRegionFile(vanillaWorld, "DIM-1", 0, 0);
+        Assertions.assertEquals(vanillaWorld.resolve("DIM-1/region/r.0.0.mca"), vanillaResolved);
     }
 }

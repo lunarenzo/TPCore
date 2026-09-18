@@ -121,8 +121,13 @@ public final class AnvilPrefilter {
         Objects.requireNonNull(worldFolder, "worldFolder cannot be null");
         int regionX = chunkX >> 5;
         int regionZ = chunkZ >> 5;
-        String dim = (dimensionSubpath == null) ? "" : dimensionSubpath;
-        Path regionDir = dim.isEmpty() ? worldFolder.resolve("region") : worldFolder.resolve(dim).resolve("region");
+        Path regionDir = worldFolder.resolve("region");
+        if (dimensionSubpath != null && !dimensionSubpath.isEmpty()) {
+            Path dimRegionDir = worldFolder.resolve(dimensionSubpath).resolve("region");
+            if (Files.isDirectory(dimRegionDir)) {
+                regionDir = dimRegionDir;
+            }
+        }
 
         String bLinearName = "r." + regionX + "." + regionZ + ".b_linear";
         Path bLinearFile = regionDir.resolve(bLinearName);
