@@ -16,6 +16,7 @@ import java.util.function.Supplier;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.entity.Player;
@@ -177,10 +178,10 @@ public final class DefaultRtpService implements RtpService {
 
             return player.teleportAsync(dest, TeleportCause.PLUGIN).thenApply(success -> {
                 if (success) {
-                    player.getScheduler().runDelayed(
+                    Bukkit.getRegionScheduler().runDelayed(
                         this.plugin,
+                        dest,
                         t -> this.ticketManager.removeCandidateTickets(world, packedLoc),
-                        null,
                         100L
                     );
 
