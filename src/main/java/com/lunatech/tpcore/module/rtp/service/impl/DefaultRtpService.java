@@ -140,6 +140,10 @@ public final class DefaultRtpService implements RtpService {
         RtpWorldConfig worldConfig,
         int attempt
     ) {
+        if (player == null || !player.isOnline()) {
+            return CompletableFuture.completedFuture(false);
+        }
+
         if (attempt >= 5) {
             sendMessage(player, this.configSupplier.get().messages().searchFailed());
             return CompletableFuture.completedFuture(false);
@@ -162,6 +166,11 @@ public final class DefaultRtpService implements RtpService {
         int blockZ = (int) Math.floor(candidate.z());
 
         return this.safetyInspector.inspectCandidate(world, worldConfig, blockX, blockZ).thenCompose(safeCandidate -> {
+            if (player == null || !player.isOnline()) {
+                this.ticketManager.removeCandidateTickets(world, packedLoc);
+                return CompletableFuture.completedFuture(false);
+            }
+
             if (safeCandidate == null) {
                 this.ticketManager.removeCandidateTickets(world, packedLoc);
                 return dispatchTeleport(player, world, worldConfig, attempt + 1);
@@ -269,6 +278,9 @@ public final class DefaultRtpService implements RtpService {
     }
 
     private void sendMessage(Player player, String messageFormat, net.kyori.adventure.text.minimessage.tag.resolver.TagResolver... resolvers) {
+        if (player == null || !player.isOnline()) {
+            return;
+        }
         if (messageFormat == null || messageFormat.isBlank()) {
             return;
         }
