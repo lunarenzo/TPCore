@@ -79,7 +79,7 @@ public final class RtpSafetyInspector {
         Material feet = snapshot.getBlockType(localX, highestY + 1, localZ);
         Material head = snapshot.getBlockType(localX, highestY + 2, localZ);
 
-        if (isHazard(standOn) || !isPassable(feet) || !isPassable(head)) {
+        if (!(standOn.isSolid() || standOn.name().endsWith("_LEAVES")) || standOn == Material.BEDROCK || isHazard(standOn) || !isPassable(feet) || !isPassable(head)) {
             return null;
         }
 
@@ -153,7 +153,7 @@ public final class RtpSafetyInspector {
 
     private boolean isPassable(Material material) {
         if (material == null || material.isAir()) return true;
-        return !material.isSolid() && material != Material.LAVA && material != Material.WATER && material != Material.FIRE;
+        return !material.isSolid() && !isHazard(material);
     }
 
     private boolean isBiomeBlacklisted(Biome biome, RtpWorldConfig config) {

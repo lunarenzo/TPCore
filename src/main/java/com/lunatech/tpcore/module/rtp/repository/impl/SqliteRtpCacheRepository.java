@@ -28,6 +28,7 @@ public final class SqliteRtpCacheRepository implements RtpCacheRepository {
     public SqliteRtpCacheRepository(File dataLocation, Logger logger) {
         this.dataLocation = Objects.requireNonNull(dataLocation, "dataLocation cannot be null");
         this.logger = Objects.requireNonNull(logger, "logger cannot be null");
+        this.virtualExecutor = Executors.newVirtualThreadPerTaskExecutor();
     }
 
     @Override
@@ -58,7 +59,6 @@ public final class SqliteRtpCacheRepository implements RtpCacheRepository {
 
             try {
                 this.dataSource = new HikariDataSource(config);
-                this.virtualExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
                 try (Connection conn = dataSource.getConnection();
                      Statement stmt = conn.createStatement()) {
@@ -80,7 +80,7 @@ public final class SqliteRtpCacheRepository implements RtpCacheRepository {
                 }
                 throw new RuntimeException("RTP database initialization failure", e);
             }
-        });
+        }, this.virtualExecutor);
     }
 
     @Override

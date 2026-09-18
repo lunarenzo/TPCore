@@ -173,15 +173,13 @@ public final class AdaptiveRtpReplenisher {
         if (worldConfig.shape() == RtpWorldConfig.Shape.SQUARE) {
             int span = Math.max(1, worldConfig.maxRadius());
             int inner = Math.max(0, Math.min(worldConfig.minRadius(), span - 1));
-            int dx = rng.nextInt(-span, span + 1);
-            int dz = rng.nextInt(-span, span + 1);
-            if (Math.max(Math.abs(dx), Math.abs(dz)) < inner) {
-                if (Math.abs(dx) >= Math.abs(dz)) {
-                    dx = (dx >= 0 ? 1 : -1) * inner;
-                } else {
-                    dz = (dz >= 0 ? 1 : -1) * inner;
-                }
-            }
+            int dx;
+            int dz;
+            int maxAttempts = 10;
+            do {
+                dx = rng.nextInt(-span, span + 1);
+                dz = rng.nextInt(-span, span + 1);
+            } while (Math.max(Math.abs(dx), Math.abs(dz)) < inner && --maxAttempts > 0);
             candidateX = worldConfig.centerX() + dx;
             candidateZ = worldConfig.centerZ() + dz;
         } else {
