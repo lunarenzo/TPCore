@@ -51,9 +51,8 @@ final class LockFreeCandidateBufferConcurrencyTest {
                     latch.await();
                     for (int j = 0; j < opsPerThread; j++) {
                         long polled = buffer.poll();
-                        if (polled != -1L) {
+                        if (polled != LockFreeCandidateBuffer.EMPTY_SENTINEL) {
                             totalPolled.incrementAndGet();
-                            // Validate unpacked coordinates sanity
                             int y = PackedLocation.unpackY(polled);
                             Assertions.assertEquals(64, y);
                         }
@@ -72,7 +71,7 @@ final class LockFreeCandidateBufferConcurrencyTest {
         Assertions.assertTrue(totalOffered.get() > 0, "No items were offered");
 
         // Drain remainder
-        while (buffer.poll() != -1L) {
+        while (buffer.poll() != LockFreeCandidateBuffer.EMPTY_SENTINEL) {
             totalPolled.incrementAndGet();
         }
 

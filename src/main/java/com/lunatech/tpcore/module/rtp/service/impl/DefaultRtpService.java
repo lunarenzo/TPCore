@@ -35,8 +35,10 @@ public final class DefaultRtpService implements RtpService {
     private final RtpChunkTicketManager ticketManager;
     private final MiniMessage miniMessage = MiniMessage.miniMessage();
 
+    private record WarmupSession(ScheduledTask task, CompletableFuture<Boolean> future) {}
+
     private final Map<UUID, Long> cooldownMap = new ConcurrentHashMap<>();
-    private final Map<UUID, ScheduledTask> warmupTasks = new ConcurrentHashMap<>();
+    private final Map<UUID, WarmupSession> warmupTasks = new ConcurrentHashMap<>();
 
     public DefaultRtpService(
         JavaPlugin plugin,
@@ -110,19 +112,21 @@ public final class DefaultRtpService implements RtpService {
                 Placeholder.unparsed("seconds", String.valueOf(warmupSeconds))
             );
 
+            CompletableFuture<Boolean> warmupFuture = new CompletableFuture<>();
+
             ScheduledTask task = player.getScheduler().runDelayed(
                 this.plugin,
                 t -> {
                     this.warmupTasks.remove(uuid);
-                    dispatchTeleport(player, world, worldConfig, 0);
+                    dispatchTeleport(player, world, worldConfig, 0).thenAccept(warmupFuture::complete);
                 },
                 null,
                 warmupSeconds * 20L
             );
 
             if (task != null) {
-                this.warmupTasks.put(uuid, task);
-                return CompletableFuture.completedFuture(true);
+                this.warmupTasks.put(uuid, new WarmupSession(task, warmupFuture));
+                return warmupFuture;
             }
         }
 
@@ -214,15 +218,25 @@ public final class DefaultRtpService implements RtpService {
 
     @Override
     public boolean isWarmingUp(UUID playerUniqueId) {
-        ScheduledTask task = this.warmupTasks.get(playerUniqueId);
-        return task != null && !task.isCancelled();
+        WarmupSession session = this.warmupTasks.get(playerUniqueId);
+        return session != null && session.task() != null && !session.task().isCancelled();
+    }
+
+    @Override
+    public boolean hasActiveWarmups() {
+        return !this.warmupTasks.isEmpty();
     }
 
     @Override
     public void cancelWarmup(UUID playerUniqueId) {
-        ScheduledTask task = this.warmupTasks.remove(playerUniqueId);
-        if (task != null) {
-            task.cancel();
+        WarmupSession session = this.warmupTasks.remove(playerUniqueId);
+        if (session != null) {
+            if (session.task() != null) {
+                session.task().cancel();
+            }
+            if (session.future() != null) {
+                session.future().complete(false);
+            }
             Player player = this.plugin.getServer().getPlayer(playerUniqueId);
             if (player != null && player.isOnline()) {
                 sendMessage(player, this.configSupplier.get().messages().warmupCancelled());
@@ -239,7 +253,10 @@ public final class DefaultRtpService implements RtpService {
 
     @Override
     public void shutdown() {
-        this.warmupTasks.values().forEach(ScheduledTask::cancel);
+        this.warmupTasks.values().forEach(session -> {
+            if (session.task() != null) session.task().cancel();
+            if (session.future() != null) session.future().complete(false);
+        });
         this.warmupTasks.clear();
         this.cooldownMap.clear();
     }

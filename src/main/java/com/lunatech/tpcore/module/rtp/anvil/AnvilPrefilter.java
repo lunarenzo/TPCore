@@ -35,8 +35,8 @@ public final class AnvilPrefilter {
                 return Verdict.UNKNOWN;
             }
 
-            byte[] regionBytes = AnvilRegionByteCache.get(regionFile);
-            if (regionBytes == null || regionBytes.length < 8192) {
+            byte[] regionBytes = AnvilRegionByteCache.getHeader(regionFile);
+            if (regionBytes == null || regionBytes.length < 4096) {
                 return Verdict.UNKNOWN;
             }
 

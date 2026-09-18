@@ -51,7 +51,7 @@ public final class SqliteRtpCacheRepository implements RtpCacheRepository {
             config.setPoolName("TPCore-RtpSQLitePool");
             config.setDriverClassName("org.sqlite.JDBC");
             config.setJdbcUrl("jdbc:sqlite:" + dbFile.getAbsolutePath());
-            config.setMaximumPoolSize(4);
+            config.setMaximumPoolSize(1);
             config.setConnectionTimeout(5000);
             config.setConnectionTestQuery("SELECT 1");
             config.setConnectionInitSql("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;");

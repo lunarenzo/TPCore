@@ -44,6 +44,15 @@ public interface RtpService {
     boolean isWarmingUp(UUID playerUniqueId);
 
     /**
+     * Fast check whether any players are currently in warmup phase.
+     *
+     * @return true if at least one player is warming up
+     */
+    default boolean hasActiveWarmups() {
+        return false;
+    }
+
+    /**
      * Cancels any pending RTP warmup for a player.
      *
      * @param playerUniqueId Unique ID of player

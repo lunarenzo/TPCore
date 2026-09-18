@@ -52,7 +52,7 @@ public final class RtpPredictiveJoinListener implements Listener {
         if (from.getBlockX() != to.getBlockX() || from.getBlockY() != to.getBlockY() || from.getBlockZ() != to.getBlockZ()) {
             Player player = event.getPlayer();
             RtpService service = this.rtpServiceSupplier.get();
-            if (service != null && service.isWarmingUp(player.getUniqueId())) {
+            if (service != null && service.hasActiveWarmups() && service.isWarmingUp(player.getUniqueId())) {
                 service.cancelWarmup(player.getUniqueId());
             }
         }
@@ -62,7 +62,7 @@ public final class RtpPredictiveJoinListener implements Listener {
     public void onPlayerDamage(EntityDamageEvent event) {
         if (event.getEntity() instanceof Player player) {
             RtpService service = this.rtpServiceSupplier.get();
-            if (service != null && service.isWarmingUp(player.getUniqueId())) {
+            if (service != null && service.hasActiveWarmups() && service.isWarmingUp(player.getUniqueId())) {
                 service.cancelWarmup(player.getUniqueId());
             }
         }

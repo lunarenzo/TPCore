@@ -48,7 +48,7 @@ public final class RtpSafetyInspector {
             return CompletableFuture.completedFuture(null);
         }
 
-        return world.getChunkAtAsync(chunkX, chunkZ, true).thenApplyAsync(chunk -> {
+        return world.getChunkAtAsync(chunkX, chunkZ, true).thenApply(chunk -> {
             if (chunk == null) {
                 return null;
             }
@@ -94,12 +94,12 @@ public final class RtpSafetyInspector {
     }
 
     private RtpCandidate inspectNether(World world, RtpWorldConfig config, ChunkSnapshot snapshot, int targetX, int targetZ, int localX, int localZ) {
-        for (int y = 115; y >= 32; y--) {
+        for (int y = 110; y >= 32; y--) {
             Material standOn = snapshot.getBlockType(localX, y, localZ);
             Material feet = snapshot.getBlockType(localX, y + 1, localZ);
             Material head = snapshot.getBlockType(localX, y + 2, localZ);
 
-            if (standOn.isSolid() && !isHazard(standOn) && isPassable(feet) && isPassable(head)) {
+            if (standOn.isSolid() && standOn != Material.BEDROCK && !isHazard(standOn) && isPassable(feet) && isPassable(head)) {
                 Biome biome = snapshot.getBiome(localX, y + 1, localZ);
                 if (isBiomeBlacklisted(biome, config)) {
                     return null;
@@ -122,7 +122,7 @@ public final class RtpSafetyInspector {
         Material feet = snapshot.getBlockType(localX, highestY + 1, localZ);
         Material head = snapshot.getBlockType(localX, highestY + 2, localZ);
 
-        if (!standOn.isSolid() || isHazard(standOn) || !isPassable(feet) || !isPassable(head)) {
+        if (!standOn.isSolid() || standOn == Material.BEDROCK || isHazard(standOn) || !isPassable(feet) || !isPassable(head)) {
             return null;
         }
 
@@ -146,6 +146,7 @@ public final class RtpSafetyInspector {
                material == Material.CACTUS ||
                material == Material.SWEET_BERRY_BUSH ||
                material == Material.WITHER_ROSE ||
+               material == Material.POWDER_SNOW ||
                material == Material.VOID_AIR;
     }
 

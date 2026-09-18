@@ -30,7 +30,22 @@ final class LockFreeCandidateBufferTest {
         Assertions.assertEquals(loc1, buffer.poll());
         Assertions.assertEquals(loc2, buffer.poll());
         Assertions.assertTrue(buffer.isEmpty());
-        Assertions.assertEquals(-1L, buffer.poll());
+        Assertions.assertEquals(LockFreeCandidateBuffer.EMPTY_SENTINEL, buffer.poll());
+    }
+
+    @Test
+    @DisplayName("Verify 0L coordinate candidate packing does not hang in infinite loop")
+    void testZeroLongCandidateHandling() {
+        LockFreeCandidateBuffer buffer = new LockFreeCandidateBuffer(16);
+        long zeroPacked = PackedLocation.pack(-30_000_000, 0, -30_000_000);
+
+        Assertions.assertEquals(0L, zeroPacked);
+        Assertions.assertTrue(buffer.offer(zeroPacked));
+        Assertions.assertEquals(1, buffer.size());
+
+        long polled = buffer.poll();
+        Assertions.assertEquals(0L, polled);
+        Assertions.assertTrue(buffer.isEmpty());
     }
 
     @Test
