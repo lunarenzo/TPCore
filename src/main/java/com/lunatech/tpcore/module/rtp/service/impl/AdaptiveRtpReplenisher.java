@@ -92,7 +92,7 @@ public final class AdaptiveRtpReplenisher {
         }
 
         long packed = buffer.poll();
-        if (packed == -1L) {
+        if (packed == LockFreeCandidateBuffer.EMPTY_SENTINEL) {
             return null;
         }
 
