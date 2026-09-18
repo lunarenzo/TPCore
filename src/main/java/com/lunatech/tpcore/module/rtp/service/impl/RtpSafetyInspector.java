@@ -28,10 +28,6 @@ public final class RtpSafetyInspector {
         Objects.requireNonNull(world, "world cannot be null");
         Objects.requireNonNull(worldConfig, "worldConfig cannot be null");
 
-        if (!world.getWorldBorder().isInside(new Location(world, candidateX, 100, candidateZ))) {
-            return CompletableFuture.completedFuture(null);
-        }
-
         int chunkX = candidateX >> 4;
         int chunkZ = candidateZ >> 4;
         Set<String> unsafeMaterials = new HashSet<>(worldConfig.biomeBlacklist());
@@ -51,6 +47,10 @@ public final class RtpSafetyInspector {
 
         return world.getChunkAtAsync(chunkX, chunkZ, true).thenApply(chunk -> {
             if (chunk == null) {
+                return null;
+            }
+
+            if (!world.getWorldBorder().isInside(new Location(world, candidateX, 100, candidateZ))) {
                 return null;
             }
 
