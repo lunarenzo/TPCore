@@ -54,7 +54,10 @@ public record RtpConfig(
         String queueWarmingUp,
         String searchFailed,
         String teleportSuccess,
-        String teleportFailed
+        String teleportFailed,
+        String onlyPlayers,
+        String worldNotFound,
+        String reloadSuccess
     ) {
         public static RtpMessages createDefault() {
             return new RtpMessages(
@@ -69,7 +72,10 @@ public record RtpConfig(
                 "<yellow>RTP queue is warming up candidates, please try again in a few seconds.</yellow>",
                 "<red>Failed to find a safe location after multiple retries. Try again later.</red>",
                 "<green>Teleported to <x>, <y>, <z> in <world>!</green>",
-                "<red>Teleport failed due to unsafe terrain target.</red>"
+                "<red>Teleport failed due to unsafe terrain target.</red>",
+                "<red>Only players can execute random teleportation.</red>",
+                "<red>World '<world>' does not exist or is not loaded.</red>",
+                "<green>RTP module configuration reloaded successfully.</green>"
             );
         }
     }
