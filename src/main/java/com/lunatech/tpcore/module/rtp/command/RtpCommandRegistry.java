@@ -57,7 +57,7 @@ public final class RtpCommandRegistry {
                     )
                     .then(Commands.literal("world")
                         .requires(src -> src.getSender().hasPermission(Permissions.RTP_WORLD))
-                        .then(Commands.argument("targetWorld", StringArgumentType.word())
+                        .then(Commands.argument("targetWorld", StringArgumentType.string())
                             .suggests((ctx, builder) -> {
                                 for (World world : Bukkit.getWorlds()) {
                                     if (world.getName().toLowerCase().startsWith(builder.getRemaining().toLowerCase())) {
@@ -81,7 +81,7 @@ public final class RtpCommandRegistry {
 
     private int executeRtpSelf(CommandSender sender) {
         if (!(sender instanceof Player player)) {
-            sender.sendMessage(this.miniMessage.deserialize(this.configSupplier.get().messages().onlyPlayers()));
+            sender.sendMessage(this.miniMessage.deserialize(this.configSupplier.get().messages().prefix() + this.configSupplier.get().messages().onlyPlayers()));
             return Command.SINGLE_SUCCESS;
         }
 
@@ -97,7 +97,7 @@ public final class RtpCommandRegistry {
 
     private int executeRtpWorld(CommandSender sender, String worldName) {
         if (!(sender instanceof Player player)) {
-            sender.sendMessage(this.miniMessage.deserialize(this.configSupplier.get().messages().onlyPlayers()));
+            sender.sendMessage(this.miniMessage.deserialize(this.configSupplier.get().messages().prefix() + this.configSupplier.get().messages().onlyPlayers()));
             return Command.SINGLE_SUCCESS;
         }
 
