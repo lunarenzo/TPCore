@@ -129,6 +129,18 @@ public final class AnvilPrefilter {
             }
         }
 
+        if (!Files.isDirectory(regionDir)) {
+            String dimKey = (dimensionSubpath == null) ? "" : dimensionSubpath;
+            Path modernDir = switch (dimKey) {
+                case "DIM-1" -> worldFolder.resolve("dimensions/minecraft/the_nether/region");
+                case "DIM1" -> worldFolder.resolve("dimensions/minecraft/the_end/region");
+                default -> worldFolder.resolve("dimensions/minecraft/overworld/region");
+            };
+            if (Files.isDirectory(modernDir)) {
+                regionDir = modernDir;
+            }
+        }
+
         String bLinearName = "r." + regionX + "." + regionZ + ".b_linear";
         Path bLinearFile = regionDir.resolve(bLinearName);
         if (Files.isRegularFile(bLinearFile)) {

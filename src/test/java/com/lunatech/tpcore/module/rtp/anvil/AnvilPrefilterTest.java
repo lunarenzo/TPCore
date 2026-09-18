@@ -56,10 +56,22 @@ final class AnvilPrefilterTest {
         Path paperResolved = AnvilPrefilter.resolveRegionFile(paperNether, "DIM-1", 0, 0);
         Assertions.assertEquals(paperNether.resolve("region/r.0.0.mca"), paperResolved);
 
-        // 2. Vanilla Nether Structure (world/DIM-1/region)
+        // 2. Vanilla 1.20.6 - 1.21.11 Nether Structure (world/DIM-1/region)
         Path vanillaWorld = tempDir.resolve("world");
         Files.createDirectories(vanillaWorld.resolve("DIM-1/region"));
         Path vanillaResolved = AnvilPrefilter.resolveRegionFile(vanillaWorld, "DIM-1", 0, 0);
         Assertions.assertEquals(vanillaWorld.resolve("DIM-1/region/r.0.0.mca"), vanillaResolved);
+
+        // 3. Modern 26.1+ Namespaced Nether Structure (world/dimensions/minecraft/the_nether/region)
+        Path modernWorld = tempDir.resolve("world_modern");
+        Files.createDirectories(modernWorld.resolve("dimensions/minecraft/the_nether/region"));
+        Path modernNetherResolved = AnvilPrefilter.resolveRegionFile(modernWorld, "DIM-1", 0, 0);
+        Assertions.assertEquals(modernWorld.resolve("dimensions/minecraft/the_nether/region/r.0.0.mca"), modernNetherResolved);
+
+        // 4. Modern 26.1+ Namespaced Overworld Structure (world/dimensions/minecraft/overworld/region)
+        Path modernOverworld = tempDir.resolve("world_modern_ow");
+        Files.createDirectories(modernOverworld.resolve("dimensions/minecraft/overworld/region"));
+        Path modernOwResolved = AnvilPrefilter.resolveRegionFile(modernOverworld, "", 0, 0);
+        Assertions.assertEquals(modernOverworld.resolve("dimensions/minecraft/overworld/region/r.0.0.mca"), modernOwResolved);
     }
 }
