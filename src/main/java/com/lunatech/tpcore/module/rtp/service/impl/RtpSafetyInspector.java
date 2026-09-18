@@ -11,6 +11,7 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ThreadLocalRandom;
 import org.bukkit.ChunkSnapshot;
+import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Biome;
@@ -27,7 +28,7 @@ public final class RtpSafetyInspector {
         Objects.requireNonNull(world, "world cannot be null");
         Objects.requireNonNull(worldConfig, "worldConfig cannot be null");
 
-        if (!world.getWorldBorder().isInside(new org.bukkit.Location(world, candidateX, 100, candidateZ))) {
+        if (!world.getWorldBorder().isInside(new Location(world, candidateX, 100, candidateZ))) {
             return CompletableFuture.completedFuture(null);
         }
 
