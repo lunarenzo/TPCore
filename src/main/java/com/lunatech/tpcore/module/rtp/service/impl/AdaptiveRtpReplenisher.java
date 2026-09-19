@@ -16,6 +16,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.bukkit.Bukkit;
 import org.bukkit.World;
 import org.bukkit.plugin.Plugin;
@@ -38,6 +39,7 @@ public final class AdaptiveRtpReplenisher {
 
     private final Map<UUID, LockFreeCandidateBuffer> bufferMap = new ConcurrentHashMap<>();
     private final Map<UUID, Long> lastDemandMap = new ConcurrentHashMap<>();
+    private final Map<UUID, AtomicBoolean> generatingMap = new ConcurrentHashMap<>();
     private ScheduledExecutorService virtualScheduler;
 
     public AdaptiveRtpReplenisher(
@@ -79,6 +81,7 @@ public final class AdaptiveRtpReplenisher {
         this.bufferMap.values().forEach(LockFreeCandidateBuffer::clear);
         this.bufferMap.clear();
         this.lastDemandMap.clear();
+        this.generatingMap.clear();
     }
 
     public RtpCandidate popCandidate(World world) {
@@ -151,15 +154,12 @@ public final class AdaptiveRtpReplenisher {
                 continue;
             }
 
-            int needed = (health == HealthState.BUSY) ? 1 : Math.min(3, targetCapacity - buffer.size());
-            for (int i = 0; i < needed; i++) {
-                replenishSingle(world, worldConfig, buffer, 0);
-            }
+            replenishSingle(world, worldConfig, buffer, 0);
         }
     }
 
     private void replenishSingle(World world, RtpWorldConfig worldConfig, LockFreeCandidateBuffer buffer, int attempt) {
-        if (attempt >= 10 || buffer.size() >= buffer.capacity()) {
+        if (attempt >= 8 || buffer.size() >= buffer.capacity()) {
             return;
         }
 
@@ -186,16 +186,35 @@ public final class AdaptiveRtpReplenisher {
             candidateZ = worldConfig.centerZ() + (int) (r * Math.sin(angle));
         }
 
-        this.safetyInspector.inspectCandidate(world, worldConfig, candidateX, candidateZ).thenAccept(candidate -> {
-            if (candidate != null) {
-                long packed = PackedLocation.fromCandidate(candidate);
-                if (buffer.offer(packed)) {
-                    this.spatialIndex.markSafe((int) candidate.x() >> 4, (int) candidate.z() >> 4);
-                    this.repository.savePackedLocation(world.getUID(), packed);
-                }
-            } else {
+        UUID worldUuid = world.getUID();
+        boolean isChunkGenerated = world.isChunkGenerated(candidateX >> 4, candidateZ >> 4);
+        AtomicBoolean genLock = this.generatingMap.computeIfAbsent(worldUuid, k -> new AtomicBoolean(false));
+
+        boolean allowGen = false;
+        if (!isChunkGenerated) {
+            if (!genLock.compareAndSet(false, true)) {
+                // Another ungenerated chunk task is already in progress, try next candidate
                 replenishSingle(world, worldConfig, buffer, attempt + 1);
+                return;
             }
-        });
+            allowGen = true;
+        }
+
+        final boolean wasGenAllowed = allowGen;
+        this.safetyInspector.inspectCandidate(world, worldConfig, candidateX, candidateZ, isChunkGenerated || allowGen)
+            .whenComplete((candidate, ex) -> {
+                if (wasGenAllowed) {
+                    genLock.set(false);
+                }
+                if (ex == null && candidate != null) {
+                    long packed = PackedLocation.fromCandidate(candidate);
+                    if (buffer.offer(packed)) {
+                        this.spatialIndex.markSafe((int) candidate.x() >> 4, (int) candidate.z() >> 4);
+                        this.repository.savePackedLocation(worldUuid, packed);
+                    }
+                } else if (buffer.size() < buffer.capacity()) {
+                    replenishSingle(world, worldConfig, buffer, attempt + 1);
+                }
+            });
     }
 }

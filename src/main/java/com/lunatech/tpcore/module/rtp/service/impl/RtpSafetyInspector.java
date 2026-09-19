@@ -25,11 +25,21 @@ public final class RtpSafetyInspector {
     }
 
     public CompletableFuture<RtpCandidate> inspectCandidate(World world, RtpWorldConfig worldConfig, int candidateX, int candidateZ) {
+        return inspectCandidate(world, worldConfig, candidateX, candidateZ, true);
+    }
+
+    public CompletableFuture<RtpCandidate> inspectCandidate(World world, RtpWorldConfig worldConfig, int candidateX, int candidateZ, boolean allowGeneration) {
         Objects.requireNonNull(world, "world cannot be null");
         Objects.requireNonNull(worldConfig, "worldConfig cannot be null");
 
         int chunkX = candidateX >> 4;
         int chunkZ = candidateZ >> 4;
+
+        boolean isGenerated = world.isChunkGenerated(chunkX, chunkZ);
+        if (!isGenerated && !allowGeneration) {
+            return CompletableFuture.completedFuture(null);
+        }
+
         Set<String> unsafeMaterials = new HashSet<>(worldConfig.biomeBlacklist());
 
         String dimSubpath = "";
@@ -45,7 +55,7 @@ public final class RtpSafetyInspector {
             return CompletableFuture.completedFuture(null);
         }
 
-        return world.getChunkAtAsync(chunkX, chunkZ, true).thenApply(chunk -> {
+        return world.getChunkAtAsync(chunkX, chunkZ, allowGeneration).thenApply(chunk -> {
             if (chunk == null) {
                 return null;
             }
