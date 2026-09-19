@@ -159,7 +159,7 @@ public final class AdaptiveRtpReplenisher {
     }
 
     private void replenishSingle(World world, RtpWorldConfig worldConfig, LockFreeCandidateBuffer buffer, int attempt) {
-        if (attempt >= 8 || buffer.size() >= buffer.capacity()) {
+        if (attempt >= 5 || buffer.size() >= buffer.capacity()) {
             return;
         }
 
@@ -187,25 +187,15 @@ public final class AdaptiveRtpReplenisher {
         }
 
         UUID worldUuid = world.getUID();
-        boolean isChunkGenerated = world.isChunkGenerated(candidateX >> 4, candidateZ >> 4);
         AtomicBoolean genLock = this.generatingMap.computeIfAbsent(worldUuid, k -> new AtomicBoolean(false));
 
-        boolean allowGen = false;
-        if (!isChunkGenerated) {
-            if (!genLock.compareAndSet(false, true)) {
-                // Another ungenerated chunk task is already in progress, try next candidate
-                replenishSingle(world, worldConfig, buffer, attempt + 1);
-                return;
-            }
-            allowGen = true;
+        if (!genLock.compareAndSet(false, true)) {
+            return;
         }
 
-        final boolean wasGenAllowed = allowGen;
-        this.safetyInspector.inspectCandidate(world, worldConfig, candidateX, candidateZ, isChunkGenerated || allowGen)
+        this.safetyInspector.inspectCandidate(world, worldConfig, candidateX, candidateZ, true)
             .whenComplete((candidate, ex) -> {
-                if (wasGenAllowed) {
-                    genLock.set(false);
-                }
+                genLock.set(false);
                 if (ex == null && candidate != null) {
                     long packed = PackedLocation.fromCandidate(candidate);
                     if (buffer.offer(packed)) {

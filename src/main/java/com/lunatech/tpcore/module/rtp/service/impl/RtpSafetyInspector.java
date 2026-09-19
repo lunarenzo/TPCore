@@ -18,6 +18,9 @@ import org.bukkit.block.Biome;
 
 public final class RtpSafetyInspector {
 
+    private static final int[] PROBE_DX = {0, 1, -1, 0, 0, 2, -2, 2, -2, 4, -4};
+    private static final int[] PROBE_DZ = {0, 0, 0, 1, -1, 2, -2, -2, 2, 4, -4};
+
     private final Path dataFolder;
 
     public RtpSafetyInspector(Path dataFolder) {
@@ -34,11 +37,6 @@ public final class RtpSafetyInspector {
 
         int chunkX = candidateX >> 4;
         int chunkZ = candidateZ >> 4;
-
-        boolean isGenerated = world.isChunkGenerated(chunkX, chunkZ);
-        if (!isGenerated && !allowGeneration) {
-            return CompletableFuture.completedFuture(null);
-        }
 
         Set<String> unsafeMaterials = new HashSet<>(worldConfig.biomeBlacklist());
 
@@ -79,71 +77,94 @@ public final class RtpSafetyInspector {
     }
 
     private RtpCandidate inspectOverworld(World world, RtpWorldConfig config, Chunk chunk, int targetX, int targetZ, int localX, int localZ) {
-        int highestY = world.getHighestBlockYAt(targetX, targetZ);
-        if (highestY < world.getMinHeight() || highestY >= world.getMaxHeight() - 2) {
-            return null;
+        for (int i = 0; i < PROBE_DX.length; i++) {
+            int lx = Math.floorMod(localX + PROBE_DX[i], 16);
+            int lz = Math.floorMod(localZ + PROBE_DZ[i], 16);
+            int worldX = (chunk.getX() << 4) + lx;
+            int worldZ = (chunk.getZ() << 4) + lz;
+
+            int highestY = world.getHighestBlockYAt(worldX, worldZ);
+            if (highestY < world.getMinHeight() || highestY >= world.getMaxHeight() - 2) {
+                continue;
+            }
+
+            Material standOn = chunk.getBlock(lx, highestY, lz).getType();
+            Material feet = chunk.getBlock(lx, highestY + 1, lz).getType();
+            Material head = chunk.getBlock(lx, highestY + 2, lz).getType();
+
+            if (!(standOn.isSolid() || standOn.name().endsWith("_LEAVES")) || standOn == Material.BEDROCK || isHazard(standOn) || !isPassable(feet) || !isPassable(head)) {
+                continue;
+            }
+
+            Biome biome = chunk.getBlock(lx, highestY + 1, lz).getBiome();
+            if (isBiomeBlacklisted(biome, config)) {
+                continue;
+            }
+
+            float yaw = ThreadLocalRandom.current().nextFloat() * 360.0f;
+            float pitch = 0.0f;
+            long packed = PackedLocation.pack(worldX, highestY + 1, worldZ);
+            return PackedLocation.toCandidate(packed, world.getUID(), yaw, pitch);
         }
-
-        Material standOn = chunk.getBlock(localX, highestY, localZ).getType();
-        Material feet = chunk.getBlock(localX, highestY + 1, localZ).getType();
-        Material head = chunk.getBlock(localX, highestY + 2, localZ).getType();
-
-        if (!(standOn.isSolid() || standOn.name().endsWith("_LEAVES")) || standOn == Material.BEDROCK || isHazard(standOn) || !isPassable(feet) || !isPassable(head)) {
-            return null;
-        }
-
-        Biome biome = chunk.getBlock(localX, highestY + 1, localZ).getBiome();
-        if (isBiomeBlacklisted(biome, config)) {
-            return null;
-        }
-
-        float yaw = ThreadLocalRandom.current().nextFloat() * 360.0f;
-        float pitch = 0.0f;
-        long packed = PackedLocation.pack(targetX, highestY + 1, targetZ);
-        return PackedLocation.toCandidate(packed, world.getUID(), yaw, pitch);
+        return null;
     }
 
     private RtpCandidate inspectNether(World world, RtpWorldConfig config, Chunk chunk, int targetX, int targetZ, int localX, int localZ) {
-        for (int y = 110; y >= 32; y--) {
-            Material standOn = chunk.getBlock(localX, y, localZ).getType();
-            Material feet = chunk.getBlock(localX, y + 1, localZ).getType();
-            Material head = chunk.getBlock(localX, y + 2, localZ).getType();
+        for (int i = 0; i < PROBE_DX.length; i++) {
+            int lx = Math.floorMod(localX + PROBE_DX[i], 16);
+            int lz = Math.floorMod(localZ + PROBE_DZ[i], 16);
+            int worldX = (chunk.getX() << 4) + lx;
+            int worldZ = (chunk.getZ() << 4) + lz;
 
-            if (standOn.isSolid() && standOn != Material.BEDROCK && !isHazard(standOn) && isPassable(feet) && isPassable(head)) {
-                Biome biome = chunk.getBlock(localX, y + 1, localZ).getBiome();
-                if (isBiomeBlacklisted(biome, config)) {
-                    return null;
+            for (int y = 110; y >= 32; y--) {
+                Material standOn = chunk.getBlock(lx, y, lz).getType();
+                Material feet = chunk.getBlock(lx, y + 1, lz).getType();
+                Material head = chunk.getBlock(lx, y + 2, lz).getType();
+
+                if (standOn.isSolid() && standOn != Material.BEDROCK && !isHazard(standOn) && isPassable(feet) && isPassable(head)) {
+                    Biome biome = chunk.getBlock(lx, y + 1, lz).getBiome();
+                    if (isBiomeBlacklisted(biome, config)) {
+                        break;
+                    }
+                    float yaw = ThreadLocalRandom.current().nextFloat() * 360.0f;
+                    long packed = PackedLocation.pack(worldX, y + 1, worldZ);
+                    return PackedLocation.toCandidate(packed, world.getUID(), yaw, 0.0f);
                 }
-                float yaw = ThreadLocalRandom.current().nextFloat() * 360.0f;
-                long packed = PackedLocation.pack(targetX, y + 1, targetZ);
-                return PackedLocation.toCandidate(packed, world.getUID(), yaw, 0.0f);
             }
         }
         return null;
     }
 
     private RtpCandidate inspectEnd(World world, RtpWorldConfig config, Chunk chunk, int targetX, int targetZ, int localX, int localZ) {
-        int highestY = world.getHighestBlockYAt(targetX, targetZ);
-        if (highestY < 40 || highestY >= world.getMaxHeight() - 2) {
-            return null;
+        for (int i = 0; i < PROBE_DX.length; i++) {
+            int lx = Math.floorMod(localX + PROBE_DX[i], 16);
+            int lz = Math.floorMod(localZ + PROBE_DZ[i], 16);
+            int worldX = (chunk.getX() << 4) + lx;
+            int worldZ = (chunk.getZ() << 4) + lz;
+
+            int highestY = world.getHighestBlockYAt(worldX, worldZ);
+            if (highestY < 40 || highestY >= world.getMaxHeight() - 2) {
+                continue;
+            }
+
+            Material standOn = chunk.getBlock(lx, highestY, lz).getType();
+            Material feet = chunk.getBlock(lx, highestY + 1, lz).getType();
+            Material head = chunk.getBlock(lx, highestY + 2, lz).getType();
+
+            if (!standOn.isSolid() || standOn == Material.BEDROCK || isHazard(standOn) || !isPassable(feet) || !isPassable(head)) {
+                continue;
+            }
+
+            Biome biome = chunk.getBlock(lx, highestY + 1, lz).getBiome();
+            if (isBiomeBlacklisted(biome, config)) {
+                continue;
+            }
+
+            float yaw = ThreadLocalRandom.current().nextFloat() * 360.0f;
+            long packed = PackedLocation.pack(worldX, highestY + 1, worldZ);
+            return PackedLocation.toCandidate(packed, world.getUID(), yaw, 0.0f);
         }
-
-        Material standOn = chunk.getBlock(localX, highestY, localZ).getType();
-        Material feet = chunk.getBlock(localX, highestY + 1, localZ).getType();
-        Material head = chunk.getBlock(localX, highestY + 2, localZ).getType();
-
-        if (!standOn.isSolid() || standOn == Material.BEDROCK || isHazard(standOn) || !isPassable(feet) || !isPassable(head)) {
-            return null;
-        }
-
-        Biome biome = chunk.getBlock(localX, highestY + 1, localZ).getBiome();
-        if (isBiomeBlacklisted(biome, config)) {
-            return null;
-        }
-
-        float yaw = ThreadLocalRandom.current().nextFloat() * 360.0f;
-        long packed = PackedLocation.pack(targetX, highestY + 1, targetZ);
-        return PackedLocation.toCandidate(packed, world.getUID(), yaw, 0.0f);
+        return null;
     }
 
     private boolean isHazard(Material material) {

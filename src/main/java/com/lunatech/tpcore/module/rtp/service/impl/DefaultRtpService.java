@@ -164,7 +164,7 @@ public final class DefaultRtpService implements RtpService {
         int blockX = (int) Math.floor(candidate.x());
         int blockZ = (int) Math.floor(candidate.z());
 
-        return this.safetyInspector.inspectCandidate(world, worldConfig, blockX, blockZ, false).thenCompose(safeCandidate -> {
+        return this.safetyInspector.inspectCandidate(world, worldConfig, blockX, blockZ, true).thenCompose(safeCandidate -> {
             if (player == null || !player.isOnline()) {
                 this.ticketManager.removeCandidateTickets(world, packedLoc);
                 return CompletableFuture.completedFuture(false);
@@ -255,11 +255,7 @@ public final class DefaultRtpService implements RtpService {
             candidateZ = worldConfig.centerZ() + (int) (r * Math.sin(angle));
         }
 
-        // For early attempts (0-3), prefer generated chunks to avoid chunk creation overhead.
-        // For attempt 4+, allow chunk generation.
-        boolean allowGeneration = attempt >= 3 || world.isChunkGenerated(candidateX >> 4, candidateZ >> 4);
-
-        return this.safetyInspector.inspectCandidate(world, worldConfig, candidateX, candidateZ, allowGeneration).thenCompose(safeCandidate -> {
+        return this.safetyInspector.inspectCandidate(world, worldConfig, candidateX, candidateZ, true).thenCompose(safeCandidate -> {
             if (player == null || !player.isOnline()) {
                 return CompletableFuture.completedFuture(false);
             }
