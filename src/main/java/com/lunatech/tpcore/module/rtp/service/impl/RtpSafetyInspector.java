@@ -73,7 +73,7 @@ public final class RtpSafetyInspector {
             } else {
                 return inspectOverworld(world, worldConfig, chunk, candidateX, candidateZ, localX, localZ);
             }
-        });
+        }).exceptionally(t -> null);
     }
 
     private RtpCandidate inspectOverworld(World world, RtpWorldConfig config, Chunk chunk, int targetX, int targetZ, int localX, int localZ) {
@@ -101,7 +101,7 @@ public final class RtpSafetyInspector {
                 continue;
             }
 
-            Biome biome = chunk.getBlock(lx, y + 1, lz).getBiome();
+            Biome biome = safeGetBiome(chunk, lx, y + 1, lz);
             if (isBiomeBlacklisted(biome, config)) {
                 continue;
             }
@@ -127,7 +127,7 @@ public final class RtpSafetyInspector {
                 Material head = chunk.getBlock(lx, y + 2, lz).getType();
 
                 if (isSolidGround(standOn) && standOn != Material.BEDROCK && !isHazard(standOn) && isPassable(feet) && isPassable(head)) {
-                    Biome biome = chunk.getBlock(lx, y + 1, lz).getBiome();
+                    Biome biome = safeGetBiome(chunk, lx, y + 1, lz);
                     if (isBiomeBlacklisted(biome, config)) {
                         break;
                     }
@@ -165,7 +165,7 @@ public final class RtpSafetyInspector {
                 continue;
             }
 
-            Biome biome = chunk.getBlock(lx, y + 1, lz).getBiome();
+            Biome biome = safeGetBiome(chunk, lx, y + 1, lz);
             if (isBiomeBlacklisted(biome, config)) {
                 continue;
             }
@@ -175,6 +175,14 @@ public final class RtpSafetyInspector {
             return PackedLocation.toCandidate(packed, world.getUID(), yaw, 0.0f);
         }
         return null;
+    }
+
+    private Biome safeGetBiome(Chunk chunk, int lx, int y, int lz) {
+        try {
+            return chunk.getBlock(lx, y, lz).getBiome();
+        } catch (Throwable t) {
+            return null;
+        }
     }
 
     private boolean isSolidGround(Material material) {
@@ -203,11 +211,19 @@ public final class RtpSafetyInspector {
 
     private boolean isBiomeBlacklisted(Biome biome, RtpWorldConfig config) {
         if (biome == null) return false;
-        String key = biome.name().toUpperCase();
-        for (String blacklisted : config.biomeBlacklist()) {
-            if (key.contains(blacklisted.toUpperCase())) {
-                return true;
+        try {
+            String key;
+            if (biome instanceof org.bukkit.Keyed keyed) {
+                key = keyed.getKey().getKey().toUpperCase();
+            } else {
+                key = biome.name().toUpperCase();
             }
+            for (String blacklisted : config.biomeBlacklist()) {
+                if (key.contains(blacklisted.toUpperCase())) {
+                    return true;
+                }
+            }
+        } catch (Throwable ignored) {
         }
         return false;
     }

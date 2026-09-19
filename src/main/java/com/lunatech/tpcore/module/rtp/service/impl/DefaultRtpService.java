@@ -162,19 +162,21 @@ public final class DefaultRtpService implements RtpService {
         int blockX = (int) Math.floor(candidate.x());
         int blockZ = (int) Math.floor(candidate.z());
 
-        return this.safetyInspector.inspectCandidate(world, worldConfig, blockX, blockZ, true).thenCompose(safeCandidate -> {
-            if (player == null || !player.isOnline()) {
-                this.ticketManager.removeCandidateTickets(world, packedLoc);
-                return CompletableFuture.completedFuture(false);
-            }
+        return this.safetyInspector.inspectCandidate(world, worldConfig, blockX, blockZ, true)
+            .exceptionally(t -> null)
+            .thenCompose(safeCandidate -> {
+                if (player == null || !player.isOnline()) {
+                    this.ticketManager.removeCandidateTickets(world, packedLoc);
+                    return CompletableFuture.completedFuture(false);
+                }
 
-            if (safeCandidate == null) {
-                this.ticketManager.removeCandidateTickets(world, packedLoc);
-                return dispatchTeleport(player, world, worldConfig, attempt + 1);
-            }
+                if (safeCandidate == null) {
+                    this.ticketManager.removeCandidateTickets(world, packedLoc);
+                    return dispatchTeleport(player, world, worldConfig, attempt + 1);
+                }
 
-            return performTeleport(player, world, worldConfig, safeCandidate, packedLoc);
-        });
+                return performTeleport(player, world, worldConfig, safeCandidate, packedLoc);
+            });
     }
 
     private CompletableFuture<Boolean> executeOnDemandRtp(
@@ -215,7 +217,9 @@ public final class DefaultRtpService implements RtpService {
             candidateZ = worldConfig.centerZ() + (int) (r * Math.sin(angle));
         }
 
-        return this.safetyInspector.inspectCandidate(world, worldConfig, candidateX, candidateZ, true).thenCompose(safeCandidate -> {
+        return this.safetyInspector.inspectCandidate(world, worldConfig, candidateX, candidateZ, true)
+            .exceptionally(t -> null)
+            .thenCompose(safeCandidate -> {
             if (player == null || !player.isOnline()) {
                 return CompletableFuture.completedFuture(false);
             }
