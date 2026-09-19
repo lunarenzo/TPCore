@@ -258,36 +258,35 @@ public final class DefaultRtpService implements RtpService {
                     safeCandidate.pitch()
                 );
 
-                player.teleportAsync(dest, TeleportCause.PLUGIN).thenAccept(success -> {
-                    if (success) {
-                        if (worldConfig.cooldownSeconds() > 0) {
-                            this.cooldownMap.put(
-                                player.getUniqueId(),
-                                System.currentTimeMillis() + (worldConfig.cooldownSeconds() * 1000L)
-                            );
-                        }
-
-                        sendMessage(
-                            player,
-                            this.configSupplier.get().messages().teleportSuccess(),
-                            Placeholder.unparsed("x", String.valueOf(dest.getBlockX())),
-                            Placeholder.unparsed("y", String.valueOf(dest.getBlockY())),
-                            Placeholder.unparsed("z", String.valueOf(dest.getBlockZ())),
-                            Placeholder.unparsed("world", world.getName())
+                boolean success = player.teleport(dest, TeleportCause.PLUGIN);
+                if (success) {
+                    if (worldConfig.cooldownSeconds() > 0) {
+                        this.cooldownMap.put(
+                            player.getUniqueId(),
+                            System.currentTimeMillis() + (worldConfig.cooldownSeconds() * 1000L)
                         );
-                    } else {
-                        sendMessage(player, this.configSupplier.get().messages().teleportFailed());
                     }
 
-                    Bukkit.getRegionScheduler().runDelayed(
-                        this.plugin,
-                        dest,
-                        task -> this.ticketManager.removeCandidateTickets(world, packedLoc),
-                        100L
+                    sendMessage(
+                        player,
+                        this.configSupplier.get().messages().teleportSuccess(),
+                        Placeholder.unparsed("x", String.valueOf(dest.getBlockX())),
+                        Placeholder.unparsed("y", String.valueOf(dest.getBlockY())),
+                        Placeholder.unparsed("z", String.valueOf(dest.getBlockZ())),
+                        Placeholder.unparsed("world", world.getName())
                     );
+                } else {
+                    sendMessage(player, this.configSupplier.get().messages().teleportFailed());
+                }
 
-                    teleportFuture.complete(success);
-                });
+                Bukkit.getRegionScheduler().runDelayed(
+                    this.plugin,
+                    dest,
+                    task -> this.ticketManager.removeCandidateTickets(world, packedLoc),
+                    100L
+                );
+
+                teleportFuture.complete(success);
             },
             null
         );
