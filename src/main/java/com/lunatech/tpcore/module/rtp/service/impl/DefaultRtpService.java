@@ -12,6 +12,7 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Supplier;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
@@ -145,16 +146,14 @@ public final class DefaultRtpService implements RtpService {
         }
 
         if (attempt >= 5) {
-            sendMessage(player, this.configSupplier.get().messages().searchFailed());
-            return CompletableFuture.completedFuture(false);
+            return executeOnDemandRtp(player, world, worldConfig, 0);
         }
 
         RtpCandidate candidate = this.replenisher.popCandidate(world);
 
         if (candidate == null) {
             this.replenisher.recordDemand(world);
-            sendMessage(player, this.configSupplier.get().messages().queueWarmingUp());
-            return CompletableFuture.completedFuture(false);
+            return executeOnDemandRtp(player, world, worldConfig, 0);
         }
 
         long packedLoc = PackedLocation.fromCandidate(candidate);
@@ -175,6 +174,98 @@ public final class DefaultRtpService implements RtpService {
                 this.ticketManager.removeCandidateTickets(world, packedLoc);
                 return dispatchTeleport(player, world, worldConfig, attempt + 1);
             }
+
+            Location dest = new Location(
+                world,
+                safeCandidate.x(),
+                safeCandidate.y(),
+                safeCandidate.z(),
+                safeCandidate.yaw(),
+                safeCandidate.pitch()
+            );
+
+            return player.teleportAsync(dest, TeleportCause.PLUGIN).thenApply(success -> {
+                if (success) {
+                    Bukkit.getRegionScheduler().runDelayed(
+                        this.plugin,
+                        dest,
+                        t -> this.ticketManager.removeCandidateTickets(world, packedLoc),
+                        100L
+                    );
+
+                    if (worldConfig.cooldownSeconds() > 0) {
+                        this.cooldownMap.put(
+                            player.getUniqueId(),
+                            System.currentTimeMillis() + (worldConfig.cooldownSeconds() * 1000L)
+                        );
+                    }
+
+                    sendMessage(
+                        player,
+                        this.configSupplier.get().messages().teleportSuccess(),
+                        Placeholder.unparsed("x", String.valueOf(dest.getBlockX())),
+                        Placeholder.unparsed("y", String.valueOf(dest.getBlockY())),
+                        Placeholder.unparsed("z", String.valueOf(dest.getBlockZ())),
+                        Placeholder.unparsed("world", world.getName())
+                    );
+                } else {
+                    this.ticketManager.removeCandidateTickets(world, packedLoc);
+                    sendMessage(player, this.configSupplier.get().messages().teleportFailed());
+                }
+                return success;
+            });
+        });
+    }
+
+    private CompletableFuture<Boolean> executeOnDemandRtp(
+        Player player,
+        World world,
+        RtpWorldConfig worldConfig,
+        int attempt
+    ) {
+        if (player == null || !player.isOnline()) {
+            return CompletableFuture.completedFuture(false);
+        }
+
+        if (attempt >= 10) {
+            sendMessage(player, this.configSupplier.get().messages().searchFailed());
+            return CompletableFuture.completedFuture(false);
+        }
+
+        ThreadLocalRandom rng = ThreadLocalRandom.current();
+        int candidateX;
+        int candidateZ;
+
+        if (worldConfig.shapeEnum() == RtpWorldConfig.Shape.SQUARE) {
+            int span = Math.max(1, worldConfig.maxRadius());
+            int inner = Math.max(0, Math.min(worldConfig.minRadius(), span - 1));
+            int dx;
+            int dz;
+            int maxAttempts = 10;
+            do {
+                dx = rng.nextInt(-span, span + 1);
+                dz = rng.nextInt(-span, span + 1);
+            } while (Math.max(Math.abs(dx), Math.abs(dz)) < inner && --maxAttempts > 0);
+            candidateX = worldConfig.centerX() + dx;
+            candidateZ = worldConfig.centerZ() + dz;
+        } else {
+            double angle = rng.nextDouble() * 2 * Math.PI;
+            double r = Math.sqrt(rng.nextDouble() * (Math.pow(worldConfig.maxRadius(), 2) - Math.pow(worldConfig.minRadius(), 2)) + Math.pow(worldConfig.minRadius(), 2));
+            candidateX = worldConfig.centerX() + (int) (r * Math.cos(angle));
+            candidateZ = worldConfig.centerZ() + (int) (r * Math.sin(angle));
+        }
+
+        return this.safetyInspector.inspectCandidate(world, worldConfig, candidateX, candidateZ).thenCompose(safeCandidate -> {
+            if (player == null || !player.isOnline()) {
+                return CompletableFuture.completedFuture(false);
+            }
+
+            if (safeCandidate == null) {
+                return executeOnDemandRtp(player, world, worldConfig, attempt + 1);
+            }
+
+            long packedLoc = PackedLocation.fromCandidate(safeCandidate);
+            this.ticketManager.addCandidateTickets(world, packedLoc);
 
             Location dest = new Location(
                 world,

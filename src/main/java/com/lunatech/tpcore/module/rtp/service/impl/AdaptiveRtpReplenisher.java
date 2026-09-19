@@ -62,7 +62,7 @@ public final class AdaptiveRtpReplenisher {
         }
 
         this.virtualScheduler = Executors.newSingleThreadScheduledExecutor(Thread.ofVirtual().factory());
-        this.virtualScheduler.scheduleAtFixedRate(this::tickReplenishAll, 5, 5, TimeUnit.SECONDS);
+        this.virtualScheduler.scheduleAtFixedRate(this::tickReplenishAll, 3, 3, TimeUnit.SECONDS);
     }
 
     public synchronized void stop() {
@@ -128,7 +128,6 @@ public final class AdaptiveRtpReplenisher {
             return;
         }
 
-        boolean serverEmpty = Bukkit.getOnlinePlayers().isEmpty();
         long demandWindowMs = config.demandWindowMinutes() * 60_000L;
 
         for (World world : Bukkit.getWorlds()) {
@@ -143,29 +142,27 @@ public final class AdaptiveRtpReplenisher {
                 k -> new LockFreeCandidateBuffer(Math.min(32, Math.max(1, config.bufferCapacity())))
             );
 
-            if (serverEmpty && !buffer.isEmpty()) {
-                continue;
-            }
-
             Long lastDemand = this.lastDemandMap.get(worldUuid);
             boolean isDemandFresh = lastDemand != null && (System.currentTimeMillis() - lastDemand) <= demandWindowMs;
-            if (!isDemandFresh && !buffer.isEmpty()) {
-                continue;
-            }
+            int minPreWarmed = Math.max(2, Math.min(5, config.bufferCapacity()));
+            int targetCapacity = isDemandFresh ? config.bufferCapacity() : minPreWarmed;
 
-            int targetCapacity = isDemandFresh ? config.bufferCapacity() : 1;
             if (buffer.size() >= targetCapacity) {
                 continue;
             }
 
-            int needed = (health == HealthState.BUSY) ? 1 : Math.min(2, targetCapacity - buffer.size());
+            int needed = (health == HealthState.BUSY) ? 1 : Math.min(3, targetCapacity - buffer.size());
             for (int i = 0; i < needed; i++) {
-                replenishSingle(world, worldConfig, buffer);
+                replenishSingle(world, worldConfig, buffer, 0);
             }
         }
     }
 
-    private void replenishSingle(World world, RtpWorldConfig worldConfig, LockFreeCandidateBuffer buffer) {
+    private void replenishSingle(World world, RtpWorldConfig worldConfig, LockFreeCandidateBuffer buffer, int attempt) {
+        if (attempt >= 10 || buffer.size() >= buffer.capacity()) {
+            return;
+        }
+
         ThreadLocalRandom rng = ThreadLocalRandom.current();
         int candidateX;
         int candidateZ;
@@ -196,6 +193,8 @@ public final class AdaptiveRtpReplenisher {
                     this.spatialIndex.markSafe((int) candidate.x() >> 4, (int) candidate.z() >> 4);
                     this.repository.savePackedLocation(world.getUID(), packed);
                 }
+            } else {
+                replenishSingle(world, worldConfig, buffer, attempt + 1);
             }
         });
     }

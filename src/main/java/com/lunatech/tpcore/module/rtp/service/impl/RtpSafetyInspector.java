@@ -10,7 +10,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ThreadLocalRandom;
-import org.bukkit.ChunkSnapshot;
+import org.bukkit.Chunk;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
@@ -54,36 +54,35 @@ public final class RtpSafetyInspector {
                 return null;
             }
 
-            ChunkSnapshot snapshot = chunk.getChunkSnapshot(true, true, false);
             int localX = Math.floorMod(candidateX, 16);
             int localZ = Math.floorMod(candidateZ, 16);
 
             World.Environment env = world.getEnvironment();
             if (env == World.Environment.NETHER) {
-                return inspectNether(world, worldConfig, snapshot, candidateX, candidateZ, localX, localZ);
+                return inspectNether(world, worldConfig, chunk, candidateX, candidateZ, localX, localZ);
             } else if (env == World.Environment.THE_END) {
-                return inspectEnd(world, worldConfig, snapshot, candidateX, candidateZ, localX, localZ);
+                return inspectEnd(world, worldConfig, chunk, candidateX, candidateZ, localX, localZ);
             } else {
-                return inspectOverworld(world, worldConfig, snapshot, candidateX, candidateZ, localX, localZ);
+                return inspectOverworld(world, worldConfig, chunk, candidateX, candidateZ, localX, localZ);
             }
         });
     }
 
-    private RtpCandidate inspectOverworld(World world, RtpWorldConfig config, ChunkSnapshot snapshot, int targetX, int targetZ, int localX, int localZ) {
-        int highestY = snapshot.getHighestBlockYAt(localX, localZ);
+    private RtpCandidate inspectOverworld(World world, RtpWorldConfig config, Chunk chunk, int targetX, int targetZ, int localX, int localZ) {
+        int highestY = world.getHighestBlockYAt(targetX, targetZ);
         if (highestY < world.getMinHeight() || highestY >= world.getMaxHeight() - 2) {
             return null;
         }
 
-        Material standOn = snapshot.getBlockType(localX, highestY, localZ);
-        Material feet = snapshot.getBlockType(localX, highestY + 1, localZ);
-        Material head = snapshot.getBlockType(localX, highestY + 2, localZ);
+        Material standOn = chunk.getBlock(localX, highestY, localZ).getType();
+        Material feet = chunk.getBlock(localX, highestY + 1, localZ).getType();
+        Material head = chunk.getBlock(localX, highestY + 2, localZ).getType();
 
         if (!(standOn.isSolid() || standOn.name().endsWith("_LEAVES")) || standOn == Material.BEDROCK || isHazard(standOn) || !isPassable(feet) || !isPassable(head)) {
             return null;
         }
 
-        Biome biome = snapshot.getBiome(localX, highestY + 1, localZ);
+        Biome biome = chunk.getBlock(localX, highestY + 1, localZ).getBiome();
         if (isBiomeBlacklisted(biome, config)) {
             return null;
         }
@@ -94,14 +93,14 @@ public final class RtpSafetyInspector {
         return PackedLocation.toCandidate(packed, world.getUID(), yaw, pitch);
     }
 
-    private RtpCandidate inspectNether(World world, RtpWorldConfig config, ChunkSnapshot snapshot, int targetX, int targetZ, int localX, int localZ) {
+    private RtpCandidate inspectNether(World world, RtpWorldConfig config, Chunk chunk, int targetX, int targetZ, int localX, int localZ) {
         for (int y = 110; y >= 32; y--) {
-            Material standOn = snapshot.getBlockType(localX, y, localZ);
-            Material feet = snapshot.getBlockType(localX, y + 1, localZ);
-            Material head = snapshot.getBlockType(localX, y + 2, localZ);
+            Material standOn = chunk.getBlock(localX, y, localZ).getType();
+            Material feet = chunk.getBlock(localX, y + 1, localZ).getType();
+            Material head = chunk.getBlock(localX, y + 2, localZ).getType();
 
             if (standOn.isSolid() && standOn != Material.BEDROCK && !isHazard(standOn) && isPassable(feet) && isPassable(head)) {
-                Biome biome = snapshot.getBiome(localX, y + 1, localZ);
+                Biome biome = chunk.getBlock(localX, y + 1, localZ).getBiome();
                 if (isBiomeBlacklisted(biome, config)) {
                     return null;
                 }
@@ -113,21 +112,21 @@ public final class RtpSafetyInspector {
         return null;
     }
 
-    private RtpCandidate inspectEnd(World world, RtpWorldConfig config, ChunkSnapshot snapshot, int targetX, int targetZ, int localX, int localZ) {
-        int highestY = snapshot.getHighestBlockYAt(localX, localZ);
+    private RtpCandidate inspectEnd(World world, RtpWorldConfig config, Chunk chunk, int targetX, int targetZ, int localX, int localZ) {
+        int highestY = world.getHighestBlockYAt(targetX, targetZ);
         if (highestY < 40 || highestY >= world.getMaxHeight() - 2) {
             return null;
         }
 
-        Material standOn = snapshot.getBlockType(localX, highestY, localZ);
-        Material feet = snapshot.getBlockType(localX, highestY + 1, localZ);
-        Material head = snapshot.getBlockType(localX, highestY + 2, localZ);
+        Material standOn = chunk.getBlock(localX, highestY, localZ).getType();
+        Material feet = chunk.getBlock(localX, highestY + 1, localZ).getType();
+        Material head = chunk.getBlock(localX, highestY + 2, localZ).getType();
 
         if (!standOn.isSolid() || standOn == Material.BEDROCK || isHazard(standOn) || !isPassable(feet) || !isPassable(head)) {
             return null;
         }
 
-        Biome biome = snapshot.getBiome(localX, highestY + 1, localZ);
+        Biome biome = chunk.getBlock(localX, highestY + 1, localZ).getBiome();
         if (isBiomeBlacklisted(biome, config)) {
             return null;
         }
