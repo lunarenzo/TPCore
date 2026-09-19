@@ -2,7 +2,9 @@ package com.lunatech.tpcore.module.rtp.config;
 
 import java.util.List;
 import java.util.Objects;
+import org.spongepowered.configurate.objectmapping.ConfigSerializable;
 
+@ConfigSerializable
 public record RtpWorldConfig(
     String worldName,
     boolean enabled,

@@ -2,7 +2,9 @@ package com.lunatech.tpcore.module.rtp.config;
 
 import java.util.List;
 import java.util.Map;
+import org.spongepowered.configurate.objectmapping.ConfigSerializable;
 
+@ConfigSerializable
 public record RtpConfig(
     boolean enabled,
     int bufferCapacity,
@@ -42,6 +44,7 @@ public record RtpConfig(
         );
     }
 
+    @ConfigSerializable
     public record RtpMessages(
         String prefix,
         String disabled,
