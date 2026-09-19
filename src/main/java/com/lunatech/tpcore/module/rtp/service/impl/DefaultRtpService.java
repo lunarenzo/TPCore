@@ -86,6 +86,15 @@ public final class DefaultRtpService implements RtpService {
             return CompletableFuture.completedFuture(false);
         }
 
+        // Check Mounted / Vehicle State
+        if (player.isInsideVehicle()) {
+            if (!worldConfig.allowMounted()) {
+                sendMessage(player, config.messages().cannotUseMounted());
+                return CompletableFuture.completedFuture(false);
+            }
+            player.leaveVehicle();
+        }
+
         // Check Cooldown
         UUID uuid = player.getUniqueId();
         if (!player.hasPermission(Permissions.RTP_BYPASS_COOLDOWN)) {

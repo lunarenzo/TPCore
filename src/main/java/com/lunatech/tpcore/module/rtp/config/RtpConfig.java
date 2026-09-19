@@ -32,6 +32,7 @@ public record RtpConfig(
             60,
             0,
             0.0,
+            false,
             false
         );
 
@@ -61,7 +62,8 @@ public record RtpConfig(
         String teleportFailed,
         String onlyPlayers,
         String worldNotFound,
-        String reloadSuccess
+        String reloadSuccess,
+        String cannotUseMounted
     ) {
         public static RtpMessages createDefault() {
             return new RtpMessages(
@@ -79,7 +81,8 @@ public record RtpConfig(
                 "<red>Teleport failed due to unsafe terrain target.</red>",
                 "<red>Only players can execute random teleportation.</red>",
                 "<red>World '<world>' does not exist or is not loaded.</red>",
-                "<green>RTP module configuration reloaded successfully.</green>"
+                "<green>RTP module configuration reloaded successfully.</green>",
+                "<red>You cannot use random teleportation while riding a mount or vehicle!</red>"
             );
         }
     }
