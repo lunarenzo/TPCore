@@ -1,0 +1,46 @@
+# TPCore - Quantum-RTP Module Configuration
+enabled: true
+buffer-capacity: 20
+max-mspt-threshold: 45.0
+demand-window-minutes: 15
+
+world-configs:
+  world:
+    world-name: "world"
+    enabled: true
+    min-radius: 100
+    max-radius: 5000
+    center-x: 0
+    center-z: 0
+    shape: "CIRCLE"
+    biome-blacklist:
+      - "OCEAN"
+      - "DEEP_OCEAN"
+      - "WARM_OCEAN"
+      - "LUKEWARM_OCEAN"
+      - "COLD_OCEAN"
+      - "DEEP_COLD_OCEAN"
+      - "FROZEN_OCEAN"
+      - "DEEP_FROZEN_OCEAN"
+    biome-whitelist: []
+    max-attempts: 30
+    cooldown-seconds: 60
+    warmup-seconds: 3
+    cost: 0.0
+
+messages:
+  prefix: "<gradient:#00FFAA:#00AAFF>[RTP]</gradient> "
+  disabled: "<red>Random teleportation is currently disabled.</red>"
+  no-permission: "<red>You do not have permission to use random teleportation.</red>"
+  world-disabled: "<red>Random teleportation is disabled in world '<world>'.</red>"
+  cooldown-active: "<red>Please wait <seconds> seconds before using RTP again.</red>"
+  warmup-started: "<green>Teleporting in <seconds> seconds. Do not move or take damage!</green>"
+  warmup-already-active: "<red>You are already warming up for a teleport!</red>"
+  warmup-cancelled: "<red>Teleport cancelled due to movement or damage.</red>"
+  queue-warming-up: "<yellow>RTP queue is warming up candidates, please try again in a few seconds.</yellow>"
+  search-failed: "<red>Failed to find a safe location after multiple retries. Try again later.</red>"
+  teleport-success: "<green>Teleported to <x>, <y>, <z> in <world>!</green>"
+  teleport-failed: "<red>Teleport failed due to unsafe terrain target.</red>"
+  only-players: "<red>Only players can execute random teleportation.</red>"
+  world-not-found: "<red>World '<world>' does not exist or is not loaded.</red>"
+  reload-success: "<green>RTP module configuration reloaded successfully.</green>"

@@ -170,7 +170,7 @@ public final class AdaptiveRtpReplenisher {
         int candidateX;
         int candidateZ;
 
-        if (worldConfig.shape() == RtpWorldConfig.Shape.SQUARE) {
+        if (worldConfig.shapeEnum() == RtpWorldConfig.Shape.SQUARE) {
             int span = Math.max(1, worldConfig.maxRadius());
             int inner = Math.max(0, Math.min(worldConfig.minRadius(), span - 1));
             int dx;

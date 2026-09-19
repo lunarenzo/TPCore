@@ -12,7 +12,7 @@ public record RtpWorldConfig(
     int maxRadius,
     int centerX,
     int centerZ,
-    Shape shape,
+    String shape,
     List<String> biomeBlacklist,
     List<String> biomeWhitelist,
     int maxAttempts,
@@ -27,8 +27,15 @@ public record RtpWorldConfig(
 
     public RtpWorldConfig {
         Objects.requireNonNull(worldName, "worldName cannot be null");
-        Objects.requireNonNull(shape, "shape cannot be null");
+        shape = (shape != null && !shape.isBlank()) ? shape : "CIRCLE";
         biomeBlacklist = biomeBlacklist != null ? List.copyOf(biomeBlacklist) : List.of();
         biomeWhitelist = biomeWhitelist != null ? List.copyOf(biomeWhitelist) : List.of();
+    }
+
+    public Shape shapeEnum() {
+        if ("SQUARE".equalsIgnoreCase(shape)) {
+            return Shape.SQUARE;
+        }
+        return Shape.CIRCLE;
     }
 }

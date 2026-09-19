@@ -25,7 +25,7 @@ public record RtpConfig(
             5000,
             0,
             0,
-            RtpWorldConfig.Shape.CIRCLE,
+            "CIRCLE",
             List.of("OCEAN", "DEEP_OCEAN", "WARM_OCEAN", "LUKEWARM_OCEAN", "COLD_OCEAN", "DEEP_COLD_OCEAN", "FROZEN_OCEAN", "DEEP_FROZEN_OCEAN"),
             List.of(),
             30,
