@@ -3,6 +3,7 @@ package com.lunatech.tpcore.module.rtp.service.impl;
 import com.lunatech.tpcore.module.rtp.anvil.AnvilPrefilter;
 import com.lunatech.tpcore.module.rtp.config.RtpWorldConfig;
 import com.lunatech.tpcore.module.rtp.model.RtpCandidate;
+import com.lunatech.tpcore.module.rtp.util.BiomeResolver;
 import com.lunatech.tpcore.module.rtp.util.PackedLocation;
 import java.nio.file.Path;
 import java.util.HashSet;
@@ -14,7 +15,6 @@ import org.bukkit.Chunk;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
-import org.bukkit.block.Biome;
 
 public final class RtpSafetyInspector {
 
@@ -101,8 +101,8 @@ public final class RtpSafetyInspector {
                 continue;
             }
 
-            Biome biome = safeGetBiome(chunk, lx, y + 1, lz);
-            if (isBiomeBlacklisted(biome, config)) {
+            String biomeKey = BiomeResolver.getBiomeKey(chunk.getBlock(lx, y + 1, lz));
+            if (isBiomeBlacklisted(biomeKey, config)) {
                 continue;
             }
 
@@ -127,8 +127,8 @@ public final class RtpSafetyInspector {
                 Material head = chunk.getBlock(lx, y + 2, lz).getType();
 
                 if (isSolidGround(standOn) && standOn != Material.BEDROCK && !isHazard(standOn) && isPassable(feet) && isPassable(head)) {
-                    Biome biome = safeGetBiome(chunk, lx, y + 1, lz);
-                    if (isBiomeBlacklisted(biome, config)) {
+                    String biomeKey = BiomeResolver.getBiomeKey(chunk.getBlock(lx, y + 1, lz));
+                    if (isBiomeBlacklisted(biomeKey, config)) {
                         break;
                     }
                     float yaw = ThreadLocalRandom.current().nextFloat() * 360.0f;
@@ -165,8 +165,8 @@ public final class RtpSafetyInspector {
                 continue;
             }
 
-            Biome biome = safeGetBiome(chunk, lx, y + 1, lz);
-            if (isBiomeBlacklisted(biome, config)) {
+            String biomeKey = BiomeResolver.getBiomeKey(chunk.getBlock(lx, y + 1, lz));
+            if (isBiomeBlacklisted(biomeKey, config)) {
                 continue;
             }
 
@@ -175,14 +175,6 @@ public final class RtpSafetyInspector {
             return PackedLocation.toCandidate(packed, world.getUID(), yaw, 0.0f);
         }
         return null;
-    }
-
-    private Biome safeGetBiome(Chunk chunk, int lx, int y, int lz) {
-        try {
-            return chunk.getBlock(lx, y, lz).getBiome();
-        } catch (Throwable t) {
-            return null;
-        }
     }
 
     private boolean isSolidGround(Material material) {
@@ -209,21 +201,12 @@ public final class RtpSafetyInspector {
         return !material.isSolid() && !isHazard(material);
     }
 
-    private boolean isBiomeBlacklisted(Biome biome, RtpWorldConfig config) {
-        if (biome == null) return false;
-        try {
-            String key;
-            if (biome instanceof org.bukkit.Keyed keyed) {
-                key = keyed.getKey().getKey().toUpperCase();
-            } else {
-                key = biome.name().toUpperCase();
+    private boolean isBiomeBlacklisted(String biomeKey, RtpWorldConfig config) {
+        if (biomeKey == null || biomeKey.isEmpty()) return false;
+        for (String blacklisted : config.biomeBlacklist()) {
+            if (biomeKey.contains(blacklisted.toUpperCase())) {
+                return true;
             }
-            for (String blacklisted : config.biomeBlacklist()) {
-                if (key.contains(blacklisted.toUpperCase())) {
-                    return true;
-                }
-            }
-        } catch (Throwable ignored) {
         }
         return false;
     }
