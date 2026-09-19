@@ -78,10 +78,15 @@ public final class RtpSafetyInspector {
 
     private RtpCandidate inspectOverworld(World world, RtpWorldConfig config, Chunk chunk, int targetX, int targetZ, int localX, int localZ) {
         for (int i = 0; i < PROBE_DX.length; i++) {
-            int lx = Math.floorMod(localX + PROBE_DX[i], 16);
-            int lz = Math.floorMod(localZ + PROBE_DZ[i], 16);
-            int worldX = (chunk.getX() << 4) + lx;
-            int worldZ = (chunk.getZ() << 4) + lz;
+            int worldX = targetX + PROBE_DX[i];
+            int worldZ = targetZ + PROBE_DZ[i];
+
+            if ((worldX >> 4) != chunk.getX() || (worldZ >> 4) != chunk.getZ()) {
+                continue;
+            }
+
+            int lx = Math.floorMod(worldX, 16);
+            int lz = Math.floorMod(worldZ, 16);
 
             int topY = world.getHighestBlockYAt(worldX, worldZ);
             int y = topY;
@@ -115,13 +120,21 @@ public final class RtpSafetyInspector {
     }
 
     private RtpCandidate inspectNether(World world, RtpWorldConfig config, Chunk chunk, int targetX, int targetZ, int localX, int localZ) {
-        for (int i = 0; i < PROBE_DX.length; i++) {
-            int lx = Math.floorMod(localX + PROBE_DX[i], 16);
-            int lz = Math.floorMod(localZ + PROBE_DZ[i], 16);
-            int worldX = (chunk.getX() << 4) + lx;
-            int worldZ = (chunk.getZ() << 4) + lz;
+        int startY = Math.min(125, world.getMaxHeight() - 3);
+        int minScanY = Math.max(1, world.getMinHeight() + 5);
 
-            for (int y = 110; y >= 32; y--) {
+        for (int i = 0; i < PROBE_DX.length; i++) {
+            int worldX = targetX + PROBE_DX[i];
+            int worldZ = targetZ + PROBE_DZ[i];
+
+            if ((worldX >> 4) != chunk.getX() || (worldZ >> 4) != chunk.getZ()) {
+                continue;
+            }
+
+            int lx = Math.floorMod(worldX, 16);
+            int lz = Math.floorMod(worldZ, 16);
+
+            for (int y = startY; y >= minScanY; y--) {
                 Material standOn = chunk.getBlock(lx, y, lz).getType();
                 Material feet = chunk.getBlock(lx, y + 1, lz).getType();
                 Material head = chunk.getBlock(lx, y + 2, lz).getType();
@@ -142,10 +155,15 @@ public final class RtpSafetyInspector {
 
     private RtpCandidate inspectEnd(World world, RtpWorldConfig config, Chunk chunk, int targetX, int targetZ, int localX, int localZ) {
         for (int i = 0; i < PROBE_DX.length; i++) {
-            int lx = Math.floorMod(localX + PROBE_DX[i], 16);
-            int lz = Math.floorMod(localZ + PROBE_DZ[i], 16);
-            int worldX = (chunk.getX() << 4) + lx;
-            int worldZ = (chunk.getZ() << 4) + lz;
+            int worldX = targetX + PROBE_DX[i];
+            int worldZ = targetZ + PROBE_DZ[i];
+
+            if ((worldX >> 4) != chunk.getX() || (worldZ >> 4) != chunk.getZ()) {
+                continue;
+            }
+
+            int lx = Math.floorMod(worldX, 16);
+            int lz = Math.floorMod(worldZ, 16);
 
             int topY = world.getHighestBlockYAt(worldX, worldZ);
             int y = topY;

@@ -149,12 +149,15 @@ public final class AdaptiveRtpReplenisher {
             boolean isDemandFresh = lastDemand != null && (System.currentTimeMillis() - lastDemand) <= demandWindowMs;
             int minPreWarmed = Math.max(2, Math.min(5, config.bufferCapacity()));
             int targetCapacity = isDemandFresh ? config.bufferCapacity() : minPreWarmed;
-
-            if (buffer.size() >= targetCapacity) {
+            int needed = targetCapacity - buffer.size();
+            if (needed <= 0) {
                 continue;
             }
 
-            replenishSingle(world, worldConfig, buffer, 0);
+            int batchCount = Math.min(needed, 4);
+            for (int b = 0; b < batchCount; b++) {
+                replenishSingle(world, worldConfig, buffer, 0);
+            }
         }
     }
 

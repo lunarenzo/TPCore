@@ -16,6 +16,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 
 public final class SqliteRtpCacheRepository implements RtpCacheRepository {
@@ -157,6 +158,14 @@ public final class SqliteRtpCacheRepository implements RtpCacheRepository {
         return CompletableFuture.runAsync(() -> {
             if (this.virtualExecutor != null && !this.virtualExecutor.isShutdown()) {
                 this.virtualExecutor.shutdown();
+                try {
+                    if (!this.virtualExecutor.awaitTermination(3, TimeUnit.SECONDS)) {
+                        this.virtualExecutor.shutdownNow();
+                    }
+                } catch (InterruptedException e) {
+                    this.virtualExecutor.shutdownNow();
+                    Thread.currentThread().interrupt();
+                }
             }
             if (this.dataSource != null && !this.dataSource.isClosed()) {
                 this.dataSource.close();
