@@ -156,9 +156,6 @@ public final class DefaultRtpService implements RtpService {
             return executeOnDemandRtp(player, world, worldConfig, 0);
         }
 
-        long packedLoc = PackedLocation.fromCandidate(candidate);
-        this.ticketManager.addCandidateTickets(world, packedLoc);
-
         int blockX = (int) Math.floor(candidate.x());
         int blockZ = (int) Math.floor(candidate.z());
 
@@ -166,16 +163,15 @@ public final class DefaultRtpService implements RtpService {
             .exceptionally(t -> null)
             .thenCompose(safeCandidate -> {
                 if (player == null || !player.isOnline()) {
-                    this.ticketManager.removeCandidateTickets(world, packedLoc);
                     return CompletableFuture.completedFuture(false);
                 }
 
                 if (safeCandidate == null) {
-                    this.ticketManager.removeCandidateTickets(world, packedLoc);
                     return dispatchTeleport(player, world, worldConfig, attempt + 1);
                 }
 
-                return performTeleport(player, world, worldConfig, safeCandidate, packedLoc);
+                long safePackedLoc = PackedLocation.fromCandidate(safeCandidate);
+                return performTeleport(player, world, worldConfig, safeCandidate, safePackedLoc);
             });
     }
 
@@ -220,19 +216,17 @@ public final class DefaultRtpService implements RtpService {
         return this.safetyInspector.inspectCandidate(world, worldConfig, candidateX, candidateZ, true)
             .exceptionally(t -> null)
             .thenCompose(safeCandidate -> {
-            if (player == null || !player.isOnline()) {
-                return CompletableFuture.completedFuture(false);
-            }
+                if (player == null || !player.isOnline()) {
+                    return CompletableFuture.completedFuture(false);
+                }
 
-            if (safeCandidate == null) {
-                return executeOnDemandRtp(player, world, worldConfig, attempt + 1);
-            }
+                if (safeCandidate == null) {
+                    return executeOnDemandRtp(player, world, worldConfig, attempt + 1);
+                }
 
-            long packedLoc = PackedLocation.fromCandidate(safeCandidate);
-            this.ticketManager.addCandidateTickets(world, packedLoc);
-
-            return performTeleport(player, world, worldConfig, safeCandidate, packedLoc);
-        });
+                long packedLoc = PackedLocation.fromCandidate(safeCandidate);
+                return performTeleport(player, world, worldConfig, safeCandidate, packedLoc);
+            });
     }
 
     private CompletableFuture<Boolean> performTeleport(
@@ -248,10 +242,11 @@ public final class DefaultRtpService implements RtpService {
             this.plugin,
             t -> {
                 if (!player.isOnline()) {
-                    this.ticketManager.removeCandidateTickets(world, packedLoc);
                     teleportFuture.complete(false);
                     return;
                 }
+
+                this.ticketManager.addCandidateTickets(world, packedLoc);
 
                 Location dest = new Location(
                     world,

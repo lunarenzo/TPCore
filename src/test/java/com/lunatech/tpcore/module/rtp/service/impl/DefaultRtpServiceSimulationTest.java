@@ -237,9 +237,6 @@ final class DefaultRtpServiceSimulationTest {
         // Verify 2 pop candidate attempts
         Mockito.verify(this.replenisher, Mockito.times(2)).popCandidate(this.world);
 
-        // Verify tickets removed for unsafe candidate
-        Mockito.verify(this.ticketManager).removeCandidateTickets(Mockito.eq(this.world), Mockito.anyLong());
-
         // Verify player teleported to safe candidate
         ArgumentCaptor<Location> locCaptor = ArgumentCaptor.forClass(Location.class);
         Mockito.verify(this.player).teleport(locCaptor.capture(), Mockito.eq(TeleportCause.PLUGIN));
