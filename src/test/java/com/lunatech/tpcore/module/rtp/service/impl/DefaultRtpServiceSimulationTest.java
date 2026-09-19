@@ -105,7 +105,8 @@ final class DefaultRtpServiceSimulationTest {
             30,
             0, // cooldown
             0, // warmup
-            0.0
+            0.0,
+            true // useChunkTickets
         );
 
         this.rtpConfig = new RtpConfig(
@@ -151,16 +152,16 @@ final class DefaultRtpServiceSimulationTest {
             Mockito.eq(true)
         )).thenReturn(CompletableFuture.completedFuture(candidate));
 
-        Mockito.when(this.player.teleport(Mockito.any(Location.class), Mockito.eq(TeleportCause.PLUGIN))).thenReturn(true);
+        Mockito.when(this.player.teleportAsync(Mockito.any(Location.class), Mockito.eq(TeleportCause.PLUGIN))).thenReturn(CompletableFuture.completedFuture(true));
 
         CompletableFuture<Boolean> future = this.rtpService.executeRtp(this.player);
         Boolean result = future.get();
 
         Assertions.assertTrue(result, "RTP execution future should complete with true");
 
-        // Verify player.teleport call
+        // Verify player.teleportAsync call
         ArgumentCaptor<Location> locCaptor = ArgumentCaptor.forClass(Location.class);
-        Mockito.verify(this.player).teleport(locCaptor.capture(), Mockito.eq(TeleportCause.PLUGIN));
+        Mockito.verify(this.player).teleportAsync(locCaptor.capture(), Mockito.eq(TeleportCause.PLUGIN));
 
         Location dest = locCaptor.getValue();
         Assertions.assertEquals(this.world, dest.getWorld());
@@ -187,7 +188,7 @@ final class DefaultRtpServiceSimulationTest {
             Mockito.eq(true)
         )).thenReturn(CompletableFuture.completedFuture(safeCandidate));
 
-        Mockito.when(this.player.teleport(Mockito.any(Location.class), Mockito.eq(TeleportCause.PLUGIN))).thenReturn(true);
+        Mockito.when(this.player.teleportAsync(Mockito.any(Location.class), Mockito.eq(TeleportCause.PLUGIN))).thenReturn(CompletableFuture.completedFuture(true));
 
         CompletableFuture<Boolean> future = this.rtpService.executeRtp(this.player);
         Boolean result = future.get();
@@ -196,7 +197,7 @@ final class DefaultRtpServiceSimulationTest {
 
         // Verify record demand call
         Mockito.verify(this.replenisher).recordDemand(this.world);
-        Mockito.verify(this.player).teleport(Mockito.any(Location.class), Mockito.eq(TeleportCause.PLUGIN));
+        Mockito.verify(this.player).teleportAsync(Mockito.any(Location.class), Mockito.eq(TeleportCause.PLUGIN));
     }
 
     @Test
@@ -227,7 +228,7 @@ final class DefaultRtpServiceSimulationTest {
             Mockito.eq(true)
         )).thenReturn(CompletableFuture.completedFuture(safeCandidate));
 
-        Mockito.when(this.player.teleport(Mockito.any(Location.class), Mockito.eq(TeleportCause.PLUGIN))).thenReturn(true);
+        Mockito.when(this.player.teleportAsync(Mockito.any(Location.class), Mockito.eq(TeleportCause.PLUGIN))).thenReturn(CompletableFuture.completedFuture(true));
 
         CompletableFuture<Boolean> future = this.rtpService.executeRtp(this.player);
         Boolean result = future.get();
@@ -239,7 +240,7 @@ final class DefaultRtpServiceSimulationTest {
 
         // Verify player teleported to safe candidate
         ArgumentCaptor<Location> locCaptor = ArgumentCaptor.forClass(Location.class);
-        Mockito.verify(this.player).teleport(locCaptor.capture(), Mockito.eq(TeleportCause.PLUGIN));
+        Mockito.verify(this.player).teleportAsync(locCaptor.capture(), Mockito.eq(TeleportCause.PLUGIN));
         Assertions.assertEquals(300.0, locCaptor.getValue().getX());
         Assertions.assertEquals(68.0, locCaptor.getValue().getY());
     }
@@ -260,7 +261,8 @@ final class DefaultRtpServiceSimulationTest {
             30,
             30, // 30 seconds cooldown
             0,
-            0.0
+            0.0,
+            true // useChunkTickets
         );
 
         RtpConfig cooldownConfig = new RtpConfig(
@@ -291,7 +293,7 @@ final class DefaultRtpServiceSimulationTest {
             Mockito.eq(true)
         )).thenReturn(CompletableFuture.completedFuture(candidate));
 
-        Mockito.when(this.player.teleport(Mockito.any(Location.class), Mockito.eq(TeleportCause.PLUGIN))).thenReturn(true);
+        Mockito.when(this.player.teleportAsync(Mockito.any(Location.class), Mockito.eq(TeleportCause.PLUGIN))).thenReturn(CompletableFuture.completedFuture(true));
 
         // First RTP call -> success
         CompletableFuture<Boolean> firstCall = serviceWithCooldown.executeRtp(this.player);

@@ -18,7 +18,8 @@ public record RtpWorldConfig(
     int maxAttempts,
     int cooldownSeconds,
     int warmupSeconds,
-    double cost
+    double cost,
+    boolean useChunkTickets
 ) {
     public enum Shape {
         CIRCLE,

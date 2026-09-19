@@ -31,7 +31,8 @@ public record RtpConfig(
             30,
             60,
             0,
-            0.0
+            0.0,
+            false
         );
 
         return new RtpConfig(
