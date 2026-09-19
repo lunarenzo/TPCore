@@ -30,7 +30,7 @@ public record RtpConfig(
             List.of(),
             30,
             60,
-            3,
+            0,
             0.0
         );
 

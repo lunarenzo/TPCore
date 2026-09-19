@@ -25,7 +25,7 @@ world-configs:
     biome-whitelist: []
     max-attempts: 30
     cooldown-seconds: 60
-    warmup-seconds: 3
+    warmup-seconds: 0
     cost: 0.0
 
 messages:

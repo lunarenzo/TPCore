@@ -157,8 +157,6 @@ public final class DefaultRtpService implements RtpService {
         }
 
         long packedLoc = PackedLocation.fromCandidate(candidate);
-
-        // Preload 3x3 inner ring chunk tickets
         this.ticketManager.addCandidateTickets(world, packedLoc);
 
         int blockX = (int) Math.floor(candidate.x());
@@ -175,45 +173,7 @@ public final class DefaultRtpService implements RtpService {
                 return dispatchTeleport(player, world, worldConfig, attempt + 1);
             }
 
-            Location dest = new Location(
-                world,
-                safeCandidate.x(),
-                safeCandidate.y(),
-                safeCandidate.z(),
-                safeCandidate.yaw(),
-                safeCandidate.pitch()
-            );
-
-            return player.teleportAsync(dest, TeleportCause.PLUGIN).thenApply(success -> {
-                if (success) {
-                    Bukkit.getRegionScheduler().runDelayed(
-                        this.plugin,
-                        dest,
-                        t -> this.ticketManager.removeCandidateTickets(world, packedLoc),
-                        100L
-                    );
-
-                    if (worldConfig.cooldownSeconds() > 0) {
-                        this.cooldownMap.put(
-                            player.getUniqueId(),
-                            System.currentTimeMillis() + (worldConfig.cooldownSeconds() * 1000L)
-                        );
-                    }
-
-                    sendMessage(
-                        player,
-                        this.configSupplier.get().messages().teleportSuccess(),
-                        Placeholder.unparsed("x", String.valueOf(dest.getBlockX())),
-                        Placeholder.unparsed("y", String.valueOf(dest.getBlockY())),
-                        Placeholder.unparsed("z", String.valueOf(dest.getBlockZ())),
-                        Placeholder.unparsed("world", world.getName())
-                    );
-                } else {
-                    this.ticketManager.removeCandidateTickets(world, packedLoc);
-                    sendMessage(player, this.configSupplier.get().messages().teleportFailed());
-                }
-                return success;
-            });
+            return performTeleport(player, world, worldConfig, safeCandidate, packedLoc);
         });
     }
 
@@ -267,46 +227,72 @@ public final class DefaultRtpService implements RtpService {
             long packedLoc = PackedLocation.fromCandidate(safeCandidate);
             this.ticketManager.addCandidateTickets(world, packedLoc);
 
-            Location dest = new Location(
-                world,
-                safeCandidate.x(),
-                safeCandidate.y(),
-                safeCandidate.z(),
-                safeCandidate.yaw(),
-                safeCandidate.pitch()
-            );
+            return performTeleport(player, world, worldConfig, safeCandidate, packedLoc);
+        });
+    }
 
-            return player.teleportAsync(dest, TeleportCause.PLUGIN).thenApply(success -> {
-                if (success) {
+    private CompletableFuture<Boolean> performTeleport(
+        Player player,
+        World world,
+        RtpWorldConfig worldConfig,
+        RtpCandidate safeCandidate,
+        long packedLoc
+    ) {
+        CompletableFuture<Boolean> teleportFuture = new CompletableFuture<>();
+
+        player.getScheduler().run(
+            this.plugin,
+            t -> {
+                if (!player.isOnline()) {
+                    this.ticketManager.removeCandidateTickets(world, packedLoc);
+                    teleportFuture.complete(false);
+                    return;
+                }
+
+                Location dest = new Location(
+                    world,
+                    safeCandidate.x(),
+                    safeCandidate.y(),
+                    safeCandidate.z(),
+                    safeCandidate.yaw(),
+                    safeCandidate.pitch()
+                );
+
+                player.teleportAsync(dest, TeleportCause.PLUGIN).thenAccept(success -> {
+                    if (success) {
+                        if (worldConfig.cooldownSeconds() > 0) {
+                            this.cooldownMap.put(
+                                player.getUniqueId(),
+                                System.currentTimeMillis() + (worldConfig.cooldownSeconds() * 1000L)
+                            );
+                        }
+
+                        sendMessage(
+                            player,
+                            this.configSupplier.get().messages().teleportSuccess(),
+                            Placeholder.unparsed("x", String.valueOf(dest.getBlockX())),
+                            Placeholder.unparsed("y", String.valueOf(dest.getBlockY())),
+                            Placeholder.unparsed("z", String.valueOf(dest.getBlockZ())),
+                            Placeholder.unparsed("world", world.getName())
+                        );
+                    } else {
+                        sendMessage(player, this.configSupplier.get().messages().teleportFailed());
+                    }
+
                     Bukkit.getRegionScheduler().runDelayed(
                         this.plugin,
                         dest,
-                        t -> this.ticketManager.removeCandidateTickets(world, packedLoc),
+                        task -> this.ticketManager.removeCandidateTickets(world, packedLoc),
                         100L
                     );
 
-                    if (worldConfig.cooldownSeconds() > 0) {
-                        this.cooldownMap.put(
-                            player.getUniqueId(),
-                            System.currentTimeMillis() + (worldConfig.cooldownSeconds() * 1000L)
-                        );
-                    }
+                    teleportFuture.complete(success);
+                });
+            },
+            null
+        );
 
-                    sendMessage(
-                        player,
-                        this.configSupplier.get().messages().teleportSuccess(),
-                        Placeholder.unparsed("x", String.valueOf(dest.getBlockX())),
-                        Placeholder.unparsed("y", String.valueOf(dest.getBlockY())),
-                        Placeholder.unparsed("z", String.valueOf(dest.getBlockZ())),
-                        Placeholder.unparsed("world", world.getName())
-                    );
-                } else {
-                    this.ticketManager.removeCandidateTickets(world, packedLoc);
-                    sendMessage(player, this.configSupplier.get().messages().teleportFailed());
-                }
-                return success;
-            });
-        });
+        return teleportFuture;
     }
 
     @Override

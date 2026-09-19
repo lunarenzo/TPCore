@@ -22,7 +22,7 @@ final class RtpConfigTest {
         Assertions.assertEquals(100, worldConfig.minRadius());
         Assertions.assertEquals(5000, worldConfig.maxRadius());
         Assertions.assertEquals(60, worldConfig.cooldownSeconds());
-        Assertions.assertEquals(3, worldConfig.warmupSeconds());
+        Assertions.assertEquals(0, worldConfig.warmupSeconds());
 
         Assertions.assertNotNull(config.messages());
         Assertions.assertNotNull(config.messages().prefix());
