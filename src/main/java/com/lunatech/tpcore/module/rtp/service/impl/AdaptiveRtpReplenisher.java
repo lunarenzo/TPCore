@@ -140,7 +140,7 @@ public final class AdaptiveRtpReplenisher {
             UUID worldUuid = world.getUID();
             LockFreeCandidateBuffer buffer = this.bufferMap.computeIfAbsent(
                 worldUuid,
-                k -> new LockFreeCandidateBuffer(config.bufferCapacity())
+                k -> new LockFreeCandidateBuffer(Math.min(32, Math.max(1, config.bufferCapacity())))
             );
 
             if (serverEmpty && !buffer.isEmpty()) {

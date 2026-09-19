@@ -13,7 +13,7 @@ final class RtpConfigTest {
 
         Assertions.assertTrue(config.enabled());
         Assertions.assertEquals(20, config.bufferCapacity());
-        Assertions.assertEquals(40.0, config.maxMsptThreshold());
+        Assertions.assertEquals(45.0, config.maxMsptThreshold());
         Assertions.assertEquals(15, config.demandWindowMinutes());
 
         RtpWorldConfig worldConfig = config.worldConfigs().get("world");

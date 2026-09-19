@@ -35,7 +35,7 @@ public record RtpConfig(
         return new RtpConfig(
             true,
             20,
-            40.0,
+            45.0,
             15,
             Map.of("world", defaultWorld),
             RtpMessages.createDefault()
