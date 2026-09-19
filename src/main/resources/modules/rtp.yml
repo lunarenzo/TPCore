@@ -30,15 +30,15 @@ world-configs:
     #
     # false (Recommended Default):
     #   - Uses Paper's native player.teleportAsync() pipeline.
-    #   - Ultra-fast 0.03ms main-thread execution time.
-    #   - Paper automatically manages chunk loading and unloading for player movement without registering
-    #     plugin tickets in ChunkHolderManager.
+    #   - Minimal main-thread processing overhead.
+    #   - Delegates chunk loading and lifecycle management directly to Paper's engine without registering
+    #     explicit plugin tickets in ChunkHolderManager.
     #
     # true:
     #   - Explicitly forces Paper to hold a 100-tick plugin chunk ticket post-teleport.
-    #   - Prevents immediate chunk unloading if players have extremely slow client rendering/network connections,
-    #     ensuring blocks remain loaded in server memory for 5 seconds post-teleport.
-    #   - Adds ~0.27ms of main-thread ticket registration overhead in Paper's ChunkHolderManager.
+    #   - Prevents immediate chunk unloading if players have slow client rendering or network connections,
+    #     ensuring target blocks remain loaded in server memory for 5 seconds post-teleport.
+    #   - Incurs additional ticket registration processing overhead in Paper's ChunkHolderManager.
     use-chunk-tickets: false
 
 messages:
