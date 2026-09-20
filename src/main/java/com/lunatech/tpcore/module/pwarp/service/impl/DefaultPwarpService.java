@@ -548,6 +548,12 @@ public final class DefaultPwarpService implements PwarpService {
         double withdrawAmount = (amount <= 0.0 || amount > warp.bank()) ? warp.bank() : amount;
         double newBank = warp.bank() - withdrawAmount;
 
+        boolean depositSuccess = this.economyService.deposit(player, withdrawAmount);
+        if (!depositSuccess) {
+            sendMessage(player, config.messages().teleportFailed());
+            return CompletableFuture.completedFuture(false);
+        }
+
         Pwarp updated = new Pwarp(
             warp.id(), warp.ownerUuid(), warp.ownerName(), warp.name(),
             warp.description(), warp.worldName(), warp.x(), warp.y(), warp.z(),
@@ -556,8 +562,6 @@ public final class DefaultPwarpService implements PwarpService {
             warp.totalRatings(), warp.price(), newBank
         );
         this.cache.put(updated);
-
-        this.economyService.deposit(player, withdrawAmount);
 
         return this.repository.updateBank(warp.name(), newBank).thenApply(v -> {
             sendMessage(player, config.messages().bankWithdrawSuccess(),
