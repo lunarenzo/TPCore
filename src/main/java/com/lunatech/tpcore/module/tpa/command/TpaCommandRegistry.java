@@ -39,14 +39,18 @@ public final class TpaCommandRegistry {
             commands.register(
                 Commands.literal("tpa")
                     .requires(src -> src.getSender().hasPermission(Permissions.TPA_USE))
-                    .then(Commands.argument("player", ArgumentTypes.player())
+                    .then(Commands.argument("player", ArgumentTypes.players())
                         .executes(ctx -> {
                             CommandSourceStack src = ctx.getSource();
                             if (src.getSender() instanceof Player sender) {
                                 PlayerSelectorArgumentResolver resolver = ctx.getArgument("player", PlayerSelectorArgumentResolver.class);
-                                Player target = resolver.resolve(src).stream().findFirst().orElse(null);
-                                if (target != null && target.isOnline()) {
-                                    this.tpaService.sendRequest(sender, target, TpaType.TPA_TO);
+                                List<Player> targets = resolver.resolve(src);
+                                if (!targets.isEmpty()) {
+                                    for (Player target : targets) {
+                                        if (target != null && target.isOnline()) {
+                                            this.tpaService.sendRequest(sender, target, TpaType.TPA_TO);
+                                        }
+                                    }
                                 } else {
                                     TpaConfig cfg = this.configSupplier.get();
                                     String msg = cfg.messages().playerNotOnline().replace("<player>", "Player");
@@ -69,14 +73,18 @@ public final class TpaCommandRegistry {
             commands.register(
                 Commands.literal("tpahere")
                     .requires(src -> src.getSender().hasPermission(Permissions.TPA_HERE))
-                    .then(Commands.argument("player", ArgumentTypes.player())
+                    .then(Commands.argument("player", ArgumentTypes.players())
                         .executes(ctx -> {
                             CommandSourceStack src = ctx.getSource();
                             if (src.getSender() instanceof Player sender) {
                                 PlayerSelectorArgumentResolver resolver = ctx.getArgument("player", PlayerSelectorArgumentResolver.class);
-                                Player target = resolver.resolve(src).stream().findFirst().orElse(null);
-                                if (target != null && target.isOnline()) {
-                                    this.tpaService.sendRequest(sender, target, TpaType.TPA_HERE);
+                                List<Player> targets = resolver.resolve(src);
+                                if (!targets.isEmpty()) {
+                                    for (Player target : targets) {
+                                        if (target != null && target.isOnline()) {
+                                            this.tpaService.sendRequest(sender, target, TpaType.TPA_HERE);
+                                        }
+                                    }
                                 } else {
                                     TpaConfig cfg = this.configSupplier.get();
                                     String msg = cfg.messages().playerNotOnline().replace("<player>", "Player");
