@@ -45,6 +45,13 @@ public final class TpaCommandRegistry {
                             if (src.getSender() instanceof Player sender) {
                                 PlayerSelectorArgumentResolver resolver = ctx.getArgument("player", PlayerSelectorArgumentResolver.class);
                                 List<Player> targets = resolver.resolve(src);
+                                if (targets.size() > 1 && !sender.hasPermission(Permissions.TPA_ALL) && !sender.hasPermission(Permissions.TPA_ADMIN)) {
+                                    TpaConfig cfg = this.configSupplier.get();
+                                    sender.sendMessage(this.miniMessage.deserialize(
+                                        cfg.messages().prefix() + "<red>You do not have permission to send bulk TPA requests to multiple players!</red>"
+                                    ));
+                                    return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+                                }
                                 if (!targets.isEmpty()) {
                                     for (Player target : targets) {
                                         if (target != null && target.isOnline()) {
@@ -79,6 +86,13 @@ public final class TpaCommandRegistry {
                             if (src.getSender() instanceof Player sender) {
                                 PlayerSelectorArgumentResolver resolver = ctx.getArgument("player", PlayerSelectorArgumentResolver.class);
                                 List<Player> targets = resolver.resolve(src);
+                                if (targets.size() > 1 && !sender.hasPermission(Permissions.TPA_ALL) && !sender.hasPermission(Permissions.TPA_ADMIN)) {
+                                    TpaConfig cfg = this.configSupplier.get();
+                                    sender.sendMessage(this.miniMessage.deserialize(
+                                        cfg.messages().prefix() + "<red>You do not have permission to send bulk TPA requests to multiple players!</red>"
+                                    ));
+                                    return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+                                }
                                 if (!targets.isEmpty()) {
                                     for (Player target : targets) {
                                         if (target != null && target.isOnline()) {
