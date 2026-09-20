@@ -46,7 +46,7 @@ public final class DefaultPwarpService implements PwarpService {
     private final PwarpEconomyService economyService;
     private final MiniMessage miniMessage = MiniMessage.miniMessage();
 
-    private record WarmupSession(ScheduledTask task, CompletableFuture<Boolean> future) {}
+    private record WarmupSession(ScheduledTask task, CompletableFuture<Boolean> future, String targetWorldName) {}
 
     private final Map<UUID, Long> cooldownMap = new ConcurrentHashMap<>();
     private final Map<UUID, WarmupSession> warmupTasks = new ConcurrentHashMap<>();
@@ -410,7 +410,7 @@ public final class DefaultPwarpService implements PwarpService {
         );
 
         if (task != null) {
-            this.warmupTasks.put(player.getUniqueId(), new WarmupSession(task, future));
+            this.warmupTasks.put(player.getUniqueId(), new WarmupSession(task, future, world.getName()));
         } else {
             future.complete(false);
         }
@@ -696,6 +696,23 @@ public final class DefaultPwarpService implements PwarpService {
         if (session != null && session.task() != null) {
             session.task().cancel();
             session.future().complete(false);
+        }
+    }
+
+    @Override
+    public void cancelWarmupsForWorld(String worldName) {
+        if (worldName == null || worldName.isBlank() || this.warmupTasks.isEmpty()) {
+            return;
+        }
+        for (Map.Entry<UUID, WarmupSession> entry : new ArrayList<>(this.warmupTasks.entrySet())) {
+            WarmupSession session = entry.getValue();
+            if (session.targetWorldName() != null && session.targetWorldName().equalsIgnoreCase(worldName)) {
+                Player player = this.plugin.getServer().getPlayer(entry.getKey());
+                cancelWarmup(entry.getKey());
+                if (player != null && player.isOnline()) {
+                    sendMessage(player, this.configSupplier.get().messages().warmupCancelled());
+                }
+            }
         }
     }
 

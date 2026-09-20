@@ -14,6 +14,7 @@ import org.bukkit.event.player.PlayerChangedWorldEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.world.WorldUnloadEvent;
 
 /**
  * Event listener that manages Pwarp session eviction on quit
@@ -75,6 +76,14 @@ public final class PwarpEventListener implements Listener {
             if (service != null && service.hasActiveWarmups() && service.isWarmingUp(player.getUniqueId())) {
                 service.cancelWarmup(player.getUniqueId());
             }
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onWorldUnload(WorldUnloadEvent event) {
+        PwarpService service = this.pwarpServiceSupplier.get();
+        if (service != null && service.hasActiveWarmups()) {
+            service.cancelWarmupsForWorld(event.getWorld().getName());
         }
     }
 }

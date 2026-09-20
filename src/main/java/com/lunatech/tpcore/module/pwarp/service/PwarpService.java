@@ -47,6 +47,8 @@ public interface PwarpService {
 
     void cancelWarmup(UUID playerUniqueId);
 
+    void cancelWarmupsForWorld(String worldName);
+
     void shutdown();
 
     void updateConfig(PwarpConfig newConfig);
