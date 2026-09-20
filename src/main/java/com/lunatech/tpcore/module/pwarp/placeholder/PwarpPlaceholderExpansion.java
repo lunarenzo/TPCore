@@ -58,7 +58,7 @@ public final class PwarpPlaceholderExpansion extends PlaceholderExpansion {
 
         if (params.startsWith("rating_")) {
             String name = params.substring("rating_".length());
-            return this.pwarpService.getWarp(name).map(w -> String.format("%.1f", w.averageRating())).orElse("0.0");
+            return this.pwarpService.getWarp(name).map(w -> w.totalRatings() == 0 ? "N/A" : String.format("%.1f", w.averageRating())).orElse("N/A");
         }
 
         if (params.startsWith("price_")) {
