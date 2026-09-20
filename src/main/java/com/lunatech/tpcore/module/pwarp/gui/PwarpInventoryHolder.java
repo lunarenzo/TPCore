@@ -14,7 +14,12 @@ public final class PwarpInventoryHolder implements InventoryHolder {
         ALL_WARPS,
         MY_WARPS,
         CATEGORY_SELECT,
-        RATE_WARP
+        RATE_WARP,
+        EDIT_WARP,
+        WHITELIST,
+        BLACKLIST,
+        FAVORITES,
+        RECENTS
     }
 
     private final ViewType viewType;

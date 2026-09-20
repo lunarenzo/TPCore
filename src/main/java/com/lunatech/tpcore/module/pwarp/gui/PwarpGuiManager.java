@@ -1,32 +1,65 @@
 package com.lunatech.tpcore.module.pwarp.gui;
 
 import com.lunatech.tpcore.module.pwarp.config.PwarpConfig;
+
 import com.lunatech.tpcore.module.pwarp.model.Pwarp;
+
+import com.lunatech.tpcore.module.pwarp.model.PwarpAccessType;
+
 import com.lunatech.tpcore.module.pwarp.model.PwarpCategory;
+
 import com.lunatech.tpcore.module.pwarp.model.PwarpSorting;
+
+import com.lunatech.tpcore.module.pwarp.repository.PwarpAccessRepository;
+
 import com.lunatech.tpcore.module.pwarp.service.PwarpService;
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.minimessage.MiniMessage;
-import org.bukkit.Bukkit;
-import org.bukkit.Material;
-import org.bukkit.entity.Player;
-import org.bukkit.event.EventHandler;
-import org.bukkit.event.EventPriority;
-import org.bukkit.event.Listener;
-import org.bukkit.event.inventory.InventoryClickEvent;
-import org.bukkit.event.inventory.InventoryDragEvent;
-import org.bukkit.inventory.Inventory;
-import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.meta.ItemMeta;
-import org.bukkit.plugin.java.JavaPlugin;
+
+import com.lunatech.tpcore.module.pwarp.util.PwarpInputManager;
 
 import java.util.ArrayList;
+
 import java.util.List;
+
 import java.util.Objects;
+
+import java.util.Optional;
+
+import java.util.Set;
+
+import java.util.UUID;
+
 import java.util.function.Supplier;
 
+import net.kyori.adventure.text.Component;
+
+import net.kyori.adventure.text.minimessage.MiniMessage;
+
+import org.bukkit.Bukkit;
+
+import org.bukkit.Material;
+
+import org.bukkit.entity.Player;
+
+import org.bukkit.event.EventHandler;
+
+import org.bukkit.event.EventPriority;
+
+import org.bukkit.event.Listener;
+
+import org.bukkit.event.inventory.InventoryClickEvent;
+
+import org.bukkit.event.inventory.InventoryDragEvent;
+
+import org.bukkit.inventory.Inventory;
+
+import org.bukkit.inventory.ItemStack;
+
+import org.bukkit.inventory.meta.ItemMeta;
+
+import org.bukkit.plugin.java.JavaPlugin;
+
 /**
- * Manages zero-GC paginated chest GUIs for PlayerWarps (All Warps, Category Selector, My Warps & Rate Warp).
+ * Controller manager for rendering and processing Folia-safe GUI chest menus.
  */
 public final class PwarpGuiManager implements Listener {
 
@@ -35,14 +68,28 @@ public final class PwarpGuiManager implements Listener {
 
     private final JavaPlugin plugin;
     private final PwarpService pwarpService;
+    private final PwarpAccessRepository accessRepository;
+    private final PwarpInputManager inputManager;
     private final Supplier<PwarpConfig> configSupplier;
     private final MiniMessage miniMessage;
 
-    public PwarpGuiManager(JavaPlugin plugin, PwarpService pwarpService, Supplier<PwarpConfig> configSupplier) {
+    public PwarpGuiManager(
+        JavaPlugin plugin,
+        PwarpService pwarpService,
+        PwarpAccessRepository accessRepository,
+        PwarpInputManager inputManager,
+        Supplier<PwarpConfig> configSupplier
+    ) {
         this.plugin = Objects.requireNonNull(plugin, "plugin cannot be null");
         this.pwarpService = Objects.requireNonNull(pwarpService, "pwarpService cannot be null");
+        this.accessRepository = accessRepository;
+        this.inputManager = inputManager;
         this.configSupplier = Objects.requireNonNull(configSupplier, "configSupplier cannot be null");
         this.miniMessage = MiniMessage.miniMessage();
+    }
+
+    public PwarpGuiManager(JavaPlugin plugin, PwarpService pwarpService, Supplier<PwarpConfig> configSupplier) {
+        this(plugin, pwarpService, null, null, configSupplier);
     }
 
     public void openWarpsGui(Player player, int page) {
@@ -91,10 +138,14 @@ public final class PwarpGuiManager implements Listener {
         int targetPage = Math.max(0, Math.min(page, totalPages - 1));
 
         Component title = this.miniMessage.deserialize(
-            "<gradient:#FFAA00:#FF5500><bold>My Player Warps</bold></gradient> <gray>(Page " + (targetPage + 1) + "/" + totalPages + ")</gray>"
+            "<gradient:#FFAA00:#FF5500><bold>My Set Warps</bold></gradient> <gray>(Page " + (targetPage + 1) + "/" + totalPages + ")</gray>"
         );
 
-        PwarpInventoryHolder holder = new PwarpInventoryHolder(PwarpInventoryHolder.ViewType.MY_WARPS, targetPage, totalPages);
+        PwarpInventoryHolder holder = new PwarpInventoryHolder(
+            PwarpInventoryHolder.ViewType.MY_WARPS,
+            targetPage,
+            totalPages
+        );
         Inventory inventory = Bukkit.createInventory(holder, GUI_SIZE, title);
         holder.setInventory(inventory);
 
@@ -113,7 +164,6 @@ public final class PwarpGuiManager implements Listener {
     }
 
     public void openCategoryGui(Player player) {
-        List<PwarpCategory> categories = this.configSupplier.get().categories();
         Component title = this.miniMessage.deserialize(
             "<gradient:#FFAA00:#FF5500><bold>Select Warp Category</bold></gradient>"
         );
@@ -127,24 +177,15 @@ public final class PwarpGuiManager implements Listener {
             inventory.setItem(i, filler);
         }
 
-        inventory.setItem(4, createGuiItem(
-            Material.COMPASS,
-            "<gold><bold>All Categories</bold></gold>",
-            "<gray>Click to view warps from all categories</gray>"
-        ));
+        inventory.setItem(4, createGuiItem(Material.NETHER_STAR, "<gold><bold>All Categories</bold></gold>", "<gray>View warps from all categories</gray>"));
 
-        for (PwarpCategory cat : categories) {
-            int slot = cat.slot();
-            if (slot >= 0 && slot < GUI_SIZE && slot != 4) {
+        for (PwarpCategory cat : this.configSupplier.get().categories()) {
+            if (cat.slot() >= 0 && cat.slot() < GUI_SIZE) {
                 Material mat = Material.matchMaterial(cat.iconMaterial());
-                if (mat == null) mat = Material.CHEST;
-
-                inventory.setItem(slot, createGuiItem(
-                    mat,
-                    "<yellow><bold>" + cat.displayName() + "</bold></yellow>",
-                    "<gray>" + cat.description() + "</gray>",
-                    "<yellow>Click to view warps in this category</yellow>"
-                ));
+                if (mat == null) {
+                    mat = Material.OAK_SIGN;
+                }
+                inventory.setItem(cat.slot(), createGuiItem(mat, "<gold><bold>" + cat.displayName() + "</bold></gold>", "<gray>" + cat.description() + "</gray>"));
             }
         }
 
@@ -183,6 +224,79 @@ public final class PwarpGuiManager implements Listener {
         player.getScheduler().run(this.plugin, task -> player.openInventory(inventory), null);
     }
 
+    public void openEditWarpGui(Player player, Pwarp warp) {
+        Objects.requireNonNull(warp, "warp cannot be null");
+        Component title = this.miniMessage.deserialize(
+            "<gradient:#FFAA00:#FF5500><bold>Edit Warp: " + warp.name() + "</bold></gradient>"
+        );
+
+        PwarpInventoryHolder holder = new PwarpInventoryHolder(PwarpInventoryHolder.ViewType.EDIT_WARP, warp);
+        Inventory inventory = Bukkit.createInventory(holder, 45, title);
+        holder.setInventory(inventory);
+
+        ItemStack filler = createGuiItem(Material.GRAY_STAINED_GLASS_PANE, "<gray> </gray>");
+        for (int i = 0; i < 45; i++) {
+            inventory.setItem(i, filler);
+        }
+
+        inventory.setItem(10, createGuiItem(
+            Material.FEATHER,
+            "<gold><bold>Icon Material</bold></gold>",
+            "<gray>Current: </gray><yellow>" + warp.iconMaterial() + "</yellow>",
+            "<gray>Click with an item in hand to update icon</gray>"
+        ));
+
+        inventory.setItem(12, createGuiItem(
+            Material.TRIPWIRE_HOOK,
+            "<gold><bold>Access Mode</bold></gold>",
+            "<gray>Current: </gray><yellow>" + warp.accessType().getDisplayName() + "</yellow>",
+            "<gray>Click to cycle mode (Public/Private/Password/Whitelist/Blacklist)</gray>"
+        ));
+
+        inventory.setItem(14, createGuiItem(
+            Material.GOLD_INGOT,
+            "<gold><bold>Teleport Fee</bold></gold>",
+            "<gray>Current: </gray><gold>$" + String.format("%.2f", warp.price()) + "</gold>",
+            "<gray>Click to set price via chat prompt</gray>"
+        ));
+
+        inventory.setItem(16, createGuiItem(
+            Material.WRITABLE_BOOK,
+            "<gold><bold>Description</bold></gold>",
+            "<gray>Current: </gray><white>" + (warp.description().isBlank() ? "None" : warp.description()) + "</white>",
+            "<gray>Click to edit description via chat prompt</gray>"
+        ));
+
+        inventory.setItem(20, createGuiItem(
+            Material.CHEST_MINECART,
+            "<gold><bold>Warp Bank</bold></gold>",
+            "<gray>Balance: </gray><gold>$" + String.format("%.2f", warp.bank()) + "</gold>",
+            "<gray>Click to withdraw all bank funds</gray>"
+        ));
+
+        inventory.setItem(22, createGuiItem(
+            Material.PLAYER_HEAD,
+            "<gold><bold>Whitelist Members</bold></gold>",
+            "<gray>Click to manage whitelist access list</gray>"
+        ));
+
+        inventory.setItem(24, createGuiItem(
+            Material.WITHER_SKELETON_SKULL,
+            "<gold><bold>Blacklist Members</bold></gold>",
+            "<gray>Click to manage blacklist access list</gray>"
+        ));
+
+        inventory.setItem(31, createGuiItem(
+            Material.TNT,
+            "<red><bold>DELETE WARP</bold></red>",
+            "<gray>Click to delete this warp permanently</gray>"
+        ));
+
+        inventory.setItem(40, createGuiItem(Material.BARRIER, "<red><bold>Back to My Warps</bold></red>"));
+
+        player.getScheduler().run(this.plugin, task -> player.openInventory(inventory), null);
+    }
+
     private ItemStack createWarpItemStack(Pwarp warp, boolean isOwnerView) {
         Material material = Material.matchMaterial(warp.iconMaterial());
         if (material == null) {
@@ -197,7 +311,7 @@ public final class PwarpGuiManager implements Listener {
             List<Component> lore = new ArrayList<>();
             lore.add(this.miniMessage.deserialize("<gray>Owner: </gray><yellow>" + warp.ownerName() + "</yellow>"));
             lore.add(this.miniMessage.deserialize("<gray>Category: </gray><green>" + warp.category().toUpperCase() + "</green>"));
-            lore.add(this.miniMessage.deserialize("<gray>Rating: </gray><gold>" + String.format("%.1f", warp.averageRating()) + " ★</gold> <gray>(" + warp.totalRatings() + " votes)</gray>"));
+            lore.add(this.miniMessage.deserialize("<gray>Rating: </gray><gold>" + (warp.totalRatings() == 0 ? "N/A" : String.format("%.1f", warp.averageRating())) + " ★</gold> <gray>(" + warp.totalRatings() + " votes)</gray>"));
             if (warp.description() != null && !warp.description().isBlank()) {
                 lore.add(this.miniMessage.deserialize("<gray>Desc: </gray><white>" + warp.description() + "</white>"));
             }
@@ -211,7 +325,7 @@ public final class PwarpGuiManager implements Listener {
 
             if (isOwnerView) {
                 lore.add(this.miniMessage.deserialize("<yellow>Click to teleport</yellow>"));
-                lore.add(this.miniMessage.deserialize("<red>Shift-Right-Click to DELETE</red>"));
+                lore.add(this.miniMessage.deserialize("<gold>Shift-Right-Click to EDIT warp</gold>"));
             } else {
                 lore.add(this.miniMessage.deserialize("<yellow>Click to teleport</yellow>"));
                 lore.add(this.miniMessage.deserialize("<gold>Right-Click to Rate Warp ★</gold>"));
@@ -306,6 +420,11 @@ public final class PwarpGuiManager implements Listener {
             return;
         }
 
+        if (holder.getViewType() == PwarpInventoryHolder.ViewType.EDIT_WARP) {
+            handleEditWarpClick(player, holder.getTargetWarp(), rawSlot);
+            return;
+        }
+
         if (rawSlot >= GUI_SIZE) {
             return;
         }
@@ -334,8 +453,7 @@ public final class PwarpGuiManager implements Listener {
                 if (warpIndex < myWarps.size()) {
                     Pwarp warp = myWarps.get(warpIndex);
                     if (event.isShiftClick() && event.isRightClick()) {
-                        this.pwarpService.deleteWarp(player, warp.name());
-                        openMyWarpsGui(player, holder.getPage());
+                        openEditWarpGui(player, warp);
                     } else {
                         player.getScheduler().run(this.plugin, task -> player.closeInventory(), null);
                         this.pwarpService.executeTeleport(player, warp.name());
@@ -383,6 +501,80 @@ public final class PwarpGuiManager implements Listener {
                 }
             }
             case 52 -> player.getScheduler().run(this.plugin, task -> player.closeInventory(), null);
+        }
+    }
+
+    private void handleEditWarpClick(Player player, Pwarp warp, int slot) {
+        if (warp == null) {
+            openMyWarpsGui(player, 0);
+            return;
+        }
+
+        switch (slot) {
+            case 10 -> { // Icon material change
+                ItemStack itemInHand = player.getInventory().getItemInMainHand();
+                if (itemInHand.getType() != Material.AIR) {
+                    String newMat = itemInHand.getType().name();
+                    Pwarp updated = new Pwarp(
+                        warp.id(), warp.ownerUuid(), warp.ownerName(), warp.name(), warp.description(),
+                        warp.worldName(), warp.x(), warp.y(), warp.z(), warp.yaw(), warp.pitch(),
+                        newMat, warp.category(), warp.isPrivate(), warp.createdAt(), warp.visits(),
+                        warp.averageRating(), warp.totalRatings(), warp.price(), warp.bank(),
+                        warp.accessType(), warp.password()
+                    );
+                    this.pwarpService.setWarp(player, updated.name(), updated.category(), updated.description());
+                    openEditWarpGui(player, updated);
+                } else {
+                    player.sendMessage(this.miniMessage.deserialize("<red>Hold an item in your main hand to set as warp icon!</red>"));
+                }
+            }
+            case 12 -> { // Access mode cycle
+                PwarpAccessType nextAccess = switch (warp.accessType()) {
+                    case PUBLIC -> PwarpAccessType.PRIVATE;
+                    case PRIVATE -> PwarpAccessType.PASSWORD;
+                    case PASSWORD -> PwarpAccessType.WHITELIST;
+                    case WHITELIST -> PwarpAccessType.BLACKLIST;
+                    case BLACKLIST -> PwarpAccessType.PUBLIC;
+                };
+                Pwarp updated = new Pwarp(
+                    warp.id(), warp.ownerUuid(), warp.ownerName(), warp.name(), warp.description(),
+                    warp.worldName(), warp.x(), warp.y(), warp.z(), warp.yaw(), warp.pitch(),
+                    warp.iconMaterial(), warp.category(), nextAccess == PwarpAccessType.PRIVATE, warp.createdAt(), warp.visits(),
+                    warp.averageRating(), warp.totalRatings(), warp.price(), warp.bank(),
+                    nextAccess, warp.password()
+                );
+                openEditWarpGui(player, updated);
+            }
+            case 14 -> { // Price set
+                if (this.inputManager != null) {
+                    player.getScheduler().run(this.plugin, task -> player.closeInventory(), null);
+                    this.inputManager.requestInput(player, "<gold>Type the new teleport fee price in chat:</gold>", input -> {
+                        try {
+                            double newPrice = Double.parseDouble(input);
+                            this.pwarpService.setWarpPrice(player, warp.name(), newPrice);
+                        } catch (NumberFormatException e) {
+                            player.sendMessage(this.miniMessage.deserialize("<red>Invalid price number!</red>"));
+                        }
+                    });
+                }
+            }
+            case 16 -> { // Description edit
+                if (this.inputManager != null) {
+                    player.getScheduler().run(this.plugin, task -> player.closeInventory(), null);
+                    this.inputManager.requestInput(player, "<gold>Type the new description in chat:</gold>", input -> {
+                        this.pwarpService.setWarp(player, warp.name(), warp.category(), input);
+                    });
+                }
+            }
+            case 20 -> { // Bank withdraw
+                this.pwarpService.withdrawBank(player, warp.name(), 0.0);
+                openEditWarpGui(player, warp);
+            }
+            case 31 -> { // Delete warp
+                player.getScheduler().run(this.plugin, task -> player.closeInventory(), null);
+                this.pwarpService.deleteWarp(player, warp.name());
+            }
+            case 40 -> openMyWarpsGui(player, 0);
         }
     }
 
