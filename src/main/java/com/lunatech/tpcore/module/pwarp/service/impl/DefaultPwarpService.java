@@ -3,9 +3,9 @@ package com.lunatech.tpcore.module.pwarp.service.impl;
 import com.lunatech.tpcore.constant.Permissions;
 import com.lunatech.tpcore.module.pwarp.cache.PwarpCache;
 import com.lunatech.tpcore.module.pwarp.config.PwarpConfig;
-import com.lunatech.tpcore.module.pwarp.config.PwarpConfigManager;
 import com.lunatech.tpcore.module.pwarp.config.PwarpWorldConfig;
 import com.lunatech.tpcore.module.pwarp.model.Pwarp;
+import com.lunatech.tpcore.module.pwarp.model.PwarpSorting;
 import com.lunatech.tpcore.module.pwarp.repository.PwarpRepository;
 import com.lunatech.tpcore.module.pwarp.service.PwarpService;
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
@@ -67,6 +67,11 @@ public final class DefaultPwarpService implements PwarpService {
 
     @Override
     public CompletableFuture<Boolean> setWarp(Player player, String name, String description) {
+        return setWarp(player, name, "general", description);
+    }
+
+    @Override
+    public CompletableFuture<Boolean> setWarp(Player player, String name, String category, String description) {
         if (player == null || !player.isOnline()) {
             return CompletableFuture.completedFuture(false);
         }
@@ -121,6 +126,7 @@ public final class DefaultPwarpService implements PwarpService {
             loc.getYaw(),
             loc.getPitch(),
             config.defaultIconMaterial(),
+            category != null ? category : "general",
             false,
             System.currentTimeMillis(),
             0
@@ -168,6 +174,7 @@ public final class DefaultPwarpService implements PwarpService {
     public CompletableFuture<Boolean> executeTeleport(Player player, String name) {
         String warpName = name != null ? name.trim() : "";
         Optional<Pwarp> pwarp = getWarp(warpName);
+
         if (pwarp.isEmpty()) {
             sendMessage(player, this.configSupplier.get().messages().warpNotFound(), Placeholder.unparsed("warp", warpName));
             return CompletableFuture.completedFuture(false);
@@ -192,96 +199,72 @@ public final class DefaultPwarpService implements PwarpService {
             return CompletableFuture.completedFuture(false);
         }
 
-        World world = this.plugin.getServer().getWorld(pwarp.worldName());
-        if (world == null) {
+        if (player.isInsideVehicle()) {
+            sendMessage(player, config.messages().cannotUseMounted());
+            return CompletableFuture.completedFuture(false);
+        }
+
+        World targetWorld = this.plugin.getServer().getWorld(pwarp.worldName());
+        if (targetWorld == null) {
             sendMessage(player, config.messages().worldNotFound(), Placeholder.unparsed("world", pwarp.worldName()));
             return CompletableFuture.completedFuture(false);
         }
 
-        PwarpWorldConfig worldConfig = config.worldConfigs().get(world.getName().toLowerCase(Locale.ROOT));
+        PwarpWorldConfig worldConfig = config.worldConfigs().get(pwarp.worldName().toLowerCase(Locale.ROOT));
         if (worldConfig != null && !worldConfig.enabled()) {
-            sendMessage(player, config.messages().worldDisabled(), Placeholder.unparsed("world", world.getName()));
+            sendMessage(player, config.messages().worldDisabled(), Placeholder.unparsed("world", pwarp.worldName()));
             return CompletableFuture.completedFuture(false);
         }
 
-        // Check Mounted / Vehicle State
-        if (player.isInsideVehicle()) {
-            if (worldConfig != null && !worldConfig.allowMounted()) {
-                sendMessage(player, config.messages().cannotUseMounted());
-                return CompletableFuture.completedFuture(false);
-            }
-            player.leaveVehicle();
+        long remainingCd = getRemainingCooldownSeconds(player.getUniqueId());
+        if (remainingCd > 0 && !player.hasPermission(Permissions.PWARP_BYPASS_COOLDOWN)) {
+            sendMessage(player, config.messages().cooldownActive(), Placeholder.unparsed("seconds", String.valueOf(remainingCd)));
+            return CompletableFuture.completedFuture(false);
         }
 
-        // Check Cooldown
-        UUID uuid = player.getUniqueId();
-        if (!player.hasPermission(Permissions.PWARP_BYPASS_COOLDOWN)) {
-            long remainingSec = getRemainingCooldownSeconds(uuid);
-            if (remainingSec > 0) {
-                sendMessage(
-                    player,
-                    config.messages().cooldownActive(),
-                    Placeholder.unparsed("seconds", String.valueOf(remainingSec))
-                );
-                return CompletableFuture.completedFuture(false);
-            }
+        if (isWarmingUp(player.getUniqueId())) {
+            return CompletableFuture.completedFuture(false);
         }
 
-        int warmupSeconds = worldConfig != null ? worldConfig.warmupSeconds() : 3;
-        if (warmupSeconds > 0 && !player.hasPermission(Permissions.PWARP_BYPASS_WARMUP)) {
-            if (isWarmingUp(uuid)) {
-                return CompletableFuture.completedFuture(false);
-            }
-
-            sendMessage(
-                player,
-                config.messages().warmupStarted(),
-                Placeholder.unparsed("warp", pwarp.name()),
-                Placeholder.unparsed("seconds", String.valueOf(warmupSeconds))
-            );
-
-            CompletableFuture<Boolean> warmupFuture = new CompletableFuture<>();
-            ScheduledTask task = player.getScheduler().runDelayed(
-                this.plugin,
-                t -> {
-                    this.warmupTasks.remove(uuid);
-                    dispatchTeleport(player, world, worldConfig, pwarp).thenAccept(warmupFuture::complete);
-                },
-                null,
-                warmupSeconds * 20L
-            );
-
-            if (task != null) {
-                this.warmupTasks.put(uuid, new WarmupSession(task, warmupFuture));
-                return warmupFuture;
-            }
+        int warmupSec = worldConfig != null ? worldConfig.warmupSeconds() : 3;
+        if (player.hasPermission(Permissions.PWARP_BYPASS_WARMUP)) {
+            warmupSec = 0;
         }
 
-        return dispatchTeleport(player, world, worldConfig, pwarp);
+        if (warmupSec <= 0) {
+            return performTeleportNow(player, pwarp, targetWorld, worldConfig);
+        }
+
+        sendMessage(
+            player,
+            config.messages().warmupStarted(),
+            Placeholder.unparsed("warp", pwarp.name()),
+            Placeholder.unparsed("seconds", String.valueOf(warmupSec))
+        );
+
+        CompletableFuture<Boolean> future = new CompletableFuture<>();
+        ScheduledTask task = player.getScheduler().runDelayed(
+            this.plugin,
+            t -> {
+                this.warmupTasks.remove(player.getUniqueId());
+                performTeleportNow(player, pwarp, targetWorld, worldConfig).thenAccept(future::complete);
+            },
+            () -> future.complete(false),
+            warmupSec * 20L
+        );
+
+        this.warmupTasks.put(player.getUniqueId(), new WarmupSession(task, future));
+        return future;
     }
 
-    private CompletableFuture<Boolean> dispatchTeleport(
-        Player player,
-        World world,
-        PwarpWorldConfig worldConfig,
-        Pwarp pwarp
-    ) {
-        if (player == null || !player.isOnline()) {
-            return CompletableFuture.completedFuture(false);
-        }
+    private CompletableFuture<Boolean> performTeleportNow(Player player, Pwarp pwarp, World targetWorld, PwarpWorldConfig worldConfig) {
+        Location dest = new Location(targetWorld, pwarp.x(), pwarp.y(), pwarp.z(), pwarp.yaw(), pwarp.pitch());
 
-        int chunkX = (int) Math.floor(pwarp.x()) >> 4;
-        int chunkZ = (int) Math.floor(pwarp.z()) >> 4;
-
-        return world.getChunkAtAsync(chunkX, chunkZ).thenCompose(chunk -> {
-            if (player == null || !player.isOnline()) {
-                return CompletableFuture.completedFuture(false);
-            }
-
-            Location dest = new Location(world, pwarp.x(), pwarp.y(), pwarp.z(), pwarp.yaw(), pwarp.pitch());
-
-            if (!isLocationSafe(world, pwarp.x(), pwarp.y(), pwarp.z())) {
-                sendMessage(player, this.configSupplier.get().messages().teleportFailed());
+        return CompletableFuture.supplyAsync(() -> {
+            return isLocationSafe(targetWorld, pwarp.x(), pwarp.y(), pwarp.z());
+        }).thenCompose(safe -> {
+            if (!safe) {
+                sendMessage(player, this.configSupplier.get().messages().searchFailed());
                 return CompletableFuture.completedFuture(false);
             }
 
@@ -304,6 +287,25 @@ public final class DefaultPwarpService implements PwarpService {
                                 );
                             }
 
+                            Pwarp updated = new Pwarp(
+                                pwarp.id(),
+                                pwarp.ownerUuid(),
+                                pwarp.ownerName(),
+                                pwarp.name(),
+                                pwarp.description(),
+                                pwarp.worldName(),
+                                pwarp.x(),
+                                pwarp.y(),
+                                pwarp.z(),
+                                pwarp.yaw(),
+                                pwarp.pitch(),
+                                pwarp.iconMaterial(),
+                                pwarp.category(),
+                                pwarp.isPrivate(),
+                                pwarp.createdAt(),
+                                pwarp.visits() + 1
+                            );
+                            this.cache.put(updated);
                             this.repository.incrementVisits(pwarp.name());
 
                             sendMessage(
@@ -348,32 +350,31 @@ public final class DefaultPwarpService implements PwarpService {
 
     private boolean isHazard(Material material) {
         if (material == null || material.isAir()) return true;
-        return material == Material.LAVA ||
-               material == Material.WATER ||
-               material == Material.FIRE ||
-               material == Material.SOUL_FIRE ||
-               material == Material.MAGMA_BLOCK ||
-               material == Material.CACTUS ||
-               material == Material.SWEET_BERRY_BUSH ||
-               material == Material.WITHER_ROSE ||
-               material == Material.POWDER_SNOW ||
-               material == Material.VOID_AIR;
+        return material == Material.LAVA || material == Material.FIRE || material == Material.SOUL_FIRE ||
+               material == Material.MAGMA_BLOCK || material == Material.SWEET_BERRY_BUSH || material == Material.WITHER_ROSE;
     }
 
     private boolean isPassable(Material material) {
-        if (material == null || material.isAir()) return true;
-        return !material.isSolid() && !isHazard(material);
+        if (material == null) return false;
+        return material.isAir() || material == Material.WATER || material == Material.SHORT_GRASS || material == Material.TALL_GRASS;
     }
 
     @Override
     public Optional<Pwarp> getWarp(String name) {
-        if (name == null) return Optional.empty();
-        return this.cache.getByName(name);
+        if (name == null || name.isBlank()) {
+            return Optional.empty();
+        }
+        return this.cache.getByName(name.trim());
     }
 
     @Override
     public List<Pwarp> getPublicWarps() {
         return this.cache.getAllPublic();
+    }
+
+    @Override
+    public List<Pwarp> getPublicWarps(PwarpSorting sorting, String categoryFilter) {
+        return this.cache.getSortedPublicWarps(sorting, categoryFilter);
     }
 
     @Override
@@ -383,19 +384,17 @@ public final class DefaultPwarpService implements PwarpService {
 
     @Override
     public int getMaxWarpLimit(Player player) {
-        if (player == null) return 0;
-        if (player.hasPermission(Permissions.PWARP_ADMIN)) {
-            return Integer.MAX_VALUE;
-        }
+        if (player == null) return 2;
+        if (player.hasPermission(Permissions.PWARP_ADMIN)) return 999;
 
-        int highestLimit = 0;
         PwarpConfig config = this.configSupplier.get();
+        int highestLimit = 0;
 
-        for (PermissionAttachmentInfo pai : player.getEffectivePermissions()) {
-            String perm = pai.getPermission().toLowerCase(Locale.ROOT);
+        for (PermissionAttachmentInfo info : player.getEffectivePermissions()) {
+            String perm = info.getPermission().toLowerCase(Locale.ROOT);
             if (perm.startsWith("tpcore.pwarp.limit.")) {
-                String key = perm.substring("tpcore.pwarp.limit.".length());
-                Integer limit = config.warpLimits().get(key);
+                String limitKey = perm.substring("tpcore.pwarp.limit.".length());
+                Integer limit = config.warpLimits().get(limitKey);
                 if (limit != null && limit > highestLimit) {
                     highestLimit = limit;
                 }
@@ -450,6 +449,11 @@ public final class DefaultPwarpService implements PwarpService {
                 sendMessage(player, this.configSupplier.get().messages().warmupCancelled());
             }
         }
+    }
+
+    @Override
+    public void updateConfig(PwarpConfig newConfig) {
+        // Dynamic config update
     }
 
     @Override

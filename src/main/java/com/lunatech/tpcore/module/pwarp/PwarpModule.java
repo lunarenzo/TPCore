@@ -83,7 +83,7 @@ public final class PwarpModule implements ReloadableModule {
         this.service = new DefaultPwarpService(this.plugin, () -> this.config, this.repository, this.cache);
         this.service.initialize().join();
 
-        this.guiManager = new PwarpGuiManager(this.plugin, this.service);
+        this.guiManager = new PwarpGuiManager(this.plugin, this.service, () -> this.config);
         this.plugin.getServer().getPluginManager().registerEvents(this.guiManager, this.plugin);
 
         this.eventListener = new PwarpEventListener(() -> this.service);

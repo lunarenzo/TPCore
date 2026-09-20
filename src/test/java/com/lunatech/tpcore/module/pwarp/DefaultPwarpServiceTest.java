@@ -37,7 +37,7 @@ final class DefaultPwarpServiceTest {
         PwarpService service = new DefaultPwarpService(mockPlugin, () -> config, repo, cache);
 
         UUID owner = UUID.randomUUID();
-        Pwarp warp1 = new Pwarp(1, owner, "Player1", "shop", "Shop warp", "world", 100, 64, -200, 0, 0, "CHEST", false, System.currentTimeMillis(), 0);
+        Pwarp warp1 = new Pwarp(1, owner, "Player1", "shop", "Shop warp", "world", 100, 64, -200, 0, 0, "CHEST", "shops", false, System.currentTimeMillis(), 0);
         repo.savePwarp(warp1).join();
 
         // Initialize service (loads DB into cache)
@@ -46,6 +46,7 @@ final class DefaultPwarpServiceTest {
         Optional<Pwarp> loaded = service.getWarp("shop");
         Assertions.assertTrue(loaded.isPresent());
         Assertions.assertEquals("shop", loaded.get().name());
+        Assertions.assertEquals("shops", loaded.get().category());
 
         List<Pwarp> publicWarps = service.getPublicWarps();
         Assertions.assertEquals(1, publicWarps.size());

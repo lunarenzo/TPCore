@@ -1,6 +1,9 @@
 package com.lunatech.tpcore.module.pwarp.gui;
 
+import com.lunatech.tpcore.module.pwarp.config.PwarpConfig;
 import com.lunatech.tpcore.module.pwarp.model.Pwarp;
+import com.lunatech.tpcore.module.pwarp.model.PwarpCategory;
+import com.lunatech.tpcore.module.pwarp.model.PwarpSorting;
 import com.lunatech.tpcore.module.pwarp.service.PwarpService;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
@@ -20,9 +23,10 @@ import org.bukkit.plugin.java.JavaPlugin;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Supplier;
 
 /**
- * Manages zero-GC paginated chest GUIs for PlayerWarps (All Warps & My Warps).
+ * Manages zero-GC paginated chest GUIs for PlayerWarps (All Warps, Category Selector & My Warps).
  */
 public final class PwarpGuiManager implements Listener {
 
@@ -31,30 +35,39 @@ public final class PwarpGuiManager implements Listener {
 
     private final JavaPlugin plugin;
     private final PwarpService pwarpService;
+    private final Supplier<PwarpConfig> configSupplier;
     private final MiniMessage miniMessage;
 
-    public PwarpGuiManager(JavaPlugin plugin, PwarpService pwarpService) {
+    public PwarpGuiManager(JavaPlugin plugin, PwarpService pwarpService, Supplier<PwarpConfig> configSupplier) {
         this.plugin = Objects.requireNonNull(plugin, "plugin cannot be null");
         this.pwarpService = Objects.requireNonNull(pwarpService, "pwarpService cannot be null");
+        this.configSupplier = Objects.requireNonNull(configSupplier, "configSupplier cannot be null");
         this.miniMessage = MiniMessage.miniMessage();
     }
 
-    /**
-     * Opens the public player warps GUI for the specified player at the given page.
-     *
-     * @param player Target player
-     * @param page   0-indexed page number
-     */
     public void openWarpsGui(Player player, int page) {
-        List<Pwarp> allWarps = this.pwarpService.getPublicWarps();
+        openWarpsGui(player, page, PwarpSorting.MOST_VISITED, "all");
+    }
+
+    public void openWarpsGui(Player player, int page, PwarpSorting sorting, String categoryFilter) {
+        PwarpSorting activeSorting = (sorting != null) ? sorting : PwarpSorting.MOST_VISITED;
+        String activeCategory = (categoryFilter != null && !categoryFilter.isBlank()) ? categoryFilter : "all";
+
+        List<Pwarp> allWarps = this.pwarpService.getPublicWarps(activeSorting, activeCategory);
         int totalPages = Math.max(1, (int) Math.ceil((double) allWarps.size() / SLOTS_PER_PAGE));
         int targetPage = Math.max(0, Math.min(page, totalPages - 1));
 
         Component title = this.miniMessage.deserialize(
-            "<gradient:#FFAA00:#FF5500><bold>Player Warps</bold></gradient> <gray>(Page " + (targetPage + 1) + "/" + totalPages + ")</gray>"
+            "<gradient:#FFAA00:#FF5500><bold>Player Warps</bold></gradient> <gray>(" + activeCategory.toUpperCase() + " | Page " + (targetPage + 1) + "/" + totalPages + ")</gray>"
         );
 
-        PwarpInventoryHolder holder = new PwarpInventoryHolder(PwarpInventoryHolder.ViewType.ALL_WARPS, targetPage, totalPages);
+        PwarpInventoryHolder holder = new PwarpInventoryHolder(
+            PwarpInventoryHolder.ViewType.ALL_WARPS,
+            targetPage,
+            totalPages,
+            activeSorting,
+            activeCategory
+        );
         Inventory inventory = Bukkit.createInventory(holder, GUI_SIZE, title);
         holder.setInventory(inventory);
 
@@ -67,17 +80,11 @@ public final class PwarpGuiManager implements Listener {
             inventory.setItem(i, createWarpItemStack(warp, false));
         }
 
-        populateControlBar(inventory, holder.getViewType(), targetPage, totalPages, allWarps.size());
+        populateControlBar(inventory, holder, allWarps.size());
 
         player.getScheduler().run(this.plugin, task -> player.openInventory(inventory), null);
     }
 
-    /**
-     * Opens the owner's personal player warps GUI for managing their set warps.
-     *
-     * @param player Target player
-     * @param page   0-indexed page number
-     */
     public void openMyWarpsGui(Player player, int page) {
         List<Pwarp> myWarps = this.pwarpService.getPlayerWarps(player.getUniqueId());
         int totalPages = Math.max(1, (int) Math.ceil((double) myWarps.size() / SLOTS_PER_PAGE));
@@ -100,7 +107,49 @@ public final class PwarpGuiManager implements Listener {
             inventory.setItem(i, createWarpItemStack(warp, true));
         }
 
-        populateControlBar(inventory, holder.getViewType(), targetPage, totalPages, myWarps.size());
+        populateControlBar(inventory, holder, myWarps.size());
+
+        player.getScheduler().run(this.plugin, task -> player.openInventory(inventory), null);
+    }
+
+    public void openCategoryGui(Player player) {
+        List<PwarpCategory> categories = this.configSupplier.get().categories();
+        Component title = this.miniMessage.deserialize(
+            "<gradient:#FFAA00:#FF5500><bold>Select Warp Category</bold></gradient>"
+        );
+
+        PwarpInventoryHolder holder = new PwarpInventoryHolder(PwarpInventoryHolder.ViewType.CATEGORY_SELECT, 0, 1);
+        Inventory inventory = Bukkit.createInventory(holder, GUI_SIZE, title);
+        holder.setInventory(inventory);
+
+        ItemStack filler = createGuiItem(Material.GRAY_STAINED_GLASS_PANE, "<gray> </gray>");
+        for (int i = 0; i < GUI_SIZE; i++) {
+            inventory.setItem(i, filler);
+        }
+
+        // Slot 4: All Warps category option
+        inventory.setItem(4, createGuiItem(
+            Material.COMPASS,
+            "<gold><bold>All Categories</bold></gold>",
+            "<gray>Click to view warps from all categories</gray>"
+        ));
+
+        for (PwarpCategory cat : categories) {
+            int slot = cat.slot();
+            if (slot >= 0 && slot < GUI_SIZE && slot != 4) {
+                Material mat = Material.matchMaterial(cat.iconMaterial());
+                if (mat == null) mat = Material.CHEST;
+
+                inventory.setItem(slot, createGuiItem(
+                    mat,
+                    "<yellow><bold>" + cat.displayName() + "</bold></yellow>",
+                    "<gray>" + cat.description() + "</gray>",
+                    "<yellow>Click to view warps in this category</yellow>"
+                ));
+            }
+        }
+
+        inventory.setItem(49, createGuiItem(Material.BARRIER, "<red><bold>Back to Warps</bold></red>"));
 
         player.getScheduler().run(this.plugin, task -> player.openInventory(inventory), null);
     }
@@ -118,6 +167,7 @@ public final class PwarpGuiManager implements Listener {
 
             List<Component> lore = new ArrayList<>();
             lore.add(this.miniMessage.deserialize("<gray>Owner: </gray><yellow>" + warp.ownerName() + "</yellow>"));
+            lore.add(this.miniMessage.deserialize("<gray>Category: </gray><green>" + warp.category().toUpperCase() + "</green>"));
             if (warp.description() != null && !warp.description().isBlank()) {
                 lore.add(this.miniMessage.deserialize("<gray>Desc: </gray><white>" + warp.description() + "</white>"));
             }
@@ -137,19 +187,36 @@ public final class PwarpGuiManager implements Listener {
         return item;
     }
 
-    private void populateControlBar(Inventory inventory, PwarpInventoryHolder.ViewType viewType, int page, int totalPages, int totalWarps) {
+    private void populateControlBar(Inventory inventory, PwarpInventoryHolder holder, int totalWarps) {
         ItemStack filler = createGuiItem(Material.GRAY_STAINED_GLASS_PANE, "<gray> </gray>");
         for (int i = 45; i < 54; i++) {
             inventory.setItem(i, filler);
         }
+
+        int page = holder.getPage();
+        int totalPages = holder.getTotalPages();
 
         // Slot 45: Previous Page
         if (page > 0) {
             inventory.setItem(45, createGuiItem(Material.ARROW, "<yellow><bold>← Previous Page</bold></yellow>"));
         }
 
-        // Slot 48: View Switcher
-        if (viewType == PwarpInventoryHolder.ViewType.ALL_WARPS) {
+        if (holder.getViewType() == PwarpInventoryHolder.ViewType.ALL_WARPS) {
+            // Slot 46: Category Selector
+            inventory.setItem(46, createGuiItem(
+                Material.CHEST,
+                "<gold><bold>Category: </bold><yellow>" + holder.getCategoryFilter().toUpperCase() + "</yellow></gold>",
+                "<gray>Click to filter warps by category</gray>"
+            ));
+
+            // Slot 47: Sorting Selector
+            inventory.setItem(47, createGuiItem(
+                Material.HOPPER,
+                "<gold><bold>Sort: </bold><yellow>" + holder.getSorting().getDisplayName() + "</yellow></gold>",
+                "<gray>Click to cycle sorting criteria</gray>"
+            ));
+
+            // Slot 48: View Switcher
             inventory.setItem(48, createGuiItem(Material.NETHER_STAR, "<gold><bold>My Warps</bold></gold>", "<gray>Click to view your set warps</gray>"));
         } else {
             inventory.setItem(48, createGuiItem(Material.COMPASS, "<gold><bold>All Warps</bold></gold>", "<gray>Click to view all public warps</gray>"));
@@ -204,15 +271,20 @@ public final class PwarpGuiManager implements Listener {
             return;
         }
 
+        if (holder.getViewType() == PwarpInventoryHolder.ViewType.CATEGORY_SELECT) {
+            handleCategoryClick(player, event.getSlot());
+            return;
+        }
+
         int slot = event.getSlot();
 
         if (slot >= 0 && slot < SLOTS_PER_PAGE) {
             int warpIndex = (holder.getPage() * SLOTS_PER_PAGE) + slot;
 
             if (holder.getViewType() == PwarpInventoryHolder.ViewType.ALL_WARPS) {
-                List<Pwarp> allWarps = this.pwarpService.getPublicWarps();
-                if (warpIndex < allWarps.size()) {
-                    Pwarp warp = allWarps.get(warpIndex);
+                List<Pwarp> allWarps = this.pwarpService.getPublicWarps(holder.getSorting(), holder.getCategoryFilter());
+                if (slot < allWarps.size()) {
+                    Pwarp warp = allWarps.get(slot);
                     player.getScheduler().run(this.plugin, task -> player.closeInventory(), null);
                     this.pwarpService.executeTeleport(player, warp.name());
                 }
@@ -236,29 +308,54 @@ public final class PwarpGuiManager implements Listener {
             case 45 -> { // Previous Page
                 if (holder.getPage() > 0) {
                     if (holder.getViewType() == PwarpInventoryHolder.ViewType.ALL_WARPS) {
-                        openWarpsGui(player, holder.getPage() - 1);
+                        openWarpsGui(player, holder.getPage() - 1, holder.getSorting(), holder.getCategoryFilter());
                     } else {
                         openMyWarpsGui(player, holder.getPage() - 1);
                     }
+                }
+            }
+            case 46 -> { // Category Selector
+                if (holder.getViewType() == PwarpInventoryHolder.ViewType.ALL_WARPS) {
+                    openCategoryGui(player);
+                }
+            }
+            case 47 -> { // Sorting Selector
+                if (holder.getViewType() == PwarpInventoryHolder.ViewType.ALL_WARPS) {
+                    PwarpSorting nextSorting = holder.getSorting().next();
+                    openWarpsGui(player, 0, nextSorting, holder.getCategoryFilter());
                 }
             }
             case 48 -> { // Toggle View
                 if (holder.getViewType() == PwarpInventoryHolder.ViewType.ALL_WARPS) {
                     openMyWarpsGui(player, 0);
                 } else {
-                    openWarpsGui(player, 0);
+                    openWarpsGui(player, 0, PwarpSorting.MOST_VISITED, "all");
                 }
             }
             case 50 -> { // Next Page
                 if (holder.getPage() < holder.getTotalPages() - 1) {
                     if (holder.getViewType() == PwarpInventoryHolder.ViewType.ALL_WARPS) {
-                        openWarpsGui(player, holder.getPage() + 1);
+                        openWarpsGui(player, holder.getPage() + 1, holder.getSorting(), holder.getCategoryFilter());
                     } else {
                         openMyWarpsGui(player, holder.getPage() + 1);
                     }
                 }
             }
             case 52 -> player.getScheduler().run(this.plugin, task -> player.closeInventory(), null);
+        }
+    }
+
+    private void handleCategoryClick(Player player, int slot) {
+        if (slot == 4 || slot == 49) {
+            openWarpsGui(player, 0, PwarpSorting.MOST_VISITED, "all");
+            return;
+        }
+
+        for (PwarpCategory cat : this.configSupplier.get().categories()) {
+            if (cat.slot() == slot) {
+                openWarpsGui(player, 0, PwarpSorting.MOST_VISITED, cat.key());
+                return;
+            }
         }
     }
 

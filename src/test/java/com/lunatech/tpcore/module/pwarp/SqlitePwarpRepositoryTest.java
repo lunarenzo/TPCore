@@ -26,8 +26,8 @@ final class SqlitePwarpRepositoryTest {
         repo.initialize().join();
 
         UUID owner = UUID.randomUUID();
-        Pwarp warp1 = new Pwarp(1, owner, "Steve", "market", "Marketplace warp", "world", 100.5, 64.0, -200.5, 90.0f, 0.0f, "CHEST", false, System.currentTimeMillis(), 0);
-        Pwarp warp2 = new Pwarp(2, owner, "Steve", "homebase", "Base warp", "world", -50.0, 72.0, 300.0, 180.0f, 0.0f, "GRASS_BLOCK", true, System.currentTimeMillis(), 5);
+        Pwarp warp1 = new Pwarp(1, owner, "Steve", "market", "Marketplace warp", "world", 100.5, 64.0, -200.5, 90.0f, 0.0f, "CHEST", "shops", false, System.currentTimeMillis(), 0);
+        Pwarp warp2 = new Pwarp(2, owner, "Steve", "homebase", "Base warp", "world", -50.0, 72.0, 300.0, 180.0f, 0.0f, "GRASS_BLOCK", "bases", true, System.currentTimeMillis(), 5);
 
         // Save warps
         repo.savePwarp(warp1).join();
@@ -41,6 +41,7 @@ final class SqlitePwarpRepositoryTest {
         Optional<Pwarp> found = repo.findByName("MARKET").join();
         Assertions.assertTrue(found.isPresent());
         Assertions.assertEquals("market", found.get().name());
+        Assertions.assertEquals("shops", found.get().category());
         Assertions.assertEquals(100.5, found.get().x());
 
         // Find by owner

@@ -79,11 +79,17 @@ public final class SqlitePwarpRepository implements PwarpRepository {
                             yaw FLOAT NOT NULL,
                             pitch FLOAT NOT NULL,
                             icon_material VARCHAR(64) NOT NULL,
+                            category VARCHAR(32) NOT NULL DEFAULT 'general',
                             is_private BOOLEAN NOT NULL DEFAULT 0,
                             created_at BIGINT NOT NULL,
                             visits BIGINT NOT NULL DEFAULT 0
                         );
                     """);
+                    try {
+                        stmt.execute("ALTER TABLE tpcore_pwarps ADD COLUMN category VARCHAR(32) DEFAULT 'general';");
+                    } catch (SQLException ignored) {
+                        // Migration ignored if column exists
+                    }
                     stmt.execute("CREATE INDEX IF NOT EXISTS idx_pwarps_owner ON tpcore_pwarps(owner_uuid);");
                     stmt.execute("CREATE INDEX IF NOT EXISTS idx_pwarps_name ON tpcore_pwarps(name);");
                     logger.info("SQLite SqlitePwarpRepository initialized successfully at {}", dbFile.getAbsolutePath());
@@ -103,8 +109,8 @@ public final class SqlitePwarpRepository implements PwarpRepository {
         return CompletableFuture.runAsync(() -> {
             Objects.requireNonNull(pwarp, "pwarp cannot be null");
             String sql = """
-                INSERT INTO tpcore_pwarps (owner_uuid, owner_name, name, description, world_name, x, y, z, yaw, pitch, icon_material, is_private, created_at, visits)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO tpcore_pwarps (owner_uuid, owner_name, name, description, world_name, x, y, z, yaw, pitch, icon_material, category, is_private, created_at, visits)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(name) DO UPDATE SET
                     owner_name = excluded.owner_name,
                     description = excluded.description,
@@ -115,6 +121,7 @@ public final class SqlitePwarpRepository implements PwarpRepository {
                     yaw = excluded.yaw,
                     pitch = excluded.pitch,
                     icon_material = excluded.icon_material,
+                    category = excluded.category,
                     is_private = excluded.is_private,
                     visits = excluded.visits;
             """;
@@ -131,9 +138,10 @@ public final class SqlitePwarpRepository implements PwarpRepository {
                 ps.setFloat(9, pwarp.yaw());
                 ps.setFloat(10, pwarp.pitch());
                 ps.setString(11, pwarp.iconMaterial());
-                ps.setBoolean(12, pwarp.isPrivate());
-                ps.setLong(13, pwarp.createdAt());
-                ps.setLong(14, pwarp.visits());
+                ps.setString(12, pwarp.category());
+                ps.setBoolean(13, pwarp.isPrivate());
+                ps.setLong(14, pwarp.createdAt());
+                ps.setLong(15, pwarp.visits());
                 ps.executeUpdate();
             } catch (SQLException e) {
                 logger.error("Failed to save pwarp {}", pwarp.name(), e);
@@ -251,19 +259,25 @@ public final class SqlitePwarpRepository implements PwarpRepository {
     }
 
     private Pwarp mapRowToPwarp(ResultSet rs) throws SQLException {
+        String category = "general";
+        try {
+            category = rs.getString("category");
+        } catch (SQLException ignored) {}
+
         return new Pwarp(
             rs.getInt("id"),
             UUID.fromString(rs.getString("owner_uuid")),
             rs.getString("owner_name"),
             rs.getString("name"),
             rs.getString("description"),
-            rs.getString("world_name"),
+            rs.getString("worldName" != null && rs.getMetaData().getColumnCount() > 0 ? "world_name" : "world_name"),
             rs.getDouble("x"),
             rs.getDouble("y"),
             rs.getDouble("z"),
             rs.getFloat("yaw"),
             rs.getFloat("pitch"),
             rs.getString("icon_material"),
+            (category != null && !category.isBlank()) ? category : "general",
             rs.getBoolean("is_private"),
             rs.getLong("created_at"),
             rs.getLong("visits")

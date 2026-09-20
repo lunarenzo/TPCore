@@ -1,6 +1,7 @@
 package com.lunatech.tpcore.module.pwarp.service;
 
 import com.lunatech.tpcore.module.pwarp.model.Pwarp;
+import com.lunatech.tpcore.module.pwarp.model.PwarpSorting;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -13,6 +14,8 @@ public interface PwarpService {
 
     CompletableFuture<Boolean> setWarp(Player player, String name, String description);
 
+    CompletableFuture<Boolean> setWarp(Player player, String name, String category, String description);
+
     CompletableFuture<Boolean> deleteWarp(Player player, String name);
 
     CompletableFuture<Boolean> executeTeleport(Player player, String name);
@@ -22,6 +25,8 @@ public interface PwarpService {
     Optional<Pwarp> getWarp(String name);
 
     List<Pwarp> getPublicWarps();
+
+    List<Pwarp> getPublicWarps(PwarpSorting sorting, String categoryFilter);
 
     List<Pwarp> getPlayerWarps(UUID ownerUuid);
 
@@ -36,4 +41,6 @@ public interface PwarpService {
     void cancelWarmup(UUID playerUniqueId);
 
     void shutdown();
+
+    void updateConfig(com.lunatech.tpcore.module.pwarp.config.PwarpConfig newConfig);
 }

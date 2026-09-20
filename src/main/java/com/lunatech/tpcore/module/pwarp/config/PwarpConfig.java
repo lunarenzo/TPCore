@@ -1,5 +1,7 @@
 package com.lunatech.tpcore.module.pwarp.config;
 
+import com.lunatech.tpcore.module.pwarp.model.PwarpCategory;
+import java.util.List;
 import java.util.Map;
 import org.spongepowered.configurate.objectmapping.ConfigSerializable;
 import org.spongepowered.configurate.objectmapping.meta.Comment;
@@ -18,6 +20,9 @@ public record PwarpConfig(
     @Comment("Dynamic pwarp creation limits mapped to permissions (tpcore.pwarp.limit.<key>)")
     Map<String, Integer> warpLimits,
 
+    @Comment("Configurable player warp categories")
+    List<PwarpCategory> categories,
+
     @Comment("Per-world pwarp configurations")
     Map<String, PwarpWorldConfig> worldConfigs,
 
@@ -26,20 +31,29 @@ public record PwarpConfig(
 ) {
     public PwarpConfig {
         warpLimits = warpLimits != null ? Map.copyOf(warpLimits) : Map.of();
+        categories = categories != null ? List.copyOf(categories) : List.of();
         worldConfigs = worldConfigs != null ? Map.copyOf(worldConfigs) : Map.of();
-        defaultIconMaterial = (defaultIconMaterial != null && !defaultIconMaterial.isBlank()) ? defaultIconMaterial : "PLAYER_HEAD";
+        defaultIconMaterial = (defaultIconMaterial != null && !defaultIconMaterial.isBlank()) ? defaultIconMaterial : "OAK_SIGN";
     }
 
     public static PwarpConfig createDefault() {
         return new PwarpConfig(
             true,
             16,
-            "PLAYER_HEAD",
+            "OAK_SIGN",
             Map.of(
                 "default", 2,
                 "vip", 5,
                 "mvp", 10,
                 "staff", 50
+            ),
+            List.of(
+                new PwarpCategory("general", "General", "OAK_SIGN", "General player warps", 10),
+                new PwarpCategory("shops", "Shops & Market", "EMERALD", "Player market stalls and shops", 11),
+                new PwarpCategory("farms", "Farms & Mob Grinders", "DIAMOND_HOE", "Automated and public farms", 12),
+                new PwarpCategory("arenas", "PvP & Minigames", "DIAMOND_SWORD", "PvP arenas and minigame spots", 13),
+                new PwarpCategory("bases", "Player Bases & Towns", "BEACON", "Player bases and community towns", 14),
+                new PwarpCategory("events", "Community Events", "FIREWORK_ROCKET", "Special server and community events", 15)
             ),
             Map.of("world", PwarpWorldConfig.createDefault()),
             PwarpMessages.createDefault()

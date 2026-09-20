@@ -1,5 +1,6 @@
 package com.lunatech.tpcore.module.pwarp.model;
 
+import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -19,6 +20,7 @@ public record Pwarp(
     float yaw,
     float pitch,
     String iconMaterial,
+    String category,
     boolean isPrivate,
     long createdAt,
     long visits
@@ -28,7 +30,8 @@ public record Pwarp(
         Objects.requireNonNull(ownerName, "ownerName cannot be null");
         Objects.requireNonNull(name, "name cannot be null");
         Objects.requireNonNull(worldName, "worldName cannot be null");
-        iconMaterial = (iconMaterial != null && !iconMaterial.isBlank()) ? iconMaterial : "PLAYER_HEAD";
+        iconMaterial = (iconMaterial != null && !iconMaterial.isBlank()) ? iconMaterial : "OAK_SIGN";
+        category = (category != null && !category.isBlank()) ? category.toLowerCase(Locale.ROOT) : "general";
         description = (description != null) ? description : "";
     }
 }

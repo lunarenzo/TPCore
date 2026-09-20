@@ -3,6 +3,7 @@ package com.lunatech.tpcore.module.pwarp;
 import com.lunatech.tpcore.module.pwarp.cache.PwarpCache;
 import com.lunatech.tpcore.module.pwarp.cache.impl.DefaultPwarpCache;
 import com.lunatech.tpcore.module.pwarp.model.Pwarp;
+import com.lunatech.tpcore.module.pwarp.model.PwarpSorting;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -13,16 +14,16 @@ import org.junit.jupiter.api.Test;
 final class DefaultPwarpCacheTest {
 
     @Test
-    @DisplayName("Verify PwarpCache put, getByName, remove, owner filtering, and public indexing")
+    @DisplayName("Verify PwarpCache put, getByName, remove, owner filtering, public indexing, and multi-criteria sorting")
     void testCacheOperations() {
         PwarpCache cache = new DefaultPwarpCache();
 
         UUID owner1 = UUID.randomUUID();
         UUID owner2 = UUID.randomUUID();
 
-        Pwarp shop = new Pwarp(1, owner1, "Alex", "shop", "My shop", "world", 100, 64, 200, 0, 0, "CHEST", false, System.currentTimeMillis(), 10);
-        Pwarp farm = new Pwarp(2, owner1, "Alex", "farm", "Mob farm", "world", -50, 70, 300, 0, 0, "SPAWNER", false, System.currentTimeMillis(), 5);
-        Pwarp secret = new Pwarp(3, owner2, "Bob", "secret", "Private base", "world_nether", 0, 100, 0, 0, 0, "OBSIDIAN", true, System.currentTimeMillis(), 1);
+        Pwarp shop = new Pwarp(1, owner1, "Alex", "shop", "My shop", "world", 100, 64, 200, 0, 0, "CHEST", "shops", false, System.currentTimeMillis() - 10000, 10);
+        Pwarp farm = new Pwarp(2, owner1, "Alex", "farm", "Mob farm", "world", -50, 70, 300, 0, 0, "SPAWNER", "farms", false, System.currentTimeMillis() - 5000, 5);
+        Pwarp secret = new Pwarp(3, owner2, "Bob", "secret", "Private base", "world_nether", 0, 100, 0, 0, 0, "OBSIDIAN", "general", true, System.currentTimeMillis(), 1);
 
         cache.put(shop);
         cache.put(farm);
@@ -44,6 +45,11 @@ final class DefaultPwarpCacheTest {
         List<Pwarp> publicWarps = cache.getAllPublic();
         Assertions.assertEquals(2, publicWarps.size());
         Assertions.assertFalse(publicWarps.stream().anyMatch(Pwarp::isPrivate));
+
+        // Category filtering
+        List<Pwarp> shopCategoryWarps = cache.getSortedPublicWarps(PwarpSorting.MOST_VISITED, "shops");
+        Assertions.assertEquals(1, shopCategoryWarps.size());
+        Assertions.assertEquals("shop", shopCategoryWarps.get(0).name());
 
         // Removal
         cache.remove("farm");
