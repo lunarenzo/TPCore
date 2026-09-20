@@ -14,6 +14,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public final class PwarpInputManager implements Listener {
@@ -80,5 +81,10 @@ public final class PwarpInputManager implements Listener {
         }
 
         player.getScheduler().run(this.plugin, task -> callback.accept(text), null);
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onPlayerQuit(PlayerQuitEvent event) {
+        cancelInput(event.getPlayer().getUniqueId());
     }
 }
