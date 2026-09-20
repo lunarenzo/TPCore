@@ -1,0 +1,50 @@
+# ==============================================================================
+#                      TPCore PlayerWarps Module Configuration
+# ==============================================================================
+
+# Enable or disable the PlayerWarps module completely
+enabled: true
+
+# Maximum name length allowed for a player warp
+maxNameLength: 16
+
+# Default icon material for newly created player warps
+defaultIconMaterial: "PLAYER_HEAD"
+
+# Dynamic pwarp creation limits mapped to permissions (tpcore.pwarp.limit.<key>)
+warpLimits:
+  default: 2
+  vip: 5
+  mvp: 10
+  staff: 50
+
+# Per-world pwarp configurations
+worldConfigs:
+  world:
+    enabled: true
+    warmupSeconds: 3
+    cooldownSeconds: 10
+    cancelOnMove: true
+    cancelOnDamage: true
+    allowMounted: false
+
+# Player-facing MiniMessage formatted string messages
+messages:
+  prefix: "<gradient:#FFAA00:#FF5500>[Pwarp]</gradient> "
+  disabled: "<red>PlayerWarps module is currently disabled.</red>"
+  noPermission: "<red>You do not have permission to use PlayerWarps.</red>"
+  worldDisabled: "<red>PlayerWarps are disabled in world '<world>'.</red>"
+  cooldownActive: "<red>Please wait <seconds> seconds before teleporting again.</red>"
+  warmupStarted: "<green>Teleporting to pwarp <yellow><warp></yellow> in <seconds> seconds. Do not move or take damage!</green>"
+  warmupCancelled: "<red>Teleport cancelled due to movement, damage, or world change.</red>"
+  searchFailed: "<red>Failed to locate safe ground target at destination.</red>"
+  teleportSuccess: "<green>Teleported to player warp <yellow><warp></yellow>!</green>"
+  teleportFailed: "<red>Teleport failed due to unsafe terrain target.</red>"
+  onlyPlayers: "<red>Only players can execute player warp commands.</red>"
+  warpNotFound: "<red>Player warp '<warp>' was not found!</red>"
+  warpExists: "<red>A player warp named '<warp>' already exists!</red>"
+  setSuccess: "<green>Successfully set player warp <yellow><warp></yellow>!</green>"
+  delSuccess: "<green>Successfully deleted player warp <yellow><warp></yellow>!</green>"
+  limitReached: "<red>You have reached your limit of <max> player warps!</red>"
+  cannotUseMounted: "<red>You cannot use player warps while riding a mount or vehicle!</red>"
+  reloadSuccess: "<green>PlayerWarps module configuration reloaded successfully.</green>"
