@@ -49,10 +49,11 @@ public final class TpaCommandRegistry {
                                     this.tpaService.sendRequest(sender, target, TpaType.TPA_TO);
                                 } else {
                                     TpaConfig cfg = this.configSupplier.get();
+                                    String msg = cfg.messages().playerNotOnline().replace("<player>", "Player");
                                     sender.sendMessage(this.miniMessage.deserialize(
-                                        cfg.messages().playerNotOnline(),
+                                        msg,
                                         Placeholder.parsed("prefix", cfg.messages().prefix()),
-                                        Placeholder.unparsed("player", "target")
+                                        Placeholder.unparsed("player", "Player")
                                     ));
                                 }
                             }
@@ -78,10 +79,11 @@ public final class TpaCommandRegistry {
                                     this.tpaService.sendRequest(sender, target, TpaType.TPA_HERE);
                                 } else {
                                     TpaConfig cfg = this.configSupplier.get();
+                                    String msg = cfg.messages().playerNotOnline().replace("<player>", "Player");
                                     sender.sendMessage(this.miniMessage.deserialize(
-                                        cfg.messages().playerNotOnline(),
+                                        msg,
                                         Placeholder.parsed("prefix", cfg.messages().prefix()),
-                                        Placeholder.unparsed("player", "target")
+                                        Placeholder.unparsed("player", "Player")
                                     ));
                                 }
                             }

@@ -88,7 +88,7 @@ public final class DefaultTpaService implements TpaService {
                             this.sendMessage(
                                 sender,
                                 this.config().messages().requestExpired(),
-                                Placeholder.unparsed("player", (target != null) ? target.getName() : "Player")
+                                "player", (target != null) ? target.getName() : "Player"
                             );
                         }
 
@@ -98,7 +98,7 @@ public final class DefaultTpaService implements TpaService {
                             this.sendMessage(
                                 target,
                                 this.config().messages().requestExpired(),
-                                Placeholder.unparsed("player", (senderPlayer != null) ? senderPlayer.getName() : "Player")
+                                "player", (senderPlayer != null) ? senderPlayer.getName() : "Player"
                             );
                         }
                     }
@@ -121,7 +121,7 @@ public final class DefaultTpaService implements TpaService {
             this.sendMessage(
                 sender,
                 this.config().messages().targetToggledOff(),
-                Placeholder.unparsed("target", target.getName())
+                "target", target.getName()
             );
             return;
         }
@@ -131,7 +131,7 @@ public final class DefaultTpaService implements TpaService {
             this.sendMessage(
                 sender,
                 this.config().messages().alreadyHasPendingRequest(),
-                Placeholder.unparsed("target", target.getName())
+                "target", target.getName()
             );
             return;
         }
@@ -149,27 +149,27 @@ public final class DefaultTpaService implements TpaService {
             this.sendMessage(
                 sender,
                 this.config().messages().senderTpaSent(),
-                Placeholder.unparsed("target", target.getName()),
-                Placeholder.unparsed("seconds", String.valueOf(this.config().requestTimeoutSeconds()))
+                "target", target.getName(),
+                "seconds", String.valueOf(this.config().requestTimeoutSeconds())
             );
 
             this.sendMessage(
                 target,
                 this.config().messages().targetTpaReceived(),
-                Placeholder.unparsed("sender", sender.getName())
+                "sender", sender.getName()
             );
         } else {
             this.sendMessage(
                 sender,
                 this.config().messages().senderTpaHereSent(),
-                Placeholder.unparsed("target", target.getName()),
-                Placeholder.unparsed("seconds", String.valueOf(this.config().requestTimeoutSeconds()))
+                "target", target.getName(),
+                "seconds", String.valueOf(this.config().requestTimeoutSeconds())
             );
 
             this.sendMessage(
                 target,
                 this.config().messages().targetTpaHereReceived(),
-                Placeholder.unparsed("sender", sender.getName())
+                "sender", sender.getName()
             );
         }
     }
@@ -219,13 +219,13 @@ public final class DefaultTpaService implements TpaService {
         this.sendMessage(
             target,
             this.config().messages().requestAcceptedTarget(),
-            Placeholder.unparsed("sender", sender.getName())
+            "sender", sender.getName()
         );
 
         this.sendMessage(
             sender,
             this.config().messages().requestAcceptedSender(),
-            Placeholder.unparsed("target", target.getName())
+            "target", target.getName()
         );
 
         Player teleportingPlayer = (targetRequest.type() == TpaType.TPA_TO) ? sender : target;
@@ -262,13 +262,13 @@ public final class DefaultTpaService implements TpaService {
                 this.sendMessage(
                     sender,
                     this.config().messages().requestDeniedSender(),
-                    Placeholder.unparsed("target", target.getName())
+                    "target", target.getName()
                 );
             }
             this.sendMessage(
                 target,
                 this.config().messages().requestDeniedTarget(),
-                Placeholder.unparsed("sender", (sender != null) ? sender.getName() : "Player")
+                "sender", (sender != null) ? sender.getName() : "Player"
             );
         } else {
             this.sendMessage(target, this.config().messages().noPendingRequests());
@@ -303,13 +303,13 @@ public final class DefaultTpaService implements TpaService {
                 this.sendMessage(
                     target,
                     this.config().messages().requestCancelledTarget(),
-                    Placeholder.unparsed("sender", sender.getName())
+                    "sender", sender.getName()
                 );
             }
             this.sendMessage(
                 sender,
                 this.config().messages().requestCancelledSender(),
-                Placeholder.unparsed("target", (target != null) ? target.getName() : "Player")
+                "target", (target != null) ? target.getName() : "Player"
             );
         } else {
             this.sendMessage(sender, this.config().messages().noPendingRequests());
@@ -369,7 +369,7 @@ public final class DefaultTpaService implements TpaService {
         this.sendMessage(
             player,
             this.config().messages().warmupStart(),
-            Placeholder.unparsed("seconds", String.valueOf(warmupSeconds))
+            "seconds", String.valueOf(warmupSeconds)
         );
 
         Location currentLoc = player.getLocation();
@@ -418,10 +418,40 @@ public final class DefaultTpaService implements TpaService {
         }
     }
 
-    private void sendMessage(Player player, String template, TagResolver... resolvers) {
+    private void sendMessage(Player player, String template) {
+        if (player == null || !player.isOnline() || template == null || template.isBlank()) {
+            return;
+        }
         TagResolver prefixResolver = Placeholder.parsed("prefix", this.config().messages().prefix());
-        TagResolver combined = TagResolver.resolver(prefixResolver, TagResolver.resolver(resolvers));
-        player.sendMessage(this.miniMessage.deserialize(template, combined));
+        player.sendMessage(this.miniMessage.deserialize(template, prefixResolver));
+    }
+
+    private void sendMessage(Player player, String template, String key, String value) {
+        if (player == null || !player.isOnline() || template == null || template.isBlank()) {
+            return;
+        }
+        String safeValue = value != null ? value : "";
+        String processed = template.replace("<" + key + ">", safeValue);
+        TagResolver prefixResolver = Placeholder.parsed("prefix", this.config().messages().prefix());
+        TagResolver valueResolver = Placeholder.unparsed(key, safeValue);
+        TagResolver combined = TagResolver.resolver(prefixResolver, valueResolver);
+        player.sendMessage(this.miniMessage.deserialize(processed, combined));
+    }
+
+    private void sendMessage(Player player, String template, String key1, String value1, String key2, String value2) {
+        if (player == null || !player.isOnline() || template == null || template.isBlank()) {
+            return;
+        }
+        String safe1 = value1 != null ? value1 : "";
+        String safe2 = value2 != null ? value2 : "";
+        String processed = template.replace("<" + key1 + ">", safe1).replace("<" + key2 + ">", safe2);
+        TagResolver prefixResolver = Placeholder.parsed("prefix", this.config().messages().prefix());
+        TagResolver combined = TagResolver.resolver(
+            prefixResolver,
+            Placeholder.unparsed(key1, safe1),
+            Placeholder.unparsed(key2, safe2)
+        );
+        player.sendMessage(this.miniMessage.deserialize(processed, combined));
     }
 
     @Override
