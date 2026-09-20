@@ -7,26 +7,32 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * High-performance lock-free in-memory cache for PlayerWarps.
+ * Maintains pre-sorted immutable read indices for O(1) GUI page slicing and tab-completion.
+ */
 public final class DefaultPwarpCache implements PwarpCache {
 
     private final Map<String, Pwarp> warpMap = new ConcurrentHashMap<>();
+    private volatile List<Pwarp> sortedPublicWarps = List.of();
+    private volatile List<Pwarp> sortedAllWarps = List.of();
 
     @Override
     public void put(Pwarp pwarp) {
         if (pwarp != null) {
             this.warpMap.put(pwarp.name().toLowerCase(Locale.ROOT), pwarp);
+            rebuildSortedIndices();
         }
     }
 
     @Override
     public void remove(String name) {
-        if (name != null) {
-            this.warpMap.remove(name.toLowerCase(Locale.ROOT));
+        if (name != null && this.warpMap.remove(name.toLowerCase(Locale.ROOT)) != null) {
+            rebuildSortedIndices();
         }
     }
 
@@ -44,32 +50,22 @@ public final class DefaultPwarpCache implements PwarpCache {
             return List.of();
         }
         List<Pwarp> list = new ArrayList<>();
-        for (Pwarp pwarp : this.warpMap.values()) {
+        for (Pwarp pwarp : this.sortedAllWarps) {
             if (pwarp.ownerUuid().equals(ownerUuid)) {
                 list.add(pwarp);
             }
         }
-        list.sort(Comparator.comparing(Pwarp::name, String.CASE_INSENSITIVE_ORDER));
         return List.copyOf(list);
     }
 
     @Override
     public List<Pwarp> getAllPublic() {
-        List<Pwarp> list = new ArrayList<>();
-        for (Pwarp pwarp : this.warpMap.values()) {
-            if (!pwarp.isPrivate()) {
-                list.add(pwarp);
-            }
-        }
-        list.sort(Comparator.comparing(Pwarp::name, String.CASE_INSENSITIVE_ORDER));
-        return List.copyOf(list);
+        return this.sortedPublicWarps;
     }
 
     @Override
     public List<Pwarp> getAll() {
-        List<Pwarp> list = new ArrayList<>(this.warpMap.values());
-        list.sort(Comparator.comparing(Pwarp::name, String.CASE_INSENSITIVE_ORDER));
-        return List.copyOf(list);
+        return this.sortedAllWarps;
     }
 
     @Override
@@ -94,5 +90,21 @@ public final class DefaultPwarpCache implements PwarpCache {
     @Override
     public void clear() {
         this.warpMap.clear();
+        this.sortedPublicWarps = List.of();
+        this.sortedAllWarps = List.of();
+    }
+
+    private synchronized void rebuildSortedIndices() {
+        List<Pwarp> allList = new ArrayList<>(this.warpMap.values());
+        allList.sort(Comparator.comparing(Pwarp::name, String.CASE_INSENSITIVE_ORDER));
+        this.sortedAllWarps = List.copyOf(allList);
+
+        List<Pwarp> publicList = new ArrayList<>();
+        for (Pwarp pwarp : allList) {
+            if (!pwarp.isPrivate()) {
+                publicList.add(pwarp);
+            }
+        }
+        this.sortedPublicWarps = List.copyOf(publicList);
     }
 }

@@ -213,7 +213,7 @@ public final class PwarpGuiManager implements Listener {
                 List<Pwarp> allWarps = this.pwarpService.getPublicWarps();
                 if (warpIndex < allWarps.size()) {
                     Pwarp warp = allWarps.get(warpIndex);
-                    player.closeInventory();
+                    player.getScheduler().run(this.plugin, task -> player.closeInventory(), null);
                     this.pwarpService.executeTeleport(player, warp.name());
                 }
             } else if (holder.getViewType() == PwarpInventoryHolder.ViewType.MY_WARPS) {
@@ -224,7 +224,7 @@ public final class PwarpGuiManager implements Listener {
                         this.pwarpService.deleteWarp(player, warp.name());
                         openMyWarpsGui(player, holder.getPage());
                     } else {
-                        player.closeInventory();
+                        player.getScheduler().run(this.plugin, task -> player.closeInventory(), null);
                         this.pwarpService.executeTeleport(player, warp.name());
                     }
                 }
@@ -258,7 +258,7 @@ public final class PwarpGuiManager implements Listener {
                     }
                 }
             }
-            case 52 -> player.closeInventory();
+            case 52 -> player.getScheduler().run(this.plugin, task -> player.closeInventory(), null);
         }
     }
 
