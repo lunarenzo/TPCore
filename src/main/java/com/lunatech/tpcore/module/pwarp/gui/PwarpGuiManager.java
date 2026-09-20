@@ -315,8 +315,8 @@ public final class PwarpGuiManager implements Listener {
 
             if (holder.getViewType() == PwarpInventoryHolder.ViewType.ALL_WARPS) {
                 List<Pwarp> allWarps = this.pwarpService.getPublicWarps(holder.getSorting(), holder.getCategoryFilter());
-                if (rawSlot < allWarps.size()) {
-                    Pwarp warp = allWarps.get(rawSlot);
+                if (warpIndex < allWarps.size()) {
+                    Pwarp warp = allWarps.get(warpIndex);
                     if (event.isRightClick()) {
                         openRateWarpGui(player, warp);
                     } else {
