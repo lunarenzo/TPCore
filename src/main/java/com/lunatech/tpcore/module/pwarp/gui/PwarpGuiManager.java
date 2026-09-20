@@ -19,15 +19,18 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
+import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.inventory.meta.SkullMeta;
 import org.bukkit.plugin.java.JavaPlugin;
 
 /**
@@ -370,7 +373,7 @@ public final class PwarpGuiManager implements Listener {
         return item;
     }
 
-    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.LOWEST)
     public void onInventoryClick(InventoryClickEvent event) {
         if (!(event.getInventory().getHolder() instanceof PwarpInventoryHolder holder)) {
             return;
@@ -378,12 +381,21 @@ public final class PwarpGuiManager implements Listener {
 
         event.setCancelled(true);
 
-        int rawSlot = event.getRawSlot();
-        if (event.getClickedInventory() == null || event.getClickedInventory() != event.getInventory() || rawSlot < 0) {
+        if (!(event.getWhoClicked() instanceof Player player)) {
             return;
         }
 
-        if (!(event.getWhoClicked() instanceof Player player)) {
+        player.getScheduler().run(this.plugin, task -> player.updateInventory(), null);
+
+        ClickType clickType = event.getClick();
+        if (clickType == ClickType.NUMBER_KEY || clickType == ClickType.SWAP_OFFHAND
+                || clickType == ClickType.DOUBLE_CLICK || clickType == ClickType.DROP
+                || clickType == ClickType.CONTROL_DROP) {
+            return;
+        }
+
+        int rawSlot = event.getRawSlot();
+        if (event.getClickedInventory() == null || event.getClickedInventory() != event.getInventory() || rawSlot < 0) {
             return;
         }
 
@@ -394,6 +406,16 @@ public final class PwarpGuiManager implements Listener {
 
         if (holder.getViewType() == PwarpInventoryHolder.ViewType.EDIT_WARP) {
             handleEditWarpClick(player, holder.getTargetWarp(), rawSlot);
+            return;
+        }
+
+        if (holder.getViewType() == PwarpInventoryHolder.ViewType.WHITELIST) {
+            handleAccessGuiClick(player, holder.getTargetWarp(), rawSlot, "whitelist");
+            return;
+        }
+
+        if (holder.getViewType() == PwarpInventoryHolder.ViewType.BLACKLIST) {
+            handleAccessGuiClick(player, holder.getTargetWarp(), rawSlot, "blacklist");
             return;
         }
 
@@ -542,11 +564,120 @@ public final class PwarpGuiManager implements Listener {
                 this.pwarpService.withdrawBank(player, warp.name(), 0.0);
                 openEditWarpGui(player, warp);
             }
+            case 22 -> openWhitelistGui(player, warp);
+            case 24 -> openBlacklistGui(player, warp);
             case 31 -> { // Delete warp
                 player.getScheduler().run(this.plugin, task -> player.closeInventory(), null);
                 this.pwarpService.deleteWarp(player, warp.name());
             }
             case 40 -> openMyWarpsGui(player, 0);
+        }
+    }
+
+    public void openWhitelistGui(Player player, Pwarp warp) {
+        if (warp == null || this.accessRepository == null) return;
+        this.accessRepository.getEntries(warp.id(), "whitelist").thenAcceptAsync(uuids -> {
+            player.getScheduler().run(this.plugin, task -> {
+                renderAccessGui(player, warp, uuids, PwarpInventoryHolder.ViewType.WHITELIST);
+            }, null);
+        });
+    }
+
+    public void openBlacklistGui(Player player, Pwarp warp) {
+        if (warp == null || this.accessRepository == null) return;
+        this.accessRepository.getEntries(warp.id(), "blacklist").thenAcceptAsync(uuids -> {
+            player.getScheduler().run(this.plugin, task -> {
+                renderAccessGui(player, warp, uuids, PwarpInventoryHolder.ViewType.BLACKLIST);
+            }, null);
+        });
+    }
+
+    private void renderAccessGui(Player player, Pwarp warp, Set<UUID> uuids, PwarpInventoryHolder.ViewType viewType) {
+        String listTitle = (viewType == PwarpInventoryHolder.ViewType.WHITELIST) ? "Whitelist" : "Blacklist";
+        Component title = this.miniMessage.deserialize(
+            "<gradient:#FFAA00:#FF5500><bold>" + listTitle + ": " + warp.name() + "</bold></gradient>"
+        );
+
+        PwarpInventoryHolder holder = new PwarpInventoryHolder(viewType, warp);
+        Inventory inventory = Bukkit.createInventory(holder, GUI_SIZE, title);
+        holder.setInventory(inventory);
+
+        ItemStack filler = createGuiItem(Material.GRAY_STAINED_GLASS_PANE, "<gray> </gray>");
+        for (int i = 45; i < GUI_SIZE; i++) {
+            inventory.setItem(i, filler);
+        }
+
+        if (uuids != null && !uuids.isEmpty()) {
+            List<UUID> list = new ArrayList<>(uuids);
+            int count = Math.min(list.size(), 45);
+            for (int i = 0; i < count; i++) {
+                UUID uuid = list.get(i);
+                OfflinePlayer offlinePlayer = Bukkit.getOfflinePlayer(uuid);
+                String pName = (offlinePlayer.getName() != null) ? offlinePlayer.getName() : uuid.toString().substring(0, 8);
+
+                ItemStack head = new ItemStack(Material.PLAYER_HEAD);
+                ItemMeta meta = head.getItemMeta();
+                if (meta instanceof SkullMeta skullMeta) {
+                    skullMeta.setOwningPlayer(offlinePlayer);
+                    skullMeta.displayName(this.miniMessage.deserialize("<yellow><bold>" + pName + "</bold></yellow>"));
+                    skullMeta.lore(List.of(
+                        this.miniMessage.deserialize("<gray>UUID: " + uuid + "</gray>"),
+                        this.miniMessage.deserialize("<red>Click to REMOVE from " + listTitle.toLowerCase() + "</red>")
+                    ));
+                    head.setItemMeta(skullMeta);
+                }
+                inventory.setItem(i, head);
+            }
+        }
+
+        inventory.setItem(48, createGuiItem(
+            Material.ANVIL,
+            "<green><bold>+ Add Member</bold></green>",
+            "<gray>Click to type player name in chat to add</gray>"
+        ));
+
+        inventory.setItem(49, createGuiItem(Material.BARRIER, "<red><bold>Back to Edit Warp</bold></red>"));
+
+        player.getScheduler().run(this.plugin, task -> player.openInventory(inventory), null);
+    }
+
+    private void handleAccessGuiClick(Player player, Pwarp warp, int slot, String listType) {
+        if (warp == null || this.accessRepository == null) return;
+
+        if (slot == 49) {
+            openEditWarpGui(player, warp);
+            return;
+        }
+
+        if (slot == 48) { // Add Member
+            if (this.inputManager != null) {
+                player.getScheduler().run(this.plugin, task -> player.closeInventory(), null);
+                this.inputManager.requestInput(player, "<gold>Type the player name to add to " + listType + ":</gold>", input -> {
+                    OfflinePlayer target = Bukkit.getOfflinePlayer(input);
+                    this.accessRepository.addEntry(warp.id(), target.getUniqueId(), listType).thenRunAsync(() -> {
+                        player.sendMessage(this.miniMessage.deserialize("<green>Added " + input + " to " + listType + "!</green>"));
+                        if (listType.equals("whitelist")) openWhitelistGui(player, warp);
+                        else openBlacklistGui(player, warp);
+                    });
+                });
+            }
+            return;
+        }
+
+        if (slot >= 0 && slot < 45) { // Remove Member
+            Inventory topInv = player.getOpenInventory().getTopInventory();
+            ItemStack clickedItem = topInv.getItem(slot);
+            if (clickedItem != null && clickedItem.getType() == Material.PLAYER_HEAD && clickedItem.getItemMeta() instanceof SkullMeta skullMeta) {
+                OfflinePlayer target = skullMeta.getOwningPlayer();
+                if (target != null) {
+                    this.accessRepository.removeEntry(warp.id(), target.getUniqueId(), listType).thenRunAsync(() -> {
+                        String name = (target.getName() != null) ? target.getName() : target.getUniqueId().toString();
+                        player.sendMessage(this.miniMessage.deserialize("<red>Removed " + name + " from " + listType + "!</red>"));
+                        if (listType.equals("whitelist")) openWhitelistGui(player, warp);
+                        else openBlacklistGui(player, warp);
+                    });
+                }
+            }
         }
     }
 
@@ -585,10 +716,13 @@ public final class PwarpGuiManager implements Listener {
         }
     }
 
-    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.LOWEST)
     public void onInventoryDrag(InventoryDragEvent event) {
         if (event.getInventory().getHolder() instanceof PwarpInventoryHolder) {
             event.setCancelled(true);
+            if (event.getWhoClicked() instanceof Player player) {
+                player.getScheduler().run(this.plugin, task -> player.updateInventory(), null);
+            }
         }
     }
 }
