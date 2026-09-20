@@ -33,6 +33,7 @@ final class DefaultPwarpServiceTest {
         org.bukkit.plugin.java.JavaPlugin mockPlugin = org.mockito.Mockito.mock(org.bukkit.plugin.java.JavaPlugin.class);
         org.slf4j.Logger mockLogger = LoggerFactory.getLogger("TestLogger");
         org.mockito.Mockito.when(mockPlugin.getSLF4JLogger()).thenReturn(mockLogger);
+        org.mockito.Mockito.when(mockPlugin.getDataFolder()).thenReturn(tempDir.toFile());
 
         PwarpService service = new DefaultPwarpService(mockPlugin, () -> config, repo, cache);
 

@@ -23,8 +23,18 @@ public record Pwarp(
     String category,
     boolean isPrivate,
     long createdAt,
-    long visits
+    long visits,
+    double averageRating,
+    int totalRatings
 ) {
+    public Pwarp(
+        int id, UUID ownerUuid, String ownerName, String name, String description,
+        String worldName, double x, double y, double z, float yaw, float pitch,
+        String iconMaterial, String category, boolean isPrivate, long createdAt, long visits
+    ) {
+        this(id, ownerUuid, ownerName, name, description, worldName, x, y, z, yaw, pitch, iconMaterial, category, isPrivate, createdAt, visits, 0.0, 0);
+    }
+
     public Pwarp {
         Objects.requireNonNull(ownerUuid, "ownerUuid cannot be null");
         Objects.requireNonNull(ownerName, "ownerName cannot be null");
@@ -33,5 +43,7 @@ public record Pwarp(
         iconMaterial = (iconMaterial != null && !iconMaterial.isBlank()) ? iconMaterial : "OAK_SIGN";
         category = (category != null && !category.isBlank()) ? category.toLowerCase(Locale.ROOT) : "general";
         description = (description != null) ? description : "";
+        averageRating = Math.max(0.0, Math.min(5.0, averageRating));
+        totalRatings = Math.max(0, totalRatings);
     }
 }

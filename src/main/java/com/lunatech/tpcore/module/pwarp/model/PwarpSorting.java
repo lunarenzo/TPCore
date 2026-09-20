@@ -5,6 +5,7 @@ package com.lunatech.tpcore.module.pwarp.model;
  */
 public enum PwarpSorting {
     MOST_VISITED("Most Visited"),
+    HIGHEST_RATED("Highest Rated"),
     NEWEST("Newest First"),
     OLDEST("Oldest First"),
     ALPHABETICAL("Alphabetical (A-Z)");

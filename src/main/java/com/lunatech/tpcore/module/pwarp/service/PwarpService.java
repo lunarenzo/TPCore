@@ -22,6 +22,8 @@ public interface PwarpService {
 
     CompletableFuture<Boolean> executeTeleport(Player player, Pwarp pwarp);
 
+    CompletableFuture<Boolean> rateWarp(Player player, String name, int stars);
+
     Optional<Pwarp> getWarp(String name);
 
     List<Pwarp> getPublicWarps();

@@ -141,19 +141,26 @@ public final class DefaultPwarpCache implements PwarpCache {
             .thenComparing(Pwarp::name, String.CASE_INSENSITIVE_ORDER));
         this.sortedPublicIndices.put(PwarpSorting.MOST_VISITED, List.copyOf(mostVisited));
 
-        // 2. NEWEST
+        // 2. HIGHEST_RATED
+        List<Pwarp> highestRated = new ArrayList<>(publicBase);
+        highestRated.sort(Comparator.comparingDouble(Pwarp::averageRating).reversed()
+            .thenComparingInt(Pwarp::totalRatings).reversed()
+            .thenComparing(Pwarp::name, String.CASE_INSENSITIVE_ORDER));
+        this.sortedPublicIndices.put(PwarpSorting.HIGHEST_RATED, List.copyOf(highestRated));
+
+        // 3. NEWEST
         List<Pwarp> newest = new ArrayList<>(publicBase);
         newest.sort(Comparator.comparingLong(Pwarp::createdAt).reversed()
             .thenComparing(Pwarp::name, String.CASE_INSENSITIVE_ORDER));
         this.sortedPublicIndices.put(PwarpSorting.NEWEST, List.copyOf(newest));
 
-        // 3. OLDEST
+        // 4. OLDEST
         List<Pwarp> oldest = new ArrayList<>(publicBase);
         oldest.sort(Comparator.comparingLong(Pwarp::createdAt)
             .thenComparing(Pwarp::name, String.CASE_INSENSITIVE_ORDER));
         this.sortedPublicIndices.put(PwarpSorting.OLDEST, List.copyOf(oldest));
 
-        // 4. ALPHABETICAL
+        // 5. ALPHABETICAL
         List<Pwarp> alphabetical = new ArrayList<>(publicBase);
         alphabetical.sort(Comparator.comparing(Pwarp::name, String.CASE_INSENSITIVE_ORDER));
         this.sortedPublicIndices.put(PwarpSorting.ALPHABETICAL, List.copyOf(alphabetical));

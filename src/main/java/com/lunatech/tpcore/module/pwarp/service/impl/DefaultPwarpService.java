@@ -5,10 +5,14 @@ import com.lunatech.tpcore.module.pwarp.cache.PwarpCache;
 import com.lunatech.tpcore.module.pwarp.config.PwarpConfig;
 import com.lunatech.tpcore.module.pwarp.config.PwarpWorldConfig;
 import com.lunatech.tpcore.module.pwarp.model.Pwarp;
+import com.lunatech.tpcore.module.pwarp.model.PwarpRating;
 import com.lunatech.tpcore.module.pwarp.model.PwarpSorting;
+import com.lunatech.tpcore.module.pwarp.repository.PwarpRatingRepository;
 import com.lunatech.tpcore.module.pwarp.repository.PwarpRepository;
+import com.lunatech.tpcore.module.pwarp.repository.impl.SqlitePwarpRatingRepository;
 import com.lunatech.tpcore.module.pwarp.service.PwarpService;
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -34,6 +38,7 @@ public final class DefaultPwarpService implements PwarpService {
     private final JavaPlugin plugin;
     private final Supplier<PwarpConfig> configSupplier;
     private final PwarpRepository repository;
+    private final PwarpRatingRepository ratingRepository;
     private final PwarpCache cache;
     private final MiniMessage miniMessage = MiniMessage.miniMessage();
 
@@ -48,21 +53,70 @@ public final class DefaultPwarpService implements PwarpService {
         PwarpRepository repository,
         PwarpCache cache
     ) {
+        this(plugin, configSupplier, repository, new SqlitePwarpRatingRepository(plugin.getDataFolder(), plugin.getSLF4JLogger()), cache);
+    }
+
+    public DefaultPwarpService(
+        JavaPlugin plugin,
+        Supplier<PwarpConfig> configSupplier,
+        PwarpRepository repository,
+        PwarpRatingRepository ratingRepository,
+        PwarpCache cache
+    ) {
         this.plugin = Objects.requireNonNull(plugin, "plugin cannot be null");
         this.configSupplier = Objects.requireNonNull(configSupplier, "configSupplier cannot be null");
         this.repository = Objects.requireNonNull(repository, "repository cannot be null");
+        this.ratingRepository = Objects.requireNonNull(ratingRepository, "ratingRepository cannot be null");
         this.cache = Objects.requireNonNull(cache, "cache cannot be null");
     }
 
     @Override
     public CompletableFuture<Void> initialize() {
-        return this.repository.loadAllPwarps().thenAccept(list -> {
-            this.cache.clear();
-            for (Pwarp pwarp : list) {
-                this.cache.put(pwarp);
-            }
-            this.plugin.getSLF4JLogger().info("Loaded {} player warps into L1 cache.", list.size());
-        });
+        return this.ratingRepository.initialize()
+            .thenCompose(v -> this.repository.loadAllPwarps())
+            .thenCompose(warps -> this.ratingRepository.loadAllRatings().thenAccept(ratings -> {
+                this.cache.clear();
+
+                Map<Integer, List<PwarpRating>> ratingGroupMap = new ConcurrentHashMap<>();
+                for (PwarpRating rating : ratings) {
+                    ratingGroupMap.computeIfAbsent(rating.warpId(), k -> new ArrayList<>()).add(rating);
+                }
+
+                for (Pwarp pwarp : warps) {
+                    List<PwarpRating> warpRatings = ratingGroupMap.getOrDefault(pwarp.id(), List.of());
+                    double avg = 0.0;
+                    if (!warpRatings.isEmpty()) {
+                        double sum = 0.0;
+                        for (PwarpRating r : warpRatings) {
+                            sum += r.stars();
+                        }
+                        avg = sum / warpRatings.size();
+                    }
+
+                    Pwarp updated = new Pwarp(
+                        pwarp.id(),
+                        pwarp.ownerUuid(),
+                        pwarp.ownerName(),
+                        pwarp.name(),
+                        pwarp.description(),
+                        pwarp.worldName(),
+                        pwarp.x(),
+                        pwarp.y(),
+                        pwarp.z(),
+                        pwarp.yaw(),
+                        pwarp.pitch(),
+                        pwarp.iconMaterial(),
+                        pwarp.category(),
+                        pwarp.isPrivate(),
+                        pwarp.createdAt(),
+                        pwarp.visits(),
+                        avg,
+                        warpRatings.size()
+                    );
+                    this.cache.put(updated);
+                }
+                this.plugin.getSLF4JLogger().info("Loaded {} player warps and {} ratings into L1 cache.", warps.size(), ratings.size());
+            }));
     }
 
     @Override
@@ -129,6 +183,8 @@ public final class DefaultPwarpService implements PwarpService {
             category != null ? category : "general",
             false,
             System.currentTimeMillis(),
+            0,
+            0.0,
             0
         );
 
@@ -257,6 +313,67 @@ public final class DefaultPwarpService implements PwarpService {
         return future;
     }
 
+    @Override
+    public CompletableFuture<Boolean> rateWarp(Player player, String name, int stars) {
+        if (player == null || !player.isOnline()) {
+            return CompletableFuture.completedFuture(false);
+        }
+
+        if (stars < 1 || stars > 5) {
+            return CompletableFuture.completedFuture(false);
+        }
+
+        Optional<Pwarp> optWarp = getWarp(name);
+        if (optWarp.isEmpty()) {
+            sendMessage(player, this.configSupplier.get().messages().warpNotFound(), Placeholder.unparsed("warp", name != null ? name : ""));
+            return CompletableFuture.completedFuture(false);
+        }
+
+        Pwarp pwarp = optWarp.get();
+        return this.ratingRepository.saveRating(pwarp.id(), player.getUniqueId(), stars).thenCompose(v -> {
+            return this.ratingRepository.getRatingsForWarp(pwarp.id()).thenApply(ratings -> {
+                double avg = 0.0;
+                if (!ratings.isEmpty()) {
+                    double sum = 0.0;
+                    for (PwarpRating r : ratings) {
+                        sum += r.stars();
+                    }
+                    avg = sum / ratings.size();
+                }
+
+                Pwarp updated = new Pwarp(
+                    pwarp.id(),
+                    pwarp.ownerUuid(),
+                    pwarp.ownerName(),
+                    pwarp.name(),
+                    pwarp.description(),
+                    pwarp.worldName(),
+                    pwarp.x(),
+                    pwarp.y(),
+                    pwarp.z(),
+                    pwarp.yaw(),
+                    pwarp.pitch(),
+                    pwarp.iconMaterial(),
+                    pwarp.category(),
+                    pwarp.isPrivate(),
+                    pwarp.createdAt(),
+                    pwarp.visits(),
+                    avg,
+                    ratings.size()
+                );
+                this.cache.put(updated);
+
+                sendMessage(
+                    player,
+                    "<green>Rated warp <yellow><warp></yellow> <gold><stars>★</gold>!</green>",
+                    Placeholder.unparsed("warp", pwarp.name()),
+                    Placeholder.unparsed("stars", String.valueOf(stars))
+                );
+                return true;
+            });
+        });
+    }
+
     private CompletableFuture<Boolean> performTeleportNow(Player player, Pwarp pwarp, World targetWorld, PwarpWorldConfig worldConfig) {
         Location dest = new Location(targetWorld, pwarp.x(), pwarp.y(), pwarp.z(), pwarp.yaw(), pwarp.pitch());
 
@@ -303,7 +420,9 @@ public final class DefaultPwarpService implements PwarpService {
                                 pwarp.category(),
                                 pwarp.isPrivate(),
                                 pwarp.createdAt(),
-                                pwarp.visits() + 1
+                                pwarp.visits() + 1,
+                                pwarp.averageRating(),
+                                pwarp.totalRatings()
                             );
                             this.cache.put(updated);
                             this.repository.incrementVisits(pwarp.name());
@@ -453,7 +572,7 @@ public final class DefaultPwarpService implements PwarpService {
 
     @Override
     public void updateConfig(PwarpConfig newConfig) {
-        // Dynamic config update
+        // Dynamic config refresh
     }
 
     @Override
@@ -465,6 +584,7 @@ public final class DefaultPwarpService implements PwarpService {
         this.warmupTasks.clear();
         this.cooldownMap.clear();
         this.cache.clear();
+        this.ratingRepository.close().join();
     }
 
     private void sendMessage(Player player, String messageFormat, net.kyori.adventure.text.minimessage.tag.resolver.TagResolver... resolvers) {

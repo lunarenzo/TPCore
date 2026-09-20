@@ -6,6 +6,7 @@ import com.lunatech.tpcore.module.pwarp.gui.PwarpGuiManager;
 import com.lunatech.tpcore.module.pwarp.model.Pwarp;
 import com.lunatech.tpcore.module.pwarp.model.PwarpCategory;
 import com.lunatech.tpcore.module.pwarp.service.PwarpService;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
@@ -18,6 +19,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Supplier;
 
 /**
@@ -110,6 +112,23 @@ public final class PwarpCommandRegistry {
                     .then(Commands.literal("reload")
                         .requires(src -> src.getSender().hasPermission(Permissions.PWARP_ADMIN))
                         .executes(ctx -> handleReloadCommand(ctx.getSource().getSender()))
+                    )
+                    .then(Commands.literal("rate")
+                        .requires(src -> src.getSender().hasPermission(Permissions.PWARP_USE))
+                        .then(Commands.argument("name", StringArgumentType.word())
+                            .suggests(publicWarpSuggestions)
+                            .executes(ctx -> handleRateGuiCommand(
+                                ctx.getSource().getSender(),
+                                StringArgumentType.getString(ctx, "name")
+                            ))
+                            .then(Commands.argument("stars", IntegerArgumentType.integer(1, 5))
+                                .executes(ctx -> handleRateCommand(
+                                    ctx.getSource().getSender(),
+                                    StringArgumentType.getString(ctx, "name"),
+                                    IntegerArgumentType.getInteger(ctx, "stars")
+                                ))
+                            )
+                        )
                     )
                     .then(Commands.literal("set")
                         .requires(src -> src.getSender().hasPermission(Permissions.PWARP_SET))
@@ -265,6 +284,42 @@ public final class PwarpCommandRegistry {
         }
 
         this.guiManager.openWarpsGui(player, 0);
+        return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+    }
+
+    private int handleRateGuiCommand(CommandSender sender, String warpName) {
+        if (!configSupplier.get().enabled()) {
+            sendConfigMessage(sender, configSupplier.get().messages().disabled());
+            return 0;
+        }
+
+        if (!(sender instanceof Player player)) {
+            sendConfigMessage(sender, configSupplier.get().messages().onlyPlayers());
+            return 0;
+        }
+
+        Optional<Pwarp> optWarp = this.pwarpService.getWarp(warpName);
+        if (optWarp.isEmpty()) {
+            sendConfigMessage(sender, configSupplier.get().messages().warpNotFound());
+            return 0;
+        }
+
+        this.guiManager.openRateWarpGui(player, optWarp.get());
+        return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+    }
+
+    private int handleRateCommand(CommandSender sender, String warpName, int stars) {
+        if (!configSupplier.get().enabled()) {
+            sendConfigMessage(sender, configSupplier.get().messages().disabled());
+            return 0;
+        }
+
+        if (!(sender instanceof Player player)) {
+            sendConfigMessage(sender, configSupplier.get().messages().onlyPlayers());
+            return 0;
+        }
+
+        this.pwarpService.rateWarp(player, warpName, stars);
         return com.mojang.brigadier.Command.SINGLE_SUCCESS;
     }
 

@@ -26,7 +26,7 @@ import java.util.Objects;
 import java.util.function.Supplier;
 
 /**
- * Manages zero-GC paginated chest GUIs for PlayerWarps (All Warps, Category Selector & My Warps).
+ * Manages zero-GC paginated chest GUIs for PlayerWarps (All Warps, Category Selector, My Warps & Rate Warp).
  */
 public final class PwarpGuiManager implements Listener {
 
@@ -127,7 +127,6 @@ public final class PwarpGuiManager implements Listener {
             inventory.setItem(i, filler);
         }
 
-        // Slot 4: All Warps category option
         inventory.setItem(4, createGuiItem(
             Material.COMPASS,
             "<gold><bold>All Categories</bold></gold>",
@@ -154,6 +153,36 @@ public final class PwarpGuiManager implements Listener {
         player.getScheduler().run(this.plugin, task -> player.openInventory(inventory), null);
     }
 
+    public void openRateWarpGui(Player player, Pwarp warp) {
+        Objects.requireNonNull(warp, "warp cannot be null");
+        Component title = this.miniMessage.deserialize(
+            "<gradient:#FFAA00:#FF5500><bold>Rate Warp: " + warp.name() + "</bold></gradient>"
+        );
+
+        PwarpInventoryHolder holder = new PwarpInventoryHolder(PwarpInventoryHolder.ViewType.RATE_WARP, warp);
+        Inventory inventory = Bukkit.createInventory(holder, 27, title);
+        holder.setInventory(inventory);
+
+        ItemStack filler = createGuiItem(Material.GRAY_STAINED_GLASS_PANE, "<gray> </gray>");
+        for (int i = 0; i < 27; i++) {
+            inventory.setItem(i, filler);
+        }
+
+        int[] slots = {11, 12, 13, 14, 15};
+        for (int i = 0; i < 5; i++) {
+            int stars = i + 1;
+            inventory.setItem(slots[i], createGuiItem(
+                Material.NETHER_STAR,
+                "<gold><bold>" + stars + " Star" + (stars > 1 ? "s" : "") + "</bold></gold>",
+                "<gray>Click to give </gray><yellow>" + stars + " ★</yellow><gray> rating</gray>"
+            ));
+        }
+
+        inventory.setItem(22, createGuiItem(Material.BARRIER, "<red><bold>Cancel</bold></red>"));
+
+        player.getScheduler().run(this.plugin, task -> player.openInventory(inventory), null);
+    }
+
     private ItemStack createWarpItemStack(Pwarp warp, boolean isOwnerView) {
         Material material = Material.matchMaterial(warp.iconMaterial());
         if (material == null) {
@@ -168,6 +197,7 @@ public final class PwarpGuiManager implements Listener {
             List<Component> lore = new ArrayList<>();
             lore.add(this.miniMessage.deserialize("<gray>Owner: </gray><yellow>" + warp.ownerName() + "</yellow>"));
             lore.add(this.miniMessage.deserialize("<gray>Category: </gray><green>" + warp.category().toUpperCase() + "</green>"));
+            lore.add(this.miniMessage.deserialize("<gray>Rating: </gray><gold>" + String.format("%.1f", warp.averageRating()) + " ★</gold> <gray>(" + warp.totalRatings() + " votes)</gray>"));
             if (warp.description() != null && !warp.description().isBlank()) {
                 lore.add(this.miniMessage.deserialize("<gray>Desc: </gray><white>" + warp.description() + "</white>"));
             }
@@ -179,6 +209,7 @@ public final class PwarpGuiManager implements Listener {
                 lore.add(this.miniMessage.deserialize("<red>Shift-Right-Click to DELETE</red>"));
             } else {
                 lore.add(this.miniMessage.deserialize("<yellow>Click to teleport</yellow>"));
+                lore.add(this.miniMessage.deserialize("<gold>Right-Click to Rate Warp ★</gold>"));
             }
 
             meta.lore(lore);
@@ -196,45 +227,38 @@ public final class PwarpGuiManager implements Listener {
         int page = holder.getPage();
         int totalPages = holder.getTotalPages();
 
-        // Slot 45: Previous Page
         if (page > 0) {
             inventory.setItem(45, createGuiItem(Material.ARROW, "<yellow><bold>← Previous Page</bold></yellow>"));
         }
 
         if (holder.getViewType() == PwarpInventoryHolder.ViewType.ALL_WARPS) {
-            // Slot 46: Category Selector
             inventory.setItem(46, createGuiItem(
                 Material.CHEST,
                 "<gold><bold>Category: </bold><yellow>" + holder.getCategoryFilter().toUpperCase() + "</yellow></gold>",
                 "<gray>Click to filter warps by category</gray>"
             ));
 
-            // Slot 47: Sorting Selector
             inventory.setItem(47, createGuiItem(
                 Material.HOPPER,
                 "<gold><bold>Sort: </bold><yellow>" + holder.getSorting().getDisplayName() + "</yellow></gold>",
                 "<gray>Click to cycle sorting criteria</gray>"
             ));
 
-            // Slot 48: View Switcher
             inventory.setItem(48, createGuiItem(Material.NETHER_STAR, "<gold><bold>My Warps</bold></gold>", "<gray>Click to view your set warps</gray>"));
         } else {
             inventory.setItem(48, createGuiItem(Material.COMPASS, "<gold><bold>All Warps</bold></gold>", "<gray>Click to view all public warps</gray>"));
         }
 
-        // Slot 49: Info / Counter
         inventory.setItem(49, createGuiItem(
             Material.BOOK,
             "<gradient:#FFAA00:#FF5500><bold>Page " + (page + 1) + " of " + totalPages + "</bold></gradient>",
             "<gray>Total Warps: </gray><yellow>" + totalWarps + "</yellow>"
         ));
 
-        // Slot 50: Next Page
         if (page < totalPages - 1) {
             inventory.setItem(50, createGuiItem(Material.ARROW, "<yellow><bold>Next Page →</bold></yellow>"));
         }
 
-        // Slot 52: Close
         inventory.setItem(52, createGuiItem(Material.BARRIER, "<red><bold>Close Menu</bold></red>"));
     }
 
@@ -264,11 +288,20 @@ public final class PwarpGuiManager implements Listener {
         event.setCancelled(true);
 
         int rawSlot = event.getRawSlot();
-        if (event.getClickedInventory() == null || event.getClickedInventory() != event.getInventory() || rawSlot < 0 || rawSlot >= GUI_SIZE) {
+        if (event.getClickedInventory() == null || event.getClickedInventory() != event.getInventory() || rawSlot < 0) {
             return;
         }
 
         if (!(event.getWhoClicked() instanceof Player player)) {
+            return;
+        }
+
+        if (holder.getViewType() == PwarpInventoryHolder.ViewType.RATE_WARP) {
+            handleRateWarpClick(player, holder.getTargetWarp(), rawSlot);
+            return;
+        }
+
+        if (rawSlot >= GUI_SIZE) {
             return;
         }
 
@@ -284,8 +317,12 @@ public final class PwarpGuiManager implements Listener {
                 List<Pwarp> allWarps = this.pwarpService.getPublicWarps(holder.getSorting(), holder.getCategoryFilter());
                 if (rawSlot < allWarps.size()) {
                     Pwarp warp = allWarps.get(rawSlot);
-                    player.getScheduler().run(this.plugin, task -> player.closeInventory(), null);
-                    this.pwarpService.executeTeleport(player, warp.name());
+                    if (event.isRightClick()) {
+                        openRateWarpGui(player, warp);
+                    } else {
+                        player.getScheduler().run(this.plugin, task -> player.closeInventory(), null);
+                        this.pwarpService.executeTeleport(player, warp.name());
+                    }
                 }
             } else if (holder.getViewType() == PwarpInventoryHolder.ViewType.MY_WARPS) {
                 List<Pwarp> myWarps = this.pwarpService.getPlayerWarps(player.getUniqueId());
@@ -341,6 +378,27 @@ public final class PwarpGuiManager implements Listener {
                 }
             }
             case 52 -> player.getScheduler().run(this.plugin, task -> player.closeInventory(), null);
+        }
+    }
+
+    private void handleRateWarpClick(Player player, Pwarp warp, int slot) {
+        if (slot == 22) { // Cancel
+            openWarpsGui(player, 0);
+            return;
+        }
+
+        int stars = switch (slot) {
+            case 11 -> 1;
+            case 12 -> 2;
+            case 13 -> 3;
+            case 14 -> 4;
+            case 15 -> 5;
+            default -> -1;
+        };
+
+        if (stars != -1 && warp != null) {
+            player.getScheduler().run(this.plugin, task -> player.closeInventory(), null);
+            this.pwarpService.rateWarp(player, warp.name(), stars);
         }
     }
 
