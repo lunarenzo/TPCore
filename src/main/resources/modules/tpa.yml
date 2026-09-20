@@ -18,6 +18,9 @@ cancel-on-damage: true
 # Whether players can send TPA requests to themselves
 allow-self-tpa: false
 
+# Whether to require destination ground safety before teleportation
+require-safe-location: true
+
 # Module message strings (Alphabetically ordered for server admin convenience)
 messages:
   already-has-pending-request: "<prefix><red>You already have an active pending teleport request with <yellow><target></yellow>!</red>"
@@ -40,6 +43,7 @@ messages:
   target-toggled-off: "<prefix><red>Player <yellow><target></yellow> is not accepting TPA requests right now.</red>"
   toggle-off: "<prefix><gray>TPA requests are now <red>DISABLED</red>.</gray>"
   toggle-on: "<prefix><gray>TPA requests are now <green>ENABLED</green>.</gray>"
+  unsafe-destination: "<prefix><red>Teleportation cancelled because the target location is unsafe!</red>"
   warmup-cancelled-damage: "<prefix><red>Teleport cancelled because you took damage!</red>"
   warmup-cancelled-move: "<prefix><red>Teleport cancelled because you moved!</red>"
   warmup-start: "<prefix><gray>Teleporting in <gold><seconds></gold> seconds. <red>Do not move or take damage!</red></gray>"

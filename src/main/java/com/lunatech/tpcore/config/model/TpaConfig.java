@@ -23,11 +23,14 @@ public record TpaConfig(
     @Comment("Allow players to send TPA requests to themselves")
     boolean allowSelfTpa,
 
+    @Comment("Require destination ground safety before teleportation")
+    boolean requireSafeLocation,
+
     @Comment("Module message strings (Alphabetically ordered)")
     TpaMessages messages
 ) {
     public static TpaConfig createDefault() {
-        return new TpaConfig(true, 30, 3, true, true, false, TpaMessages.createDefault());
+        return new TpaConfig(true, 30, 3, true, true, false, true, TpaMessages.createDefault());
     }
 
     @ConfigSerializable
@@ -52,6 +55,7 @@ public record TpaConfig(
         String targetToggledOff,
         String toggleOff,
         String toggleOn,
+        String unsafeDestination,
         String warmupCancelledDamage,
         String warmupCancelledMove,
         String warmupStart
@@ -78,6 +82,7 @@ public record TpaConfig(
                 "<prefix><red>Player <yellow><target></yellow> is not accepting TPA requests right now.</red>",
                 "<prefix><gray>TPA requests are now <red>DISABLED</red>.</gray>",
                 "<prefix><gray>TPA requests are now <green>ENABLED</green>.</gray>",
+                "<prefix><red>Teleportation cancelled because the target location is unsafe!</red>",
                 "<prefix><red>Teleport cancelled because you took damage!</red>",
                 "<prefix><red>Teleport cancelled because you moved!</red>",
                 "<prefix><gray>Teleporting in <gold><seconds></gold> seconds. <red>Do not move or take damage!</red></gray>"

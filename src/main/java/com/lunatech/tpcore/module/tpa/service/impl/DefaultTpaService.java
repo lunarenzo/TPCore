@@ -231,7 +231,7 @@ public final class DefaultTpaService implements TpaService {
         Player teleportingPlayer = (targetRequest.type() == TpaType.TPA_TO) ? sender : target;
         Player destinationPlayer = (targetRequest.type() == TpaType.TPA_TO) ? target : sender;
 
-        this.executeTeleportSequence(teleportingPlayer, destinationPlayer.getLocation());
+        this.executeTeleportSequence(teleportingPlayer, destinationPlayer);
     }
 
     @Override
@@ -354,13 +354,14 @@ public final class DefaultTpaService implements TpaService {
         }
     }
 
-    private void executeTeleportSequence(Player player, Location targetLocation) {
+    private void executeTeleportSequence(Player player, Player destinationPlayer) {
+        if (player == null || !player.isOnline() || destinationPlayer == null || !destinationPlayer.isOnline()) {
+            return;
+        }
+
         int warmupSeconds = this.config().warmupSeconds();
         if (warmupSeconds <= 0 || player.hasPermission(Permissions.TPA_BYPASS_WARMUP)) {
-            if (player.isInsideVehicle()) {
-                player.leaveVehicle();
-            }
-            player.teleportAsync(targetLocation);
+            performFinalTeleport(player, destinationPlayer);
             return;
         }
 
@@ -377,11 +378,8 @@ public final class DefaultTpaService implements TpaService {
             this.plugin,
             scheduledTask -> {
                 ActiveWarmup warmup = this.activeWarmups.remove(player.getUniqueId());
-                if (warmup != null && player.isOnline()) {
-                    if (player.isInsideVehicle()) {
-                        player.leaveVehicle();
-                    }
-                    player.teleportAsync(targetLocation);
+                if (warmup != null && player.isOnline() && destinationPlayer.isOnline()) {
+                    performFinalTeleport(player, destinationPlayer);
                 }
             },
             null,
@@ -401,6 +399,27 @@ public final class DefaultTpaService implements TpaService {
                 )
             );
         }
+    }
+
+    private void performFinalTeleport(Player player, Player destinationPlayer) {
+        if (player.isInsideVehicle()) {
+            player.leaveVehicle();
+        }
+
+        Location rawTargetLoc = destinationPlayer.getLocation();
+        Location finalTargetLoc = rawTargetLoc;
+
+        if (this.config().requireSafeLocation()) {
+            Location safeLoc = TpaSafetyInspector.findSafeLocation(rawTargetLoc);
+            if (safeLoc == null) {
+                this.sendMessage(player, this.config().messages().unsafeDestination());
+                this.sendMessage(destinationPlayer, this.config().messages().unsafeDestination());
+                return;
+            }
+            finalTargetLoc = safeLoc;
+        }
+
+        player.teleportAsync(finalTargetLoc);
     }
 
     private void cancelWarmup(UUID playerId, String cancelMessageTemplate) {
