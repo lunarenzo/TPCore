@@ -4,6 +4,7 @@ import com.lunatech.tpcore.constant.Permissions;
 import com.lunatech.tpcore.module.pwarp.config.PwarpConfig;
 import com.lunatech.tpcore.module.pwarp.gui.PwarpGuiManager;
 import com.lunatech.tpcore.module.pwarp.model.Pwarp;
+import com.lunatech.tpcore.module.pwarp.model.PwarpCategory;
 import com.lunatech.tpcore.module.pwarp.service.PwarpService;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
@@ -85,6 +86,19 @@ public final class PwarpCommandRegistry {
                 return builder.buildFuture();
             };
 
+            SuggestionProvider<CommandSourceStack> categorySuggestions = (context, builder) -> {
+                if (!configSupplier.get().enabled()) {
+                    return builder.buildFuture();
+                }
+                String remaining = builder.getRemaining().toLowerCase();
+                for (PwarpCategory cat : configSupplier.get().categories()) {
+                    if (cat.key().toLowerCase().startsWith(remaining)) {
+                        builder.suggest(cat.key());
+                    }
+                }
+                return builder.buildFuture();
+            };
+
             // Main /pwarp command
             commands.register(
                 Commands.literal("pwarp")
@@ -103,14 +117,25 @@ public final class PwarpCommandRegistry {
                             .executes(ctx -> handleSetCommand(
                                 ctx.getSource().getSender(),
                                 StringArgumentType.getString(ctx, "name"),
+                                "general",
                                 null
                             ))
-                            .then(Commands.argument("description", StringArgumentType.greedyString())
+                            .then(Commands.argument("category", StringArgumentType.word())
+                                .suggests(categorySuggestions)
                                 .executes(ctx -> handleSetCommand(
                                     ctx.getSource().getSender(),
                                     StringArgumentType.getString(ctx, "name"),
-                                    StringArgumentType.getString(ctx, "description")
+                                    StringArgumentType.getString(ctx, "category"),
+                                    null
                                 ))
+                                .then(Commands.argument("description", StringArgumentType.greedyString())
+                                    .executes(ctx -> handleSetCommand(
+                                        ctx.getSource().getSender(),
+                                        StringArgumentType.getString(ctx, "name"),
+                                        StringArgumentType.getString(ctx, "category"),
+                                        StringArgumentType.getString(ctx, "description")
+                                    ))
+                                )
                             )
                         )
                     )
@@ -146,7 +171,7 @@ public final class PwarpCommandRegistry {
                 List.of("pw")
             );
 
-            // Standalone /setpwarp <name> [description]
+            // Standalone /setpwarp <name> [category] [description]
             commands.register(
                 Commands.literal("setpwarp")
                     .requires(src -> src.getSender().hasPermission(Permissions.PWARP_SET))
@@ -154,14 +179,25 @@ public final class PwarpCommandRegistry {
                         .executes(ctx -> handleSetCommand(
                             ctx.getSource().getSender(),
                             StringArgumentType.getString(ctx, "name"),
+                            "general",
                             null
                         ))
-                        .then(Commands.argument("description", StringArgumentType.greedyString())
+                        .then(Commands.argument("category", StringArgumentType.word())
+                            .suggests(categorySuggestions)
                             .executes(ctx -> handleSetCommand(
                                 ctx.getSource().getSender(),
                                 StringArgumentType.getString(ctx, "name"),
-                                StringArgumentType.getString(ctx, "description")
+                                StringArgumentType.getString(ctx, "category"),
+                                null
                             ))
+                            .then(Commands.argument("description", StringArgumentType.greedyString())
+                                .executes(ctx -> handleSetCommand(
+                                    ctx.getSource().getSender(),
+                                    StringArgumentType.getString(ctx, "name"),
+                                    StringArgumentType.getString(ctx, "category"),
+                                    StringArgumentType.getString(ctx, "description")
+                                ))
+                            )
                         )
                     )
                     .build(),
@@ -232,7 +268,7 @@ public final class PwarpCommandRegistry {
         return com.mojang.brigadier.Command.SINGLE_SUCCESS;
     }
 
-    private int handleSetCommand(CommandSender sender, String warpName, String description) {
+    private int handleSetCommand(CommandSender sender, String warpName, String category, String description) {
         if (!configSupplier.get().enabled()) {
             sendConfigMessage(sender, configSupplier.get().messages().disabled());
             return 0;
@@ -243,7 +279,7 @@ public final class PwarpCommandRegistry {
             return 0;
         }
 
-        this.pwarpService.setWarp(player, warpName, description);
+        this.pwarpService.setWarp(player, warpName, category, description);
         return com.mojang.brigadier.Command.SINGLE_SUCCESS;
     }
 

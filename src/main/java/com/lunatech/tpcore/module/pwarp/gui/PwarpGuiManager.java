@@ -263,7 +263,8 @@ public final class PwarpGuiManager implements Listener {
 
         event.setCancelled(true);
 
-        if (event.getClickedInventory() == null || event.getClickedInventory() != event.getInventory()) {
+        int rawSlot = event.getRawSlot();
+        if (event.getClickedInventory() == null || event.getClickedInventory() != event.getInventory() || rawSlot < 0 || rawSlot >= GUI_SIZE) {
             return;
         }
 
@@ -272,19 +273,17 @@ public final class PwarpGuiManager implements Listener {
         }
 
         if (holder.getViewType() == PwarpInventoryHolder.ViewType.CATEGORY_SELECT) {
-            handleCategoryClick(player, event.getSlot());
+            handleCategoryClick(player, rawSlot);
             return;
         }
 
-        int slot = event.getSlot();
-
-        if (slot >= 0 && slot < SLOTS_PER_PAGE) {
-            int warpIndex = (holder.getPage() * SLOTS_PER_PAGE) + slot;
+        if (rawSlot < SLOTS_PER_PAGE) {
+            int warpIndex = (holder.getPage() * SLOTS_PER_PAGE) + rawSlot;
 
             if (holder.getViewType() == PwarpInventoryHolder.ViewType.ALL_WARPS) {
                 List<Pwarp> allWarps = this.pwarpService.getPublicWarps(holder.getSorting(), holder.getCategoryFilter());
-                if (slot < allWarps.size()) {
-                    Pwarp warp = allWarps.get(slot);
+                if (rawSlot < allWarps.size()) {
+                    Pwarp warp = allWarps.get(rawSlot);
                     player.getScheduler().run(this.plugin, task -> player.closeInventory(), null);
                     this.pwarpService.executeTeleport(player, warp.name());
                 }
@@ -304,7 +303,7 @@ public final class PwarpGuiManager implements Listener {
             return;
         }
 
-        switch (slot) {
+        switch (rawSlot) {
             case 45 -> { // Previous Page
                 if (holder.getPage() > 0) {
                     if (holder.getViewType() == PwarpInventoryHolder.ViewType.ALL_WARPS) {
