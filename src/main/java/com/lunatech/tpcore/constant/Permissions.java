@@ -8,6 +8,7 @@ public final class Permissions {
     public static final String TPA_DENY = "tpcore.tpa.deny";
     public static final String TPA_CANCEL = "tpcore.tpa.cancel";
     public static final String TPA_TOGGLE = "tpcore.tpa.toggle";
+    public static final String TPA_PLAYER = "tpcore.tpa.player";
     public static final String TPA_ALL = "tpcore.tpa.all";
     public static final String TPA_ADMIN = "tpcore.tpa.admin";
     public static final String TPA_BYPASS_WARMUP = "tpcore.tpa.bypass.warmup";

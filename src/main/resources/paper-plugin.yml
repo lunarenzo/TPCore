@@ -5,3 +5,23 @@ api-version: '1.20'
 author: lunarenzo
 description: High-performance, modular teleportation plugin for PaperMC and Folia.
 folia-supported: true
+
+permissions:
+  tpcore.tpa.player:
+    description: Grants default TPA permissions for non-op players (use, here, accept, deny, cancel, toggle)
+    default: true
+    children:
+      tpcore.tpa.use: true
+      tpcore.tpa.here: true
+      tpcore.tpa.accept: true
+      tpcore.tpa.deny: true
+      tpcore.tpa.cancel: true
+      tpcore.tpa.toggle: true
+
+  tpcore.tpa.admin:
+    description: Grants administrative TPA permissions (bulk selectors, warmup bypass, admin commands)
+    default: op
+    children:
+      tpcore.tpa.player: true
+      tpcore.tpa.all: true
+      tpcore.tpa.bypass.warmup: true
