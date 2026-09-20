@@ -9,6 +9,8 @@ import com.lunatech.tpcore.config.model.TpaConfig;
 import com.lunatech.tpcore.config.model.WarpConfig;
 import com.lunatech.tpcore.module.back.BackModule;
 import com.lunatech.tpcore.module.home.HomeModule;
+import com.lunatech.tpcore.module.pwarp.PwarpModule;
+import com.lunatech.tpcore.module.pwarp.config.PwarpConfig;
 import com.lunatech.tpcore.module.rtp.RtpModule;
 import com.lunatech.tpcore.module.spawn.SpawnModule;
 import com.lunatech.tpcore.module.tpa.TpaModule;
@@ -25,6 +27,7 @@ public final class TPCore extends JavaPlugin {
     private WarpModule warpModule;
     private BackModule backModule;
     private RtpModule rtpModule;
+    private PwarpModule pwarpModule;
     private TPCoreAdminCommandRegistry adminCommandRegistry;
 
     @Override
@@ -62,6 +65,10 @@ public final class TPCore extends JavaPlugin {
         this.rtpModule = new RtpModule(this, this.configManager);
         this.rtpModule.enable();
 
+        PwarpConfig pwarpConfig = this.configManager.loadModuleConfig("pwarp", PwarpConfig.class, PwarpConfig.createDefault());
+        this.pwarpModule = new PwarpModule(this, this.configManager, pwarpConfig);
+        this.pwarpModule.enable();
+
         this.adminCommandRegistry = new TPCoreAdminCommandRegistry(this, this.configManager, this.configManager::getCoreConfig);
         this.adminCommandRegistry.registerAll();
 
@@ -70,6 +77,9 @@ public final class TPCore extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        if (this.pwarpModule != null) {
+            this.pwarpModule.disable();
+        }
         if (this.rtpModule != null) {
             this.rtpModule.disable();
         }
