@@ -1,0 +1,39 @@
+package com.lunatech.tpcore.module.pwarp.service;
+
+import com.lunatech.tpcore.module.pwarp.model.Pwarp;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import org.bukkit.entity.Player;
+
+public interface PwarpService {
+
+    CompletableFuture<Void> initialize();
+
+    CompletableFuture<Boolean> setWarp(Player player, String name, String description);
+
+    CompletableFuture<Boolean> deleteWarp(Player player, String name);
+
+    CompletableFuture<Boolean> executeTeleport(Player player, String name);
+
+    CompletableFuture<Boolean> executeTeleport(Player player, Pwarp pwarp);
+
+    Optional<Pwarp> getWarp(String name);
+
+    List<Pwarp> getPublicWarps();
+
+    List<Pwarp> getPlayerWarps(UUID ownerUuid);
+
+    int getMaxWarpLimit(Player player);
+
+    long getRemainingCooldownSeconds(UUID playerUniqueId);
+
+    boolean isWarmingUp(UUID playerUniqueId);
+
+    boolean hasActiveWarmups();
+
+    void cancelWarmup(UUID playerUniqueId);
+
+    void shutdown();
+}

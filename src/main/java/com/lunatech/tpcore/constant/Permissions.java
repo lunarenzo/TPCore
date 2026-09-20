@@ -42,6 +42,13 @@ public final class Permissions {
     public static final String RTP_BYPASS_WARMUP = "tpcore.rtp.bypass.warmup";
     public static final String RTP_BYPASS_COOLDOWN = "tpcore.rtp.bypass.cooldown";
     public static final String RTP_ADMIN = "tpcore.rtp.admin";
+    public static final String PWARP_USE = "tpcore.pwarp.use";
+    public static final String PWARP_SET = "tpcore.pwarp.set";
+    public static final String PWARP_DEL = "tpcore.pwarp.del";
+    public static final String PWARP_LIST = "tpcore.pwarp.list";
+    public static final String PWARP_ADMIN = "tpcore.pwarp.admin";
+    public static final String PWARP_BYPASS_WARMUP = "tpcore.pwarp.bypass.warmup";
+    public static final String PWARP_BYPASS_COOLDOWN = "tpcore.pwarp.bypass.cooldown";
     public static final String ADMIN_RELOAD = "tpcore.admin.reload";
     public static final String ADMIN_MIGRATE = "tpcore.admin.migrate";
 
