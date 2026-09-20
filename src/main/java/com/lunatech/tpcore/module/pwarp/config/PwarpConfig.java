@@ -17,6 +17,9 @@ public record PwarpConfig(
     @Comment("Default icon material for newly created player warps")
     String defaultIconMaterial,
 
+    @Comment("Default fee charged to players when setting a new pwarp")
+    double creationFee,
+
     @Comment("Dynamic pwarp creation limits mapped to permissions (tpcore.pwarp.limit.<key>)")
     Map<String, Integer> warpLimits,
 
@@ -34,6 +37,7 @@ public record PwarpConfig(
         categories = categories != null ? List.copyOf(categories) : List.of();
         worldConfigs = worldConfigs != null ? Map.copyOf(worldConfigs) : Map.of();
         defaultIconMaterial = (defaultIconMaterial != null && !defaultIconMaterial.isBlank()) ? defaultIconMaterial : "OAK_SIGN";
+        creationFee = Math.max(0.0, creationFee);
     }
 
     public static PwarpConfig createDefault() {
@@ -41,6 +45,7 @@ public record PwarpConfig(
             true,
             16,
             "OAK_SIGN",
+            0.0,
             Map.of(
                 "default", 2,
                 "vip", 5,
@@ -80,7 +85,15 @@ public record PwarpConfig(
         String delSuccess,
         String limitReached,
         String cannotUseMounted,
-        String reloadSuccess
+        String reloadSuccess,
+        String insufficientFunds,
+        String creationFeeCharged,
+        String teleportFeeCharged,
+        String priceSetSuccess,
+        String bankBalance,
+        String bankWithdrawSuccess,
+        String bankWithdrawEmpty,
+        String notOwner
     ) {
         public static PwarpMessages createDefault() {
             return new PwarpMessages(
@@ -102,7 +115,15 @@ public record PwarpConfig(
                 "<green>Successfully deleted player warp <yellow><warp></yellow>!</green>",
                 "<red>You have reached your limit of <max> player warps!</red>",
                 "<red>You cannot use player warps while riding a mount or vehicle!</red>",
-                "<green>PlayerWarps module configuration reloaded successfully.</green>"
+                "<green>PlayerWarps module configuration reloaded successfully.</green>",
+                "<red>You need <price> to perform this action!</red>",
+                "<green>Charged <fee> to create player warp <yellow><warp></yellow>!</green>",
+                "<green>Charged <price> to teleport to <yellow><warp></yellow>!</green>",
+                "<green>Set teleport price for <yellow><warp></yellow> to <price>!</green>",
+                "<green>Bank balance for player warp <yellow><warp></yellow>: <gold><amount></gold></green>",
+                "<green>Withdrew <amount> from warp <yellow><warp></yellow> bank balance into your wallet!</green>",
+                "<red>Warp <yellow><warp></yellow> bank balance is empty!</red>",
+                "<red>You are not the owner of player warp '<warp>'!</red>"
             );
         }
     }

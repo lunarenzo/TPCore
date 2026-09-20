@@ -1,5 +1,6 @@
 package com.lunatech.tpcore.module.pwarp.service;
 
+import com.lunatech.tpcore.module.pwarp.config.PwarpConfig;
 import com.lunatech.tpcore.module.pwarp.model.Pwarp;
 import com.lunatech.tpcore.module.pwarp.model.PwarpSorting;
 import java.util.List;
@@ -24,6 +25,10 @@ public interface PwarpService {
 
     CompletableFuture<Boolean> rateWarp(Player player, String name, int stars);
 
+    CompletableFuture<Boolean> setWarpPrice(Player player, String name, double price);
+
+    CompletableFuture<Boolean> withdrawBank(Player player, String name, double amount);
+
     Optional<Pwarp> getWarp(String name);
 
     List<Pwarp> getPublicWarps();
@@ -44,5 +49,5 @@ public interface PwarpService {
 
     void shutdown();
 
-    void updateConfig(com.lunatech.tpcore.module.pwarp.config.PwarpConfig newConfig);
+    void updateConfig(PwarpConfig newConfig);
 }

@@ -4,6 +4,8 @@ import com.lunatech.tpcore.constant.Permissions;
 import com.lunatech.tpcore.module.pwarp.cache.PwarpCache;
 import com.lunatech.tpcore.module.pwarp.config.PwarpConfig;
 import com.lunatech.tpcore.module.pwarp.config.PwarpWorldConfig;
+import com.lunatech.tpcore.module.pwarp.economy.PwarpEconomyService;
+import com.lunatech.tpcore.module.pwarp.economy.impl.VaultPwarpEconomyService;
 import com.lunatech.tpcore.module.pwarp.model.Pwarp;
 import com.lunatech.tpcore.module.pwarp.model.PwarpRating;
 import com.lunatech.tpcore.module.pwarp.model.PwarpSorting;
@@ -25,6 +27,7 @@ import java.util.function.Supplier;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
+import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
@@ -40,6 +43,7 @@ public final class DefaultPwarpService implements PwarpService {
     private final PwarpRepository repository;
     private final PwarpRatingRepository ratingRepository;
     private final PwarpCache cache;
+    private final PwarpEconomyService economyService;
     private final MiniMessage miniMessage = MiniMessage.miniMessage();
 
     private record WarmupSession(ScheduledTask task, CompletableFuture<Boolean> future) {}
@@ -53,7 +57,14 @@ public final class DefaultPwarpService implements PwarpService {
         PwarpRepository repository,
         PwarpCache cache
     ) {
-        this(plugin, configSupplier, repository, new SqlitePwarpRatingRepository(plugin.getDataFolder(), plugin.getSLF4JLogger()), cache);
+        this(
+            plugin,
+            configSupplier,
+            repository,
+            new SqlitePwarpRatingRepository(plugin.getDataFolder(), plugin.getSLF4JLogger()),
+            cache,
+            new VaultPwarpEconomyService(plugin.getSLF4JLogger())
+        );
     }
 
     public DefaultPwarpService(
@@ -63,11 +74,30 @@ public final class DefaultPwarpService implements PwarpService {
         PwarpRatingRepository ratingRepository,
         PwarpCache cache
     ) {
+        this(
+            plugin,
+            configSupplier,
+            repository,
+            ratingRepository,
+            cache,
+            new VaultPwarpEconomyService(plugin.getSLF4JLogger())
+        );
+    }
+
+    public DefaultPwarpService(
+        JavaPlugin plugin,
+        Supplier<PwarpConfig> configSupplier,
+        PwarpRepository repository,
+        PwarpRatingRepository ratingRepository,
+        PwarpCache cache,
+        PwarpEconomyService economyService
+    ) {
         this.plugin = Objects.requireNonNull(plugin, "plugin cannot be null");
         this.configSupplier = Objects.requireNonNull(configSupplier, "configSupplier cannot be null");
         this.repository = Objects.requireNonNull(repository, "repository cannot be null");
         this.ratingRepository = Objects.requireNonNull(ratingRepository, "ratingRepository cannot be null");
         this.cache = Objects.requireNonNull(cache, "cache cannot be null");
+        this.economyService = Objects.requireNonNull(economyService, "economyService cannot be null");
     }
 
     @Override
@@ -111,7 +141,9 @@ public final class DefaultPwarpService implements PwarpService {
                         pwarp.createdAt(),
                         pwarp.visits(),
                         avg,
-                        warpRatings.size()
+                        warpRatings.size(),
+                        pwarp.price(),
+                        pwarp.bank()
                     );
                     this.cache.put(updated);
                 }
@@ -166,6 +198,26 @@ public final class DefaultPwarpService implements PwarpService {
             return CompletableFuture.completedFuture(false);
         }
 
+        double creationFee = config.creationFee();
+        if (creationFee > 0.0 && !player.hasPermission(Permissions.PWARP_ADMIN)) {
+            if (!this.economyService.has(player, creationFee)) {
+                sendMessage(player, config.messages().insufficientFunds(),
+                    Placeholder.parsed("price", this.economyService.format(creationFee))
+                );
+                return CompletableFuture.completedFuture(false);
+            }
+            if (!this.economyService.withdraw(player, creationFee)) {
+                sendMessage(player, config.messages().insufficientFunds(),
+                    Placeholder.parsed("price", this.economyService.format(creationFee))
+                );
+                return CompletableFuture.completedFuture(false);
+            }
+            sendMessage(player, config.messages().creationFeeCharged(),
+                Placeholder.parsed("fee", this.economyService.format(creationFee)),
+                Placeholder.parsed("warp", warpName)
+            );
+        }
+
         Location loc = player.getLocation();
         Pwarp newWarp = new Pwarp(
             0,
@@ -185,7 +237,9 @@ public final class DefaultPwarpService implements PwarpService {
             System.currentTimeMillis(),
             0,
             0.0,
-            0
+            0,
+            0.0,
+            0.0
         );
 
         this.cache.put(newWarp);
@@ -260,56 +314,106 @@ public final class DefaultPwarpService implements PwarpService {
             return CompletableFuture.completedFuture(false);
         }
 
-        World targetWorld = this.plugin.getServer().getWorld(pwarp.worldName());
-        if (targetWorld == null) {
+        World world = this.plugin.getServer().getWorld(pwarp.worldName());
+        if (world == null) {
             sendMessage(player, config.messages().worldNotFound(), Placeholder.unparsed("world", pwarp.worldName()));
             return CompletableFuture.completedFuture(false);
         }
 
-        PwarpWorldConfig worldConfig = config.worldConfigs().get(pwarp.worldName().toLowerCase(Locale.ROOT));
+        PwarpWorldConfig worldConfig = config.worldConfigs().get(world.getName().toLowerCase(Locale.ROOT));
         if (worldConfig != null && !worldConfig.enabled()) {
-            sendMessage(player, config.messages().worldDisabled(), Placeholder.unparsed("world", pwarp.worldName()));
+            sendMessage(player, config.messages().worldDisabled(), Placeholder.unparsed("world", world.getName()));
             return CompletableFuture.completedFuture(false);
         }
 
-        long remainingCd = getRemainingCooldownSeconds(player.getUniqueId());
-        if (remainingCd > 0 && !player.hasPermission(Permissions.PWARP_BYPASS_COOLDOWN)) {
-            sendMessage(player, config.messages().cooldownActive(), Placeholder.unparsed("seconds", String.valueOf(remainingCd)));
-            return CompletableFuture.completedFuture(false);
+        boolean isOwner = pwarp.ownerUuid().equals(player.getUniqueId());
+        boolean bypassPrice = player.hasPermission(Permissions.PWARP_BYPASS_PRICE) || player.hasPermission(Permissions.PWARP_ADMIN);
+
+        if (pwarp.price() > 0.0 && !isOwner && !bypassPrice) {
+            if (!this.economyService.has(player, pwarp.price())) {
+                sendMessage(player, config.messages().insufficientFunds(),
+                    Placeholder.parsed("price", this.economyService.format(pwarp.price()))
+                );
+                return CompletableFuture.completedFuture(false);
+            }
+            if (!this.economyService.withdraw(player, pwarp.price())) {
+                sendMessage(player, config.messages().insufficientFunds(),
+                    Placeholder.parsed("price", this.economyService.format(pwarp.price()))
+                );
+                return CompletableFuture.completedFuture(false);
+            }
+            double newBank = pwarp.bank() + pwarp.price();
+            Pwarp updated = new Pwarp(
+                pwarp.id(), pwarp.ownerUuid(), pwarp.ownerName(), pwarp.name(),
+                pwarp.description(), pwarp.worldName(), pwarp.x(), pwarp.y(), pwarp.z(),
+                pwarp.yaw(), pwarp.pitch(), pwarp.iconMaterial(), pwarp.category(),
+                pwarp.isPrivate(), pwarp.createdAt(), pwarp.visits(), pwarp.averageRating(),
+                pwarp.totalRatings(), pwarp.price(), newBank
+            );
+            this.cache.put(updated);
+            this.repository.updateBank(pwarp.name(), newBank);
+
+            sendMessage(player, config.messages().teleportFeeCharged(),
+                Placeholder.parsed("price", this.economyService.format(pwarp.price())),
+                Placeholder.parsed("warp", pwarp.name())
+            );
         }
 
-        if (isWarmingUp(player.getUniqueId())) {
-            return CompletableFuture.completedFuture(false);
+        long now = System.currentTimeMillis();
+        long cooldownSec = worldConfig != null ? worldConfig.cooldownSeconds() : 0;
+        boolean bypassCooldown = player.hasPermission(Permissions.PWARP_BYPASS_COOLDOWN) || player.hasPermission(Permissions.PWARP_ADMIN);
+
+        if (cooldownSec > 0 && !bypassCooldown) {
+            Long lastUse = this.cooldownMap.get(player.getUniqueId());
+            if (lastUse != null) {
+                long elapsedSec = (now - lastUse) / 1000;
+                if (elapsedSec < cooldownSec) {
+                    long remaining = cooldownSec - elapsedSec;
+                    sendMessage(player, config.messages().cooldownActive(), Placeholder.unparsed("seconds", String.valueOf(remaining)));
+                    return CompletableFuture.completedFuture(false);
+                }
+            }
         }
 
-        int warmupSec = worldConfig != null ? worldConfig.warmupSeconds() : 3;
-        if (player.hasPermission(Permissions.PWARP_BYPASS_WARMUP)) {
-            warmupSec = 0;
+        long warmupSec = worldConfig != null ? worldConfig.warmupSeconds() : 0;
+        boolean bypassWarmup = player.hasPermission(Permissions.PWARP_BYPASS_WARMUP) || player.hasPermission(Permissions.PWARP_ADMIN);
+
+        Location targetLoc = new Location(world, pwarp.x(), pwarp.y(), pwarp.z(), pwarp.yaw(), pwarp.pitch());
+
+        if (warmupSec <= 0 || bypassWarmup) {
+            return performTeleport(player, targetLoc, pwarp.name(), cooldownSec);
         }
 
-        if (warmupSec <= 0) {
-            return performTeleportNow(player, pwarp, targetWorld, worldConfig);
-        }
-
-        sendMessage(
-            player,
-            config.messages().warmupStarted(),
-            Placeholder.unparsed("warp", pwarp.name()),
-            Placeholder.unparsed("seconds", String.valueOf(warmupSec))
-        );
+        cancelWarmup(player.getUniqueId());
+        sendMessage(player, config.messages().warmupStarted(), Placeholder.unparsed("warp", pwarp.name()), Placeholder.unparsed("seconds", String.valueOf(warmupSec)));
 
         CompletableFuture<Boolean> future = new CompletableFuture<>();
         ScheduledTask task = player.getScheduler().runDelayed(
             this.plugin,
-            t -> {
+            scheduledTask -> {
                 this.warmupTasks.remove(player.getUniqueId());
-                performTeleportNow(player, pwarp, targetWorld, worldConfig).thenAccept(future::complete);
+                performTeleport(player, targetLoc, pwarp.name(), cooldownSec).whenComplete((res, ex) -> {
+                    if (ex != null) {
+                        future.completeExceptionally(ex);
+                    } else {
+                        future.complete(res);
+                    }
+                });
             },
-            () -> future.complete(false),
+            () -> {
+                this.warmupTasks.remove(player.getUniqueId());
+                sendMessage(player, config.messages().warmupCancelled());
+                future.complete(false);
+            },
             warmupSec * 20L
         );
 
-        this.warmupTasks.put(player.getUniqueId(), new WarmupSession(task, future));
+        if (task != null) {
+            this.warmupTasks.put(player.getUniqueId(), new WarmupSession(task, future));
+        } else {
+            future.complete(false);
+        }
+
         return future;
     }
 
@@ -319,163 +423,182 @@ public final class DefaultPwarpService implements PwarpService {
             return CompletableFuture.completedFuture(false);
         }
 
-        if (stars < 1 || stars > 5) {
+        int cleanStars = Math.max(1, Math.min(5, stars));
+        String warpName = name != null ? name.trim() : "";
+        Optional<Pwarp> pwarpOpt = getWarp(warpName);
+
+        if (pwarpOpt.isEmpty()) {
+            sendMessage(player, this.configSupplier.get().messages().warpNotFound(), Placeholder.unparsed("warp", warpName));
             return CompletableFuture.completedFuture(false);
         }
 
-        Optional<Pwarp> optWarp = getWarp(name);
-        if (optWarp.isEmpty()) {
-            sendMessage(player, this.configSupplier.get().messages().warpNotFound(), Placeholder.unparsed("warp", name != null ? name : ""));
-            return CompletableFuture.completedFuture(false);
-        }
+        Pwarp pwarp = pwarpOpt.get();
+        UUID playerUuid = player.getUniqueId();
 
-        Pwarp pwarp = optWarp.get();
-        return this.ratingRepository.saveRating(pwarp.id(), player.getUniqueId(), stars).thenCompose(v -> {
-            return this.ratingRepository.getRatingsForWarp(pwarp.id()).thenApply(ratings -> {
-                double avg = 0.0;
-                if (!ratings.isEmpty()) {
+        return this.ratingRepository.getRating(pwarp.id(), playerUuid).thenCompose(existingOpt -> {
+            return this.ratingRepository.saveRating(pwarp.id(), playerUuid, cleanStars).thenCompose(v -> {
+                return this.ratingRepository.getRatingsForWarp(pwarp.id()).thenApply(ratings -> {
                     double sum = 0.0;
                     for (PwarpRating r : ratings) {
                         sum += r.stars();
                     }
-                    avg = sum / ratings.size();
-                }
+                    double avg = ratings.isEmpty() ? 0.0 : sum / ratings.size();
 
-                Pwarp updated = new Pwarp(
-                    pwarp.id(),
-                    pwarp.ownerUuid(),
-                    pwarp.ownerName(),
-                    pwarp.name(),
-                    pwarp.description(),
-                    pwarp.worldName(),
-                    pwarp.x(),
-                    pwarp.y(),
-                    pwarp.z(),
-                    pwarp.yaw(),
-                    pwarp.pitch(),
-                    pwarp.iconMaterial(),
-                    pwarp.category(),
-                    pwarp.isPrivate(),
-                    pwarp.createdAt(),
-                    pwarp.visits(),
-                    avg,
-                    ratings.size()
-                );
-                this.cache.put(updated);
-
-                sendMessage(
-                    player,
-                    "<green>Rated warp <yellow><warp></yellow> <gold><stars>★</gold>!</green>",
-                    Placeholder.unparsed("warp", pwarp.name()),
-                    Placeholder.unparsed("stars", String.valueOf(stars))
-                );
-                return true;
+                    Pwarp updated = new Pwarp(
+                        pwarp.id(),
+                        pwarp.ownerUuid(),
+                        pwarp.ownerName(),
+                        pwarp.name(),
+                        pwarp.description(),
+                        pwarp.worldName(),
+                        pwarp.x(),
+                        pwarp.y(),
+                        pwarp.z(),
+                        pwarp.yaw(),
+                        pwarp.pitch(),
+                        pwarp.iconMaterial(),
+                        pwarp.category(),
+                        pwarp.isPrivate(),
+                        pwarp.createdAt(),
+                        pwarp.visits(),
+                        avg,
+                        ratings.size(),
+                        pwarp.price(),
+                        pwarp.bank()
+                    );
+                    this.cache.put(updated);
+                    return true;
+                });
             });
         });
     }
 
-    private CompletableFuture<Boolean> performTeleportNow(Player player, Pwarp pwarp, World targetWorld, PwarpWorldConfig worldConfig) {
-        Location dest = new Location(targetWorld, pwarp.x(), pwarp.y(), pwarp.z(), pwarp.yaw(), pwarp.pitch());
+    @Override
+    public CompletableFuture<Boolean> setWarpPrice(Player player, String name, double price) {
+        if (player == null || !player.isOnline()) {
+            return CompletableFuture.completedFuture(false);
+        }
 
-        return CompletableFuture.supplyAsync(() -> {
-            return isLocationSafe(targetWorld, pwarp.x(), pwarp.y(), pwarp.z());
-        }).thenCompose(safe -> {
-            if (!safe) {
-                sendMessage(player, this.configSupplier.get().messages().searchFailed());
-                return CompletableFuture.completedFuture(false);
-            }
+        PwarpConfig config = this.configSupplier.get();
+        String warpName = name != null ? name.trim() : "";
+        Optional<Pwarp> existing = this.cache.getByName(warpName);
 
-            CompletableFuture<Boolean> future = new CompletableFuture<>();
-            player.getScheduler().run(
-                this.plugin,
-                t -> {
-                    if (!player.isOnline()) {
-                        future.complete(false);
-                        return;
-                    }
+        if (existing.isEmpty()) {
+            sendMessage(player, config.messages().warpNotFound(), Placeholder.unparsed("warp", warpName));
+            return CompletableFuture.completedFuture(false);
+        }
 
-                    player.teleportAsync(dest, TeleportCause.PLUGIN).thenAccept(success -> {
-                        if (success) {
-                            int cooldownSec = worldConfig != null ? worldConfig.cooldownSeconds() : 10;
-                            if (cooldownSec > 0) {
-                                this.cooldownMap.put(
-                                    player.getUniqueId(),
-                                    System.currentTimeMillis() + (cooldownSec * 1000L)
-                                );
-                            }
+        Pwarp warp = existing.get();
+        boolean isOwner = warp.ownerUuid().equals(player.getUniqueId());
+        boolean hasAdmin = player.hasPermission(Permissions.PWARP_ADMIN);
 
-                            Pwarp updated = new Pwarp(
-                                pwarp.id(),
-                                pwarp.ownerUuid(),
-                                pwarp.ownerName(),
-                                pwarp.name(),
-                                pwarp.description(),
-                                pwarp.worldName(),
-                                pwarp.x(),
-                                pwarp.y(),
-                                pwarp.z(),
-                                pwarp.yaw(),
-                                pwarp.pitch(),
-                                pwarp.iconMaterial(),
-                                pwarp.category(),
-                                pwarp.isPrivate(),
-                                pwarp.createdAt(),
-                                pwarp.visits() + 1,
-                                pwarp.averageRating(),
-                                pwarp.totalRatings()
-                            );
-                            this.cache.put(updated);
-                            this.repository.incrementVisits(pwarp.name());
+        if (!isOwner && !hasAdmin) {
+            sendMessage(player, config.messages().notOwner(), Placeholder.unparsed("warp", warpName));
+            return CompletableFuture.completedFuture(false);
+        }
 
-                            sendMessage(
-                                player,
-                                this.configSupplier.get().messages().teleportSuccess(),
-                                Placeholder.unparsed("warp", pwarp.name())
-                            );
-                        } else {
-                            sendMessage(player, this.configSupplier.get().messages().teleportFailed());
-                        }
-                        future.complete(success);
-                    });
-                },
-                null
+        double cleanPrice = Math.max(0.0, price);
+        Pwarp updated = new Pwarp(
+            warp.id(), warp.ownerUuid(), warp.ownerName(), warp.name(),
+            warp.description(), warp.worldName(), warp.x(), warp.y(), warp.z(),
+            warp.yaw(), warp.pitch(), warp.iconMaterial(), warp.category(),
+            warp.isPrivate(), warp.createdAt(), warp.visits(), warp.averageRating(),
+            warp.totalRatings(), cleanPrice, warp.bank()
+        );
+        this.cache.put(updated);
+
+        return this.repository.updatePrice(warp.name(), cleanPrice).thenApply(v -> {
+            sendMessage(player, config.messages().priceSetSuccess(),
+                Placeholder.unparsed("warp", warp.name()),
+                Placeholder.parsed("price", this.economyService.format(cleanPrice))
             );
-
-            return future;
-        }).exceptionally(ex -> {
-            sendMessage(player, this.configSupplier.get().messages().teleportFailed());
-            return false;
+            return true;
         });
     }
 
-    private boolean isLocationSafe(World world, double x, double y, double z) {
-        int bx = (int) Math.floor(x);
-        int by = (int) Math.floor(y);
-        int bz = (int) Math.floor(z);
-
-        if (by < world.getMinHeight() || by >= world.getMaxHeight() - 2) {
-            return false;
+    @Override
+    public CompletableFuture<Boolean> withdrawBank(Player player, String name, double amount) {
+        if (player == null || !player.isOnline()) {
+            return CompletableFuture.completedFuture(false);
         }
 
-        Material standOn = world.getBlockAt(bx, by - 1, bz).getType();
-        Material feet = world.getBlockAt(bx, by, bz).getType();
-        Material head = world.getBlockAt(bx, by + 1, bz).getType();
+        PwarpConfig config = this.configSupplier.get();
+        String warpName = name != null ? name.trim() : "";
+        Optional<Pwarp> existing = this.cache.getByName(warpName);
 
-        if (standOn == Material.BEDROCK || isHazard(standOn) || !isPassable(feet) || !isPassable(head)) {
-            return false;
+        if (existing.isEmpty()) {
+            sendMessage(player, config.messages().warpNotFound(), Placeholder.unparsed("warp", warpName));
+            return CompletableFuture.completedFuture(false);
         }
-        return true;
+
+        Pwarp warp = existing.get();
+        boolean isOwner = warp.ownerUuid().equals(player.getUniqueId());
+        boolean hasAdmin = player.hasPermission(Permissions.PWARP_ADMIN);
+
+        if (!isOwner && !hasAdmin) {
+            sendMessage(player, config.messages().notOwner(), Placeholder.unparsed("warp", warpName));
+            return CompletableFuture.completedFuture(false);
+        }
+
+        if (warp.bank() <= 0.0) {
+            sendMessage(player, config.messages().bankWithdrawEmpty(), Placeholder.unparsed("warp", warp.name()));
+            return CompletableFuture.completedFuture(false);
+        }
+
+        double withdrawAmount = (amount <= 0.0 || amount > warp.bank()) ? warp.bank() : amount;
+        double newBank = warp.bank() - withdrawAmount;
+
+        Pwarp updated = new Pwarp(
+            warp.id(), warp.ownerUuid(), warp.ownerName(), warp.name(),
+            warp.description(), warp.worldName(), warp.x(), warp.y(), warp.z(),
+            warp.yaw(), warp.pitch(), warp.iconMaterial(), warp.category(),
+            warp.isPrivate(), warp.createdAt(), warp.visits(), warp.averageRating(),
+            warp.totalRatings(), warp.price(), newBank
+        );
+        this.cache.put(updated);
+
+        this.economyService.deposit(player, withdrawAmount);
+
+        return this.repository.updateBank(warp.name(), newBank).thenApply(v -> {
+            sendMessage(player, config.messages().bankWithdrawSuccess(),
+                Placeholder.unparsed("warp", warp.name()),
+                Placeholder.parsed("amount", this.economyService.format(withdrawAmount))
+            );
+            return true;
+        });
     }
 
-    private boolean isHazard(Material material) {
-        if (material == null || material.isAir()) return true;
-        return material == Material.LAVA || material == Material.FIRE || material == Material.SOUL_FIRE ||
-               material == Material.MAGMA_BLOCK || material == Material.SWEET_BERRY_BUSH || material == Material.WITHER_ROSE;
-    }
-
-    private boolean isPassable(Material material) {
-        if (material == null) return false;
-        return material.isAir() || material == Material.WATER || material == Material.SHORT_GRASS || material == Material.TALL_GRASS;
+    private CompletableFuture<Boolean> performTeleport(Player player, Location targetLoc, String warpName, long cooldownSec) {
+        CompletableFuture<Boolean> future = new CompletableFuture<>();
+        player.getScheduler().run(this.plugin, task -> {
+            try {
+                boolean success = player.teleport(targetLoc, TeleportCause.PLUGIN);
+                if (success) {
+                    if (cooldownSec > 0) {
+                        this.cooldownMap.put(player.getUniqueId(), System.currentTimeMillis());
+                    }
+                    getWarp(warpName).ifPresent(w -> {
+                        Pwarp updatedVisits = new Pwarp(
+                            w.id(), w.ownerUuid(), w.ownerName(), w.name(), w.description(),
+                            w.worldName(), w.x(), w.y(), w.z(), w.yaw(), w.pitch(),
+                            w.iconMaterial(), w.category(), w.isPrivate(), w.createdAt(),
+                            w.visits() + 1, w.averageRating(), w.totalRatings(), w.price(), w.bank()
+                        );
+                        this.cache.put(updatedVisits);
+                    });
+                    this.repository.incrementVisits(warpName);
+                    sendMessage(player, this.configSupplier.get().messages().teleportSuccess(), Placeholder.unparsed("warp", warpName));
+                    future.complete(true);
+                } else {
+                    sendMessage(player, this.configSupplier.get().messages().teleportFailed());
+                    future.complete(false);
+                }
+            } catch (Exception e) {
+                this.plugin.getSLF4JLogger().error("Failed to teleport player {} to pwarp {}", player.getName(), warpName, e);
+                future.complete(false);
+            }
+        }, null);
+        return future;
     }
 
     @Override
@@ -498,54 +621,60 @@ public final class DefaultPwarpService implements PwarpService {
 
     @Override
     public List<Pwarp> getPlayerWarps(UUID ownerUuid) {
+        if (ownerUuid == null) {
+            return List.of();
+        }
         return this.cache.getByOwner(ownerUuid);
     }
 
     @Override
     public int getMaxWarpLimit(Player player) {
-        if (player == null) return 2;
-        if (player.hasPermission(Permissions.PWARP_ADMIN)) return 999;
+        if (player == null) {
+            return 0;
+        }
+        if (player.hasPermission(Permissions.PWARP_ADMIN)) {
+            return 999;
+        }
 
         PwarpConfig config = this.configSupplier.get();
-        int highestLimit = 0;
+        int highestLimit = config.warpLimits().getOrDefault("default", 2);
 
-        for (PermissionAttachmentInfo info : player.getEffectivePermissions()) {
-            String perm = info.getPermission().toLowerCase(Locale.ROOT);
-            if (perm.startsWith("tpcore.pwarp.limit.")) {
-                String limitKey = perm.substring("tpcore.pwarp.limit.".length());
-                Integer limit = config.warpLimits().get(limitKey);
+        for (PermissionAttachmentInfo pai : player.getEffectivePermissions()) {
+            String perm = pai.getPermission().toLowerCase(Locale.ROOT);
+            if (perm.startsWith("tpcore.pwarp.limit.") && pai.getValue()) {
+                String key = perm.substring("tpcore.pwarp.limit.".length());
+                Integer limit = config.warpLimits().get(key);
                 if (limit != null && limit > highestLimit) {
                     highestLimit = limit;
                 }
             }
         }
-
-        if (highestLimit > 0) {
-            return highestLimit;
-        }
-
-        Integer defaultLimit = config.warpLimits().get("default");
-        return defaultLimit != null ? defaultLimit : 2;
+        return highestLimit;
     }
 
     @Override
     public long getRemainingCooldownSeconds(UUID playerUniqueId) {
-        Long expireTime = this.cooldownMap.get(playerUniqueId);
-        if (expireTime == null) {
+        if (playerUniqueId == null) {
             return 0;
         }
-        long remainingMillis = expireTime - System.currentTimeMillis();
-        if (remainingMillis <= 0) {
-            this.cooldownMap.remove(playerUniqueId);
+        Long lastUse = this.cooldownMap.get(playerUniqueId);
+        if (lastUse == null) {
             return 0;
         }
-        return (remainingMillis + 999L) / 1000L;
+        long elapsedSec = (System.currentTimeMillis() - lastUse) / 1000;
+        long cooldownSec = this.configSupplier.get().worldConfigs().values().stream()
+            .mapToLong(PwarpWorldConfig::cooldownSeconds)
+            .max().orElse(0);
+
+        return Math.max(0, cooldownSec - elapsedSec);
     }
 
     @Override
     public boolean isWarmingUp(UUID playerUniqueId) {
-        WarmupSession session = this.warmupTasks.get(playerUniqueId);
-        return session != null && session.task() != null && !session.task().isCancelled();
+        if (playerUniqueId == null) {
+            return false;
+        }
+        return this.warmupTasks.containsKey(playerUniqueId);
     }
 
     @Override
@@ -555,47 +684,36 @@ public final class DefaultPwarpService implements PwarpService {
 
     @Override
     public void cancelWarmup(UUID playerUniqueId) {
-        WarmupSession session = this.warmupTasks.remove(playerUniqueId);
-        if (session != null) {
-            if (session.task() != null) {
-                session.task().cancel();
-            }
-            if (session.future() != null) {
-                session.future().complete(false);
-            }
-            Player player = this.plugin.getServer().getPlayer(playerUniqueId);
-            if (player != null && player.isOnline()) {
-                sendMessage(player, this.configSupplier.get().messages().warmupCancelled());
-            }
+        if (playerUniqueId == null) {
+            return;
         }
-    }
-
-    @Override
-    public void updateConfig(PwarpConfig newConfig) {
-        // Dynamic config refresh
+        WarmupSession session = this.warmupTasks.remove(playerUniqueId);
+        if (session != null && session.task() != null) {
+            session.task().cancel();
+            session.future().complete(false);
+        }
     }
 
     @Override
     public void shutdown() {
-        this.warmupTasks.values().forEach(session -> {
-            if (session.task() != null) session.task().cancel();
-            if (session.future() != null) session.future().complete(false);
-        });
-        this.warmupTasks.clear();
+        for (UUID uuid : new ArrayList<>(this.warmupTasks.keySet())) {
+            cancelWarmup(uuid);
+        }
         this.cooldownMap.clear();
-        this.cache.clear();
-        this.ratingRepository.close().join();
+        this.ratingRepository.close();
     }
 
-    private void sendMessage(Player player, String messageFormat, net.kyori.adventure.text.minimessage.tag.resolver.TagResolver... resolvers) {
-        if (player == null || !player.isOnline()) {
+    @Override
+    public void updateConfig(PwarpConfig newConfig) {
+        // Dynamic reload hook if needed
+    }
+
+    private void sendMessage(Player player, String messageFormat, TagResolver... resolvers) {
+        if (player == null || !player.isOnline() || messageFormat == null || messageFormat.isBlank()) {
             return;
         }
-        if (messageFormat == null || messageFormat.isBlank()) {
-            return;
-        }
-        String prefix = this.configSupplier.get().messages().prefix();
-        Component messageComponent = this.miniMessage.deserialize(prefix + messageFormat, resolvers);
-        player.sendMessage(messageComponent);
+        String fullMsg = this.configSupplier.get().messages().prefix() + messageFormat;
+        Component component = this.miniMessage.deserialize(fullMsg, resolvers);
+        player.sendMessage(component);
     }
 }

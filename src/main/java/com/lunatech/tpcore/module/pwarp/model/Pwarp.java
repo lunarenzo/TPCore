@@ -25,14 +25,25 @@ public record Pwarp(
     long createdAt,
     long visits,
     double averageRating,
-    int totalRatings
+    int totalRatings,
+    double price,
+    double bank
 ) {
     public Pwarp(
         int id, UUID ownerUuid, String ownerName, String name, String description,
         String worldName, double x, double y, double z, float yaw, float pitch,
         String iconMaterial, String category, boolean isPrivate, long createdAt, long visits
     ) {
-        this(id, ownerUuid, ownerName, name, description, worldName, x, y, z, yaw, pitch, iconMaterial, category, isPrivate, createdAt, visits, 0.0, 0);
+        this(id, ownerUuid, ownerName, name, description, worldName, x, y, z, yaw, pitch, iconMaterial, category, isPrivate, createdAt, visits, 0.0, 0, 0.0, 0.0);
+    }
+
+    public Pwarp(
+        int id, UUID ownerUuid, String ownerName, String name, String description,
+        String worldName, double x, double y, double z, float yaw, float pitch,
+        String iconMaterial, String category, boolean isPrivate, long createdAt, long visits,
+        double averageRating, int totalRatings
+    ) {
+        this(id, ownerUuid, ownerName, name, description, worldName, x, y, z, yaw, pitch, iconMaterial, category, isPrivate, createdAt, visits, averageRating, totalRatings, 0.0, 0.0);
     }
 
     public Pwarp {
@@ -45,5 +56,7 @@ public record Pwarp(
         description = (description != null) ? description : "";
         averageRating = Math.max(0.0, Math.min(5.0, averageRating));
         totalRatings = Math.max(0, totalRatings);
+        price = Math.max(0.0, price);
+        bank = Math.max(0.0, bank);
     }
 }

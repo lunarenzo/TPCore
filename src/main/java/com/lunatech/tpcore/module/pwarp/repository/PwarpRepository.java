@@ -22,5 +22,9 @@ public interface PwarpRepository {
 
     CompletableFuture<Void> incrementVisits(String name);
 
+    CompletableFuture<Void> updatePrice(String name, double price);
+
+    CompletableFuture<Void> updateBank(String name, double bank);
+
     CompletableFuture<Void> close();
 }

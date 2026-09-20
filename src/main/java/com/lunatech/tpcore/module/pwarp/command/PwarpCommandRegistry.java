@@ -6,21 +6,22 @@ import com.lunatech.tpcore.module.pwarp.gui.PwarpGuiManager;
 import com.lunatech.tpcore.module.pwarp.model.Pwarp;
 import com.lunatech.tpcore.module.pwarp.model.PwarpCategory;
 import com.lunatech.tpcore.module.pwarp.service.PwarpService;
+import com.mojang.brigadier.arguments.DoubleArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
 import io.papermc.paper.command.brigadier.Commands;
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
-import net.kyori.adventure.text.minimessage.MiniMessage;
-import org.bukkit.command.CommandSender;
-import org.bukkit.entity.Player;
-import org.bukkit.plugin.java.JavaPlugin;
-
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Supplier;
+import net.kyori.adventure.text.minimessage.MiniMessage;
+import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
+import org.bukkit.command.CommandSender;
+import org.bukkit.entity.Player;
+import org.bukkit.plugin.java.JavaPlugin;
 
 /**
  * Brigadier Command Suite for the PlayerWarps module (/pwarp, /setpwarp, /delpwarp, /pwarps).
@@ -127,6 +128,43 @@ public final class PwarpCommandRegistry {
                                     StringArgumentType.getString(ctx, "name"),
                                     IntegerArgumentType.getInteger(ctx, "stars")
                                 ))
+                            )
+                        )
+                    )
+                    .then(Commands.literal("setprice")
+                        .requires(src -> src.getSender().hasPermission(Permissions.PWARP_SETPRICE))
+                        .then(Commands.argument("name", StringArgumentType.word())
+                            .suggests(ownedWarpSuggestions)
+                            .then(Commands.argument("price", DoubleArgumentType.doubleArg(0.0))
+                                .executes(ctx -> handleSetPriceCommand(
+                                    ctx.getSource().getSender(),
+                                    StringArgumentType.getString(ctx, "name"),
+                                    DoubleArgumentType.getDouble(ctx, "price")
+                                ))
+                            )
+                        )
+                    )
+                    .then(Commands.literal("bank")
+                        .requires(src -> src.getSender().hasPermission(Permissions.PWARP_BANK))
+                        .then(Commands.argument("name", StringArgumentType.word())
+                            .suggests(ownedWarpSuggestions)
+                            .executes(ctx -> handleBankInfoCommand(
+                                ctx.getSource().getSender(),
+                                StringArgumentType.getString(ctx, "name")
+                            ))
+                            .then(Commands.literal("withdraw")
+                                .executes(ctx -> handleBankWithdrawCommand(
+                                    ctx.getSource().getSender(),
+                                    StringArgumentType.getString(ctx, "name"),
+                                    0.0
+                                ))
+                                .then(Commands.argument("amount", DoubleArgumentType.doubleArg(0.0))
+                                    .executes(ctx -> handleBankWithdrawCommand(
+                                        ctx.getSource().getSender(),
+                                        StringArgumentType.getString(ctx, "name"),
+                                        DoubleArgumentType.getDouble(ctx, "amount")
+                                    ))
+                                )
                             )
                         )
                     )
@@ -323,6 +361,66 @@ public final class PwarpCommandRegistry {
         return com.mojang.brigadier.Command.SINGLE_SUCCESS;
     }
 
+    private int handleSetPriceCommand(CommandSender sender, String warpName, double price) {
+        if (!configSupplier.get().enabled()) {
+            sendConfigMessage(sender, configSupplier.get().messages().disabled());
+            return 0;
+        }
+
+        if (!(sender instanceof Player player)) {
+            sendConfigMessage(sender, configSupplier.get().messages().onlyPlayers());
+            return 0;
+        }
+
+        this.pwarpService.setWarpPrice(player, warpName, price);
+        return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+    }
+
+    private int handleBankInfoCommand(CommandSender sender, String warpName) {
+        if (!configSupplier.get().enabled()) {
+            sendConfigMessage(sender, configSupplier.get().messages().disabled());
+            return 0;
+        }
+
+        if (!(sender instanceof Player player)) {
+            sendConfigMessage(sender, configSupplier.get().messages().onlyPlayers());
+            return 0;
+        }
+
+        Optional<Pwarp> warpOpt = this.pwarpService.getWarp(warpName);
+        if (warpOpt.isEmpty()) {
+            sendConfigMessage(sender, configSupplier.get().messages().warpNotFound(), Placeholder.unparsed("warp", warpName));
+            return 0;
+        }
+
+        Pwarp warp = warpOpt.get();
+        if (!warp.ownerUuid().equals(player.getUniqueId()) && !player.hasPermission(Permissions.PWARP_ADMIN)) {
+            sendConfigMessage(sender, configSupplier.get().messages().notOwner(), Placeholder.unparsed("warp", warpName));
+            return 0;
+        }
+
+        sendConfigMessage(sender, configSupplier.get().messages().bankBalance(),
+            Placeholder.unparsed("warp", warp.name()),
+            Placeholder.parsed("amount", String.format("$%.2f", warp.bank()))
+        );
+        return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+    }
+
+    private int handleBankWithdrawCommand(CommandSender sender, String warpName, double amount) {
+        if (!configSupplier.get().enabled()) {
+            sendConfigMessage(sender, configSupplier.get().messages().disabled());
+            return 0;
+        }
+
+        if (!(sender instanceof Player player)) {
+            sendConfigMessage(sender, configSupplier.get().messages().onlyPlayers());
+            return 0;
+        }
+
+        this.pwarpService.withdrawBank(player, warpName, amount);
+        return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+    }
+
     private int handleSetCommand(CommandSender sender, String warpName, String category, String description) {
         if (!configSupplier.get().enabled()) {
             sendConfigMessage(sender, configSupplier.get().messages().disabled());
@@ -363,11 +461,11 @@ public final class PwarpCommandRegistry {
         return com.mojang.brigadier.Command.SINGLE_SUCCESS;
     }
 
-    private void sendConfigMessage(CommandSender sender, String messageKey) {
+    private void sendConfigMessage(CommandSender sender, String messageKey, net.kyori.adventure.text.minimessage.tag.resolver.TagResolver... resolvers) {
         if (messageKey == null || messageKey.isBlank()) {
             return;
         }
         String prefix = configSupplier.get().messages().prefix();
-        sender.sendMessage(this.miniMessage.deserialize(prefix + messageKey));
+        sender.sendMessage(this.miniMessage.deserialize(prefix + messageKey, resolvers));
     }
 }

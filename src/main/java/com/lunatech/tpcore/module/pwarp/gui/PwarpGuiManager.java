@@ -202,6 +202,11 @@ public final class PwarpGuiManager implements Listener {
                 lore.add(this.miniMessage.deserialize("<gray>Desc: </gray><white>" + warp.description() + "</white>"));
             }
             lore.add(this.miniMessage.deserialize("<gray>Visits: </gray><green>" + warp.visits() + "</green>"));
+            if (warp.price() > 0.0) {
+                lore.add(this.miniMessage.deserialize("<gray>Fee: </gray><gold>$" + String.format("%.2f", warp.price()) + "</gold>"));
+            } else {
+                lore.add(this.miniMessage.deserialize("<gray>Fee: </gray><green>FREE</green>"));
+            }
             lore.add(Component.empty());
 
             if (isOwnerView) {

@@ -52,7 +52,7 @@ public final class SqlitePwarpRepository implements PwarpRepository {
             }
 
             HikariConfig config = new HikariConfig();
-            config.setPoolName("TPCore-PwarpSQLitePool");
+            config.setPoolName("TPCore-PwarpPool");
             config.setDriverClassName("org.sqlite.JDBC");
             config.setJdbcUrl("jdbc:sqlite:" + dbFile.getAbsolutePath());
             config.setMaximumPoolSize(1);
@@ -82,14 +82,21 @@ public final class SqlitePwarpRepository implements PwarpRepository {
                             category VARCHAR(32) NOT NULL DEFAULT 'general',
                             is_private BOOLEAN NOT NULL DEFAULT 0,
                             created_at BIGINT NOT NULL,
-                            visits BIGINT NOT NULL DEFAULT 0
+                            visits BIGINT NOT NULL DEFAULT 0,
+                            price REAL NOT NULL DEFAULT 0.0,
+                            bank REAL NOT NULL DEFAULT 0.0
                         );
                     """);
                     try {
                         stmt.execute("ALTER TABLE tpcore_pwarps ADD COLUMN category VARCHAR(32) DEFAULT 'general';");
-                    } catch (SQLException ignored) {
-                        // Migration ignored if column exists
-                    }
+                    } catch (SQLException ignored) {}
+                    try {
+                        stmt.execute("ALTER TABLE tpcore_pwarps ADD COLUMN price REAL DEFAULT 0.0;");
+                    } catch (SQLException ignored) {}
+                    try {
+                        stmt.execute("ALTER TABLE tpcore_pwarps ADD COLUMN bank REAL DEFAULT 0.0;");
+                    } catch (SQLException ignored) {}
+
                     stmt.execute("CREATE INDEX IF NOT EXISTS idx_pwarps_owner ON tpcore_pwarps(owner_uuid);");
                     stmt.execute("CREATE INDEX IF NOT EXISTS idx_pwarps_name ON tpcore_pwarps(name);");
                     logger.info("SQLite SqlitePwarpRepository initialized successfully at {}", dbFile.getAbsolutePath());
@@ -109,8 +116,8 @@ public final class SqlitePwarpRepository implements PwarpRepository {
         return CompletableFuture.runAsync(() -> {
             Objects.requireNonNull(pwarp, "pwarp cannot be null");
             String sql = """
-                INSERT INTO tpcore_pwarps (owner_uuid, owner_name, name, description, world_name, x, y, z, yaw, pitch, icon_material, category, is_private, created_at, visits)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO tpcore_pwarps (owner_uuid, owner_name, name, description, world_name, x, y, z, yaw, pitch, icon_material, category, is_private, created_at, visits, price, bank)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(name) DO UPDATE SET
                     owner_name = excluded.owner_name,
                     description = excluded.description,
@@ -123,7 +130,9 @@ public final class SqlitePwarpRepository implements PwarpRepository {
                     icon_material = excluded.icon_material,
                     category = excluded.category,
                     is_private = excluded.is_private,
-                    visits = excluded.visits;
+                    visits = excluded.visits,
+                    price = excluded.price,
+                    bank = excluded.bank;
             """;
             try (Connection conn = dataSource.getConnection();
                  PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -142,6 +151,8 @@ public final class SqlitePwarpRepository implements PwarpRepository {
                 ps.setBoolean(13, pwarp.isPrivate());
                 ps.setLong(14, pwarp.createdAt());
                 ps.setLong(15, pwarp.visits());
+                ps.setDouble(16, pwarp.price());
+                ps.setDouble(17, pwarp.bank());
                 ps.executeUpdate();
             } catch (SQLException e) {
                 logger.error("Failed to save pwarp {}", pwarp.name(), e);
@@ -239,6 +250,38 @@ public final class SqlitePwarpRepository implements PwarpRepository {
     }
 
     @Override
+    public CompletableFuture<Void> updatePrice(String name, double price) {
+        return CompletableFuture.runAsync(() -> {
+            Objects.requireNonNull(name, "name cannot be null");
+            String sql = "UPDATE tpcore_pwarps SET price = ? WHERE LOWER(name) = LOWER(?)";
+            try (Connection conn = dataSource.getConnection();
+                 PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setDouble(1, Math.max(0.0, price));
+                ps.setString(2, name);
+                ps.executeUpdate();
+            } catch (SQLException e) {
+                logger.error("Failed to update price for pwarp {}", name, e);
+            }
+        }, this.virtualExecutor);
+    }
+
+    @Override
+    public CompletableFuture<Void> updateBank(String name, double bank) {
+        return CompletableFuture.runAsync(() -> {
+            Objects.requireNonNull(name, "name cannot be null");
+            String sql = "UPDATE tpcore_pwarps SET bank = ? WHERE LOWER(name) = LOWER(?)";
+            try (Connection conn = dataSource.getConnection();
+                 PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setDouble(1, Math.max(0.0, bank));
+                ps.setString(2, name);
+                ps.executeUpdate();
+            } catch (SQLException e) {
+                logger.error("Failed to update bank balance for pwarp {}", name, e);
+            }
+        }, this.virtualExecutor);
+    }
+
+    @Override
     public CompletableFuture<Void> close() {
         return CompletableFuture.runAsync(() -> {
             if (this.virtualExecutor != null && !this.virtualExecutor.isShutdown()) {
@@ -264,13 +307,23 @@ public final class SqlitePwarpRepository implements PwarpRepository {
             category = rs.getString("category");
         } catch (SQLException ignored) {}
 
+        double price = 0.0;
+        try {
+            price = rs.getDouble("price");
+        } catch (SQLException ignored) {}
+
+        double bank = 0.0;
+        try {
+            bank = rs.getDouble("bank");
+        } catch (SQLException ignored) {}
+
         return new Pwarp(
             rs.getInt("id"),
             UUID.fromString(rs.getString("owner_uuid")),
             rs.getString("owner_name"),
             rs.getString("name"),
             rs.getString("description"),
-            rs.getString("worldName" != null && rs.getMetaData().getColumnCount() > 0 ? "world_name" : "world_name"),
+            rs.getString("world_name"),
             rs.getDouble("x"),
             rs.getDouble("y"),
             rs.getDouble("z"),
@@ -280,7 +333,9 @@ public final class SqlitePwarpRepository implements PwarpRepository {
             (category != null && !category.isBlank()) ? category : "general",
             rs.getBoolean("is_private"),
             rs.getLong("created_at"),
-            rs.getLong("visits")
+            rs.getLong("visits"),
+            0.0, 0,
+            price, bank
         );
     }
 }
