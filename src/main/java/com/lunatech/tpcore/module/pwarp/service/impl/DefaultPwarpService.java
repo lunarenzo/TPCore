@@ -102,7 +102,8 @@ public final class DefaultPwarpService implements PwarpService {
 
     @Override
     public CompletableFuture<Void> initialize() {
-        return this.ratingRepository.initialize()
+        return this.repository.initialize()
+            .thenCompose(v -> this.ratingRepository.initialize())
             .thenCompose(v -> this.repository.loadAllPwarps())
             .thenCompose(warps -> this.ratingRepository.loadAllRatings().thenAccept(ratings -> {
                 this.cache.clear();

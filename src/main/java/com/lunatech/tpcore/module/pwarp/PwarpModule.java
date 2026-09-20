@@ -8,10 +8,13 @@ import com.lunatech.tpcore.module.pwarp.command.PwarpCommandRegistry;
 import com.lunatech.tpcore.module.pwarp.config.PwarpConfig;
 import com.lunatech.tpcore.module.pwarp.gui.PwarpGuiManager;
 import com.lunatech.tpcore.module.pwarp.listener.PwarpEventListener;
+import com.lunatech.tpcore.module.pwarp.repository.PwarpAccessRepository;
 import com.lunatech.tpcore.module.pwarp.repository.PwarpRepository;
+import com.lunatech.tpcore.module.pwarp.repository.impl.SqlitePwarpAccessRepository;
 import com.lunatech.tpcore.module.pwarp.repository.impl.SqlitePwarpRepository;
 import com.lunatech.tpcore.module.pwarp.service.PwarpService;
 import com.lunatech.tpcore.module.pwarp.service.impl.DefaultPwarpService;
+import com.lunatech.tpcore.module.pwarp.util.PwarpInputManager;
 import org.bukkit.event.HandlerList;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -29,6 +32,8 @@ public final class PwarpModule implements ReloadableModule {
     private boolean commandsRegistered = false;
 
     private PwarpRepository repository;
+    private PwarpAccessRepository accessRepository;
+    private PwarpInputManager inputManager;
     private PwarpCache cache;
     private PwarpService service;
     private PwarpGuiManager guiManager;
@@ -79,11 +84,17 @@ public final class PwarpModule implements ReloadableModule {
         }
 
         this.repository = new SqlitePwarpRepository(this.plugin.getDataFolder(), this.plugin.getSLF4JLogger());
+        this.accessRepository = new SqlitePwarpAccessRepository(this.plugin.getDataFolder(), this.plugin.getSLF4JLogger());
+        this.accessRepository.initialize().join();
+
+        this.inputManager = new PwarpInputManager(this.plugin);
+        this.plugin.getServer().getPluginManager().registerEvents(this.inputManager, this.plugin);
+
         this.cache = new DefaultPwarpCache();
         this.service = new DefaultPwarpService(this.plugin, () -> this.config, this.repository, this.cache);
         this.service.initialize().join();
 
-        this.guiManager = new PwarpGuiManager(this.plugin, this.service, () -> this.config);
+        this.guiManager = new PwarpGuiManager(this.plugin, this.service, this.accessRepository, this.inputManager, () -> this.config);
         this.plugin.getServer().getPluginManager().registerEvents(this.guiManager, this.plugin);
 
         this.eventListener = new PwarpEventListener(() -> this.service);
@@ -113,6 +124,16 @@ public final class PwarpModule implements ReloadableModule {
         }
 
         this.configManager.unregisterModule("pwarp");
+
+        if (this.inputManager != null) {
+            HandlerList.unregisterAll(this.inputManager);
+            this.inputManager = null;
+        }
+
+        if (this.accessRepository != null) {
+            this.accessRepository.close();
+            this.accessRepository = null;
+        }
 
         if (this.guiManager != null) {
             HandlerList.unregisterAll(this.guiManager);
