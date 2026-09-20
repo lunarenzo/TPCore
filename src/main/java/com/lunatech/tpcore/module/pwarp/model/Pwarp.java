@@ -27,23 +27,25 @@ public record Pwarp(
     double averageRating,
     int totalRatings,
     double price,
-    double bank
+    double bank,
+    PwarpAccessType accessType,
+    String password
 ) {
     public Pwarp(
         int id, UUID ownerUuid, String ownerName, String name, String description,
         String worldName, double x, double y, double z, float yaw, float pitch,
         String iconMaterial, String category, boolean isPrivate, long createdAt, long visits
     ) {
-        this(id, ownerUuid, ownerName, name, description, worldName, x, y, z, yaw, pitch, iconMaterial, category, isPrivate, createdAt, visits, 0.0, 0, 0.0, 0.0);
+        this(id, ownerUuid, ownerName, name, description, worldName, x, y, z, yaw, pitch, iconMaterial, category, isPrivate, createdAt, visits, 0.0, 0, 0.0, 0.0, isPrivate ? PwarpAccessType.PRIVATE : PwarpAccessType.PUBLIC, "");
     }
 
     public Pwarp(
         int id, UUID ownerUuid, String ownerName, String name, String description,
         String worldName, double x, double y, double z, float yaw, float pitch,
         String iconMaterial, String category, boolean isPrivate, long createdAt, long visits,
-        double averageRating, int totalRatings
+        double averageRating, int totalRatings, double price, double bank
     ) {
-        this(id, ownerUuid, ownerName, name, description, worldName, x, y, z, yaw, pitch, iconMaterial, category, isPrivate, createdAt, visits, averageRating, totalRatings, 0.0, 0.0);
+        this(id, ownerUuid, ownerName, name, description, worldName, x, y, z, yaw, pitch, iconMaterial, category, isPrivate, createdAt, visits, averageRating, totalRatings, price, bank, isPrivate ? PwarpAccessType.PRIVATE : PwarpAccessType.PUBLIC, "");
     }
 
     public Pwarp {
@@ -58,5 +60,7 @@ public record Pwarp(
         totalRatings = Math.max(0, totalRatings);
         price = Math.max(0.0, price);
         bank = Math.max(0.0, bank);
+        accessType = accessType != null ? accessType : (isPrivate ? PwarpAccessType.PRIVATE : PwarpAccessType.PUBLIC);
+        password = password != null ? password : "";
     }
 }
