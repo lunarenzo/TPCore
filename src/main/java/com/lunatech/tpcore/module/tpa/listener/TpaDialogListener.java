@@ -89,12 +89,13 @@ public final class TpaDialogListener implements Listener {
                 service.acceptRequest(player, null);
             } else if ("tpcore:tpa_deny".equals(keyString)) {
                 service.denyRequest(player, null);
-            } else if (keyString.startsWith("tpcore:tpa_send_confirm:")) {
-                String[] parts = keyString.split(":");
-                if (parts.length >= 4) {
+            } else if (keyString.startsWith("tpcore:tpa_send_confirm/")) {
+                String sub = keyString.substring("tpcore:tpa_send_confirm/".length());
+                String[] parts = sub.split("/");
+                if (parts.length >= 2) {
                     try {
-                        UUID targetId = UUID.fromString(parts[2]);
-                        TpaType type = TpaType.valueOf(parts[3]);
+                        UUID targetId = UUID.fromString(parts[0]);
+                        TpaType type = TpaType.valueOf(parts[1].toUpperCase());
                         Player target = Bukkit.getPlayer(targetId);
                         if (target != null && target.isOnline()) {
                             service.sendRequest(player, target, type);
