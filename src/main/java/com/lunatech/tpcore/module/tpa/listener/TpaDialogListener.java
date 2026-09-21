@@ -89,13 +89,15 @@ public final class TpaDialogListener implements Listener {
                 service.acceptRequest(player, null);
             } else if ("tpcore:tpa_deny".equals(keyString)) {
                 service.denyRequest(player, null);
+            } else if ("tpcore:tpa_send_cancel".equals(keyString)) {
+                closePlayerDialog(player);
             } else if (keyString.startsWith("tpcore:tpa_send_confirm/")) {
                 String sub = keyString.substring("tpcore:tpa_send_confirm/".length());
                 String[] parts = sub.split("/");
                 if (parts.length >= 2) {
                     try {
                         UUID targetId = UUID.fromString(parts[0]);
-                        TpaType type = TpaType.valueOf(parts[1].toUpperCase());
+                        TpaType type = "tpa_here".equalsIgnoreCase(parts[1]) ? TpaType.TPA_HERE : TpaType.TPA_TO;
                         Player target = Bukkit.getPlayer(targetId);
                         if (target != null && target.isOnline()) {
                             service.sendRequest(player, target, type);
@@ -108,6 +110,19 @@ public final class TpaDialogListener implements Listener {
         } catch (Exception e) {
             this.logger.error("Error handling Paper Dialog custom click event", e);
         }
+    }
+
+    private void closePlayerDialog(Player player) {
+        try {
+            Method closeDialogMethod = findPublicMethod(player.getClass(), "closeDialog");
+            if (closeDialogMethod != null) {
+                closeDialogMethod.setAccessible(true);
+                closeDialogMethod.invoke(player);
+                return;
+            }
+        } catch (Exception ignored) {
+        }
+        player.closeInventory();
     }
 
     private Player resolvePlayerFromEvent(Event event) {

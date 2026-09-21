@@ -41,3 +41,9 @@
 
 # Keep Relocated Configurate Libraries
 -keep class com.lunatech.tpcore.libs.configurate.** { *; }
+
+# Keep Enum Classes & Members
+-keepclassmembers enum * {
+    public static **[] values();
+    public static ** valueOf(java.lang.String);
+}
