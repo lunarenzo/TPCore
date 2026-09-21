@@ -21,11 +21,14 @@ allow-self-tpa: false
 # Whether to require destination ground safety before teleportation
 require-safe-location: true
 
-# Confirmation interface mode: CHAT, GUI, or DIALOG (Default: CHAT)
-# CHAT = MiniMessage clickable buttons in chat
+# Whether to enable confirmation menus (GUI or DIALOG) for TPA requests
+# When set to false, TPA operates in classic instant chat mode
+enable-confirmation-menu: true
+
+# Confirmation interface mode when enabled: GUI or DIALOG (Default: GUI)
 # GUI = 3-row Chest Inventory menu with customizable player head and buttons
 # DIALOG = Native Paper Dialog API menu (Paper 1.21.6+ required, falls back to GUI on older versions)
-confirmation-mode: CHAT
+confirmation-mode: GUI
 
 # 3-Row Chest GUI Settings (Used when confirmation-mode is GUI)
 gui-title: "<gradient:#00D2FF:#3A7BD5><bold>Teleport Request</bold></gradient>"

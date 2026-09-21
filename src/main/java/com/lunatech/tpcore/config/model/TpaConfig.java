@@ -26,7 +26,10 @@ public record TpaConfig(
     @Comment("Require destination ground safety before teleportation")
     boolean requireSafeLocation,
 
-    @Comment("Confirmation menu mode: CHAT, GUI, or DIALOG (Default: CHAT)")
+    @Comment("Whether to enable confirmation menus (GUI/Dialog) for TPA requests")
+    boolean enableConfirmationMenu,
+
+    @Comment("Confirmation menu mode: GUI or DIALOG (Default: GUI)")
     String confirmationMode,
 
     @Comment("Title for the 3-row Chest Confirmation GUI")
@@ -77,7 +80,8 @@ public record TpaConfig(
     public static TpaConfig createDefault() {
         return new TpaConfig(
             true, 30, 3, true, true, false, true,
-            "CHAT",
+            true,
+            "GUI",
             "<gradient:#00D2FF:#3A7BD5><bold>Teleport Request</bold></gradient>",
             15, 11, 13,
             "LIME_STAINED_GLASS_PANE",

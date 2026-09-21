@@ -223,11 +223,17 @@ public final class TpaCommandRegistry {
         });
     }
 
-    private void handleSendOrMenu(Player sender, Player target, TpaType type) {
+    private boolean isConfirmationEnabled() {
         TpaConfig cfg = this.configSupplier.get();
-        String mode = (cfg.confirmationMode() != null) ? cfg.confirmationMode().trim().toUpperCase() : "CHAT";
+        if (!cfg.enableConfirmationMenu()) {
+            return false;
+        }
+        String mode = (cfg.confirmationMode() != null) ? cfg.confirmationMode().trim().toUpperCase() : "GUI";
+        return !"CHAT".equals(mode);
+    }
 
-        if (("GUI".equals(mode) || "DIALOG".equals(mode)) && this.confirmationMenuService != null) {
+    private void handleSendOrMenu(Player sender, Player target, TpaType type) {
+        if (isConfirmationEnabled() && this.confirmationMenuService != null) {
             this.confirmationMenuService.openSendConfirmation(sender, target, type);
             return;
         }
@@ -236,10 +242,7 @@ public final class TpaCommandRegistry {
     }
 
     private void handleAcceptOrMenu(Player target, String optionalSenderName) {
-        TpaConfig cfg = this.configSupplier.get();
-        String mode = (cfg.confirmationMode() != null) ? cfg.confirmationMode().trim().toUpperCase() : "CHAT";
-
-        if (("GUI".equals(mode) || "DIALOG".equals(mode)) && this.confirmationMenuService != null) {
+        if (isConfirmationEnabled() && this.confirmationMenuService != null) {
             TpaRequest req = this.tpaService.findPendingRequest(target, optionalSenderName);
             if (req != null) {
                 this.confirmationMenuService.openConfirmation(target, req);
