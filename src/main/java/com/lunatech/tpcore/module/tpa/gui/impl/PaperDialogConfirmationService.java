@@ -128,36 +128,36 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
     }
 
     private boolean tryShowDialog(Player player, String titleText, String bodyText, String acceptText, String denyText, String acceptKey, String denyKey) {
-        try {
-            Class<?> dialogClass = Class.forName("io.papermc.paper.dialog.Dialog");
+        if (!DialogReflectionCache.SUPPORTED) {
+            return false;
+        }
 
+        try {
             Component titleComp = MiniMessage.miniMessage().deserialize(titleText);
             Component bodyComp = MiniMessage.miniMessage().deserialize(bodyText);
             Component acceptComp = MiniMessage.miniMessage().deserialize(acceptText);
             Component denyComp = MiniMessage.miniMessage().deserialize(denyText);
 
-            ClassLoader cl = dialogClass.getClassLoader();
-
             // DialogBase
-            Class<?> dialogBaseClass = Class.forName("io.papermc.paper.registry.data.dialog.DialogBase", true, cl);
-            Object baseBuilder = dialogBaseClass.getMethod("builder", Component.class).invoke(null, titleComp);
-            baseBuilder.getClass().getMethod("canCloseWithEscape", boolean.class).invoke(baseBuilder, true);
+            Object baseBuilder = DialogReflectionCache.DIALOG_BASE_BUILDER.invoke(null, titleComp);
+            Method setCanClose = findMethod(baseBuilder.getClass(), "canCloseWithEscape", boolean.class);
+            if (setCanClose != null) {
+                setCanClose.invoke(baseBuilder, true);
+            }
 
-            Class<?> dialogBodyClass = Class.forName("io.papermc.paper.registry.data.dialog.body.DialogBody", true, cl);
-            Object bodyItem = dialogBodyClass.getMethod("plainMessage", Component.class).invoke(null, bodyComp);
-
-            baseBuilder.getClass().getMethod("body", List.class).invoke(baseBuilder, List.of(bodyItem));
+            Object bodyItem = DialogReflectionCache.DIALOG_BODY_PLAIN.invoke(null, bodyComp);
+            Method setBody = findMethod(baseBuilder.getClass(), "body", List.class);
+            if (setBody != null) {
+                setBody.invoke(baseBuilder, List.of(bodyItem));
+            }
             Object dialogBase = baseBuilder.getClass().getMethod("build").invoke(baseBuilder);
 
-            // ActionButtons
-            Class<?> actionButtonClass = Class.forName("io.papermc.paper.registry.data.dialog.ActionButton", true, cl);
-
             // Accept button
-            Object acceptBuilder = actionButtonClass.getMethod("builder", Component.class).invoke(null, acceptComp);
+            Object acceptBuilder = DialogReflectionCache.ACTION_BUTTON_BUILDER.invoke(null, acceptComp);
             if (acceptKey != null) {
-                Object acceptAction = createCustomClickAction(cl, acceptKey);
+                Object acceptAction = createCustomClickAction(acceptKey);
                 if (acceptAction != null) {
-                    Method actionMethod = findMethod(acceptBuilder.getClass(), "action");
+                    Method actionMethod = findMethod(acceptBuilder.getClass(), "action", acceptAction.getClass());
                     if (actionMethod != null) {
                         actionMethod.invoke(acceptBuilder, acceptAction);
                     }
@@ -166,11 +166,11 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
             Object acceptButton = acceptBuilder.getClass().getMethod("build").invoke(acceptBuilder);
 
             // Deny/Cancel button
-            Object denyBuilder = actionButtonClass.getMethod("builder", Component.class).invoke(null, denyComp);
+            Object denyBuilder = DialogReflectionCache.ACTION_BUTTON_BUILDER.invoke(null, denyComp);
             if (denyKey != null) {
-                Object denyAction = createCustomClickAction(cl, denyKey);
+                Object denyAction = createCustomClickAction(denyKey);
                 if (denyAction != null) {
-                    Method actionMethod = findMethod(denyBuilder.getClass(), "action");
+                    Method actionMethod = findMethod(denyBuilder.getClass(), "action", denyAction.getClass());
                     if (actionMethod != null) {
                         actionMethod.invoke(denyBuilder, denyAction);
                     }
@@ -179,57 +179,50 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
             Object denyButton = denyBuilder.getClass().getMethod("build").invoke(denyBuilder);
 
             // DialogType
-            Class<?> dialogTypeClass = Class.forName("io.papermc.paper.registry.data.dialog.type.DialogType", true, cl);
-            Method confirmationMethod = findMethod(dialogTypeClass, "confirmation");
-            Object dialogType = confirmationMethod.invoke(null, acceptButton, denyButton);
+            Object dialogType = DialogReflectionCache.DIALOG_TYPE_CONFIRMATION.invoke(null, acceptButton, denyButton);
 
             // Build Dialog via Dialog.create(consumer)
             Class<?> consumerClass = Class.forName("java.util.function.Consumer");
-            Object consumerProxy = Proxy.newProxyInstance(cl, new Class<?>[]{consumerClass}, (proxy, method, args) -> {
+            Object consumerProxy = Proxy.newProxyInstance(player.getClass().getClassLoader(), new Class<?>[]{consumerClass}, (proxy, method, args) -> {
                 if ("accept".equals(method.getName()) && args.length == 1) {
                     Object builder = args[0];
                     Object emptyBuilder = builder.getClass().getMethod("empty").invoke(builder);
-                    Method setBase = findMethod(emptyBuilder.getClass(), "base");
-                    setBase.invoke(emptyBuilder, dialogBase);
-                    Method setType = findMethod(emptyBuilder.getClass(), "type");
-                    setType.invoke(emptyBuilder, dialogType);
+                    Method setBase = findMethod(emptyBuilder.getClass(), "base", dialogBase.getClass());
+                    if (setBase != null) {
+                        setBase.invoke(emptyBuilder, dialogBase);
+                    }
+                    Method setType = findMethod(emptyBuilder.getClass(), "type", dialogType.getClass());
+                    if (setType != null) {
+                        setType.invoke(emptyBuilder, dialogType);
+                    }
                 }
                 return null;
             });
 
-            Method createMethod = dialogClass.getMethod("create", consumerClass);
-            Object dialogInstance = createMethod.invoke(null, consumerProxy);
+            Object dialogInstance = DialogReflectionCache.DIALOG_CREATE.invoke(null, consumerProxy);
 
             // Show dialog to player
-            Method showDialogMethod = findMethod(player.getClass(), "showDialog");
-            if (showDialogMethod != null && dialogInstance != null) {
-                showDialogMethod.invoke(player, dialogInstance);
+            if (DialogReflectionCache.SHOW_DIALOG != null && dialogInstance != null) {
+                DialogReflectionCache.SHOW_DIALOG.invoke(player, dialogInstance);
                 return true;
             }
         } catch (Throwable t) {
-            this.logger.debug("Failed to invoke Paper Dialog API via reflection, falling back to Chest GUI", t);
+            this.logger.debug("Failed to invoke Paper Dialog API via cached reflection, falling back to Chest GUI", t);
         }
         return false;
     }
 
-    private Object createCustomClickAction(ClassLoader cl, String keyString) {
+    private Object createCustomClickAction(String keyString) {
         try {
-            Class<?> keyClass = Class.forName("net.kyori.adventure.key.Key", true, cl);
-            Object key = keyClass.getMethod("key", String.class).invoke(null, keyString);
+            if (DialogReflectionCache.KEY_FACTORY == null) {
+                return null;
+            }
+            Object key = DialogReflectionCache.KEY_FACTORY.invoke(null, keyString);
 
-            Class<?> dialogActionClass = Class.forName("io.papermc.paper.registry.data.dialog.action.DialogAction", true, cl);
-            for (Method m : dialogActionClass.getMethods()) {
-                if (m.getName().equals("customClick")) {
-                    Class<?>[] paramTypes = m.getParameterTypes();
-                    if (paramTypes.length > 0 && paramTypes[0].isAssignableFrom(keyClass)) {
-                        m.setAccessible(true);
-                        if (paramTypes.length == 1) {
-                            return m.invoke(null, key);
-                        } else if (paramTypes.length == 2) {
-                            return m.invoke(null, new Object[]{ key, null });
-                        }
-                    }
-                }
+            if (DialogReflectionCache.CUSTOM_CLICK_1 != null) {
+                return DialogReflectionCache.CUSTOM_CLICK_1.invoke(null, key);
+            } else if (DialogReflectionCache.CUSTOM_CLICK_2 != null) {
+                return DialogReflectionCache.CUSTOM_CLICK_2.invoke(null, new Object[]{ key, null });
             }
         } catch (Throwable t) {
             this.logger.error("Failed to create DialogAction customClick for key {}", keyString, t);
@@ -237,10 +230,13 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
         return null;
     }
 
-    private Method findMethod(Class<?> clazz, String name) {
+    private Method findMethod(Class<?> clazz, String name, Class<?>... paramTypes) {
         for (Method m : clazz.getMethods()) {
             if (m.getName().equals(name)) {
-                return m;
+                if (paramTypes.length == 0 || m.getParameterCount() == paramTypes.length) {
+                    m.setAccessible(true);
+                    return m;
+                }
             }
         }
         return null;
@@ -250,6 +246,109 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
         if (!this.loggedNotice) {
             this.loggedNotice = true;
             this.logger.info("Paper Dialog API requires Paper 1.21.6+ (API 1.21.7+). Falling back to Chest GUI confirmation menu.");
+        }
+    }
+
+    private static final class DialogReflectionCache {
+        private static final boolean SUPPORTED;
+        private static final Method DIALOG_BASE_BUILDER;
+        private static final Method DIALOG_BODY_PLAIN;
+        private static final Method ACTION_BUTTON_BUILDER;
+        private static final Method DIALOG_TYPE_CONFIRMATION;
+        private static final Method DIALOG_CREATE;
+        private static final Method SHOW_DIALOG;
+        private static final Method CUSTOM_CLICK_1;
+        private static final Method CUSTOM_CLICK_2;
+        private static final Method KEY_FACTORY;
+
+        static {
+            boolean supp = false;
+            Method dbBuilder = null;
+            Method dBodyPlain = null;
+            Method abBuilder = null;
+            Method dtConfirmation = null;
+            Method dCreate = null;
+            Method sDialog = null;
+            Method cClick1 = null;
+            Method cClick2 = null;
+            Method kFactory = null;
+
+            try {
+                Class<?> dClass = Class.forName("io.papermc.paper.dialog.Dialog");
+                Class<?> kClass = Class.forName("net.kyori.adventure.key.Key");
+                kFactory = kClass.getMethod("key", String.class);
+                kFactory.setAccessible(true);
+
+                Class<?> dbClass = Class.forName("io.papermc.paper.registry.data.dialog.DialogBase");
+                dbBuilder = findMethodWithParam(dbClass, "builder", Component.class);
+
+                Class<?> dBodyClass = Class.forName("io.papermc.paper.registry.data.dialog.body.DialogBody");
+                dBodyPlain = findMethodWithParam(dBodyClass, "plainMessage", Component.class);
+
+                Class<?> abClass = Class.forName("io.papermc.paper.registry.data.dialog.ActionButton");
+                abBuilder = findMethodWithParam(abClass, "builder", Component.class);
+
+                Class<?> dtClass = Class.forName("io.papermc.paper.registry.data.dialog.type.DialogType");
+                dtConfirmation = findMethodWithParam(dtClass, "confirmation", abClass, abClass);
+
+                Class<?> consumerClass = Class.forName("java.util.function.Consumer");
+                dCreate = findMethodWithParam(dClass, "create", consumerClass);
+
+                sDialog = findMethodWithParam(Player.class, "showDialog", dClass);
+
+                Class<?> daClass = Class.forName("io.papermc.paper.registry.data.dialog.action.DialogAction");
+                for (Method m : daClass.getMethods()) {
+                    if (m.getName().equals("customClick")) {
+                        Class<?>[] pTypes = m.getParameterTypes();
+                        if (pTypes.length == 1 && pTypes[0].isAssignableFrom(kClass)) {
+                            cClick1 = m;
+                            cClick1.setAccessible(true);
+                        } else if (pTypes.length == 2 && pTypes[0].isAssignableFrom(kClass)) {
+                            cClick2 = m;
+                            cClick2.setAccessible(true);
+                        }
+                    }
+                }
+
+                supp = (dbBuilder != null && dBodyPlain != null && abBuilder != null && 
+                        dtConfirmation != null && dCreate != null && sDialog != null);
+            } catch (Throwable ignored) {
+                supp = false;
+            }
+
+            SUPPORTED = supp;
+            DIALOG_BASE_BUILDER = dbBuilder;
+            DIALOG_BODY_PLAIN = dBodyPlain;
+            ACTION_BUTTON_BUILDER = abBuilder;
+            DIALOG_TYPE_CONFIRMATION = dtConfirmation;
+            DIALOG_CREATE = dCreate;
+            SHOW_DIALOG = sDialog;
+            CUSTOM_CLICK_1 = cClick1;
+            CUSTOM_CLICK_2 = cClick2;
+            KEY_FACTORY = kFactory;
+        }
+
+        private static Method findMethodWithParam(Class<?> clazz, String name, Class<?>... paramTypes) {
+            try {
+                for (Method m : clazz.getMethods()) {
+                    if (m.getName().equals(name) && m.getParameterCount() == paramTypes.length) {
+                        boolean match = true;
+                        Class<?>[] types = m.getParameterTypes();
+                        for (int i = 0; i < types.length; i++) {
+                            if (!types[i].isAssignableFrom(paramTypes[i]) && !paramTypes[i].isAssignableFrom(types[i])) {
+                                match = false;
+                                break;
+                            }
+                        }
+                        if (match) {
+                            m.setAccessible(true);
+                            return m;
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+            return null;
         }
     }
 }

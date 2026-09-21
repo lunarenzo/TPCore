@@ -30,6 +30,10 @@ public interface TpaService {
 
     void handlePlayerMove(Player player);
 
+    void handlePlayerTeleport(UUID playerId);
+
+    void handlePlayerDeath(UUID playerId);
+
     void updateConfig(TpaConfig newConfig);
 
     void shutdown();

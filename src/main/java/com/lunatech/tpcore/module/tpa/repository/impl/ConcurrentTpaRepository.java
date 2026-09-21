@@ -68,48 +68,38 @@ public final class ConcurrentTpaRepository implements TpaRepository {
 
     @Override
     public void removeRequest(UUID targetId, UUID senderId) {
-        Map<UUID, TpaRequest> targetMap = this.incoming.get(targetId);
-        if (targetMap != null) {
+        this.incoming.computeIfPresent(targetId, (tId, targetMap) -> {
             targetMap.remove(senderId);
-            if (targetMap.isEmpty()) {
-                this.incoming.remove(targetId);
-            }
-        }
+            return targetMap.isEmpty() ? null : targetMap;
+        });
 
-        Map<UUID, TpaRequest> senderMap = this.outgoing.get(senderId);
-        if (senderMap != null) {
+        this.outgoing.computeIfPresent(senderId, (sId, senderMap) -> {
             senderMap.remove(targetId);
-            if (senderMap.isEmpty()) {
-                this.outgoing.remove(senderId);
-            }
-        }
+            return senderMap.isEmpty() ? null : senderMap;
+        });
     }
 
     @Override
     public void removeAllRequestsForPlayer(UUID playerId) {
+        this.toggledOffPlayers.remove(playerId);
+
         Map<UUID, TpaRequest> inc = this.incoming.remove(playerId);
         if (inc != null) {
             for (UUID senderId : inc.keySet()) {
-                Map<UUID, TpaRequest> out = this.outgoing.get(senderId);
-                if (out != null) {
-                    out.remove(playerId);
-                    if (out.isEmpty()) {
-                        this.outgoing.remove(senderId);
-                    }
-                }
+                this.outgoing.computeIfPresent(senderId, (sId, senderMap) -> {
+                    senderMap.remove(playerId);
+                    return senderMap.isEmpty() ? null : senderMap;
+                });
             }
         }
 
         Map<UUID, TpaRequest> out = this.outgoing.remove(playerId);
         if (out != null) {
             for (UUID targetId : out.keySet()) {
-                Map<UUID, TpaRequest> inMap = this.incoming.get(targetId);
-                if (inMap != null) {
+                this.incoming.computeIfPresent(targetId, (tId, inMap) -> {
                     inMap.remove(playerId);
-                    if (inMap.isEmpty()) {
-                        this.incoming.remove(targetId);
-                    }
-                }
+                    return inMap.isEmpty() ? null : inMap;
+                });
             }
         }
     }

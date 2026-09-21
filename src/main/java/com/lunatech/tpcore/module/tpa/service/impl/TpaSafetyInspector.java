@@ -5,12 +5,36 @@ import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Block;
 
+import java.util.EnumSet;
 import java.util.Locale;
+import java.util.Set;
 
 public final class TpaSafetyInspector {
 
     private static final int[] PROBE_DX = {0, 1, -1, 0, 0, 1, -1, 1, -1};
     private static final int[] PROBE_DZ = {0, 0, 0, 1, -1, 1, 1, -1, -1};
+
+    private static final Set<Material> HAZARD_MATERIALS = EnumSet.noneOf(Material.class);
+    private static final Set<Material> PASSABLE_MATERIALS = EnumSet.noneOf(Material.class);
+
+    static {
+        for (Material mat : Material.values()) {
+            String name = mat.name();
+            if (name.contains("LAVA") ||
+                name.contains("WATER") ||
+                name.contains("FIRE") ||
+                name.contains("MAGMA") ||
+                name.contains("CACTUS") ||
+                name.contains("BERRY_BUSH") ||
+                name.contains("WITHER_ROSE") ||
+                name.contains("POWDER_SNOW") ||
+                name.contains("VOID")) {
+                HAZARD_MATERIALS.add(mat);
+            } else if (name.contains("AIR") || name.contains("LIGHT") || name.contains("GRASS") || name.contains("FLOWER")) {
+                PASSABLE_MATERIALS.add(mat);
+            }
+        }
+    }
 
     private TpaSafetyInspector() {}
 
@@ -54,18 +78,21 @@ public final class TpaSafetyInspector {
     }
 
     public static boolean isSolidGround(Material material) {
-        return material != null && isSolidGroundName(material.name());
+        if (material == null || material == Material.BEDROCK || HAZARD_MATERIALS.contains(material)) {
+            return false;
+        }
+        return !PASSABLE_MATERIALS.contains(material);
     }
 
     public static boolean isSolidGroundName(String name) {
-        if (name == null || name.isBlank() || isHazardName(name) || name.contains("AIR") || name.equals("BEDROCK")) {
+        if (name == null || name.isBlank() || isHazardName(name) || name.contains("AIR") || name.equalsIgnoreCase("BEDROCK")) {
             return false;
         }
         return true;
     }
 
     public static boolean isHazard(Material material) {
-        return material == null || isHazardName(material.name());
+        return material == null || HAZARD_MATERIALS.contains(material);
     }
 
     public static boolean isHazardName(String name) {
@@ -88,7 +115,7 @@ public final class TpaSafetyInspector {
     }
 
     public static boolean isPassable(Material material) {
-        return material == null || isPassableName(material.name());
+        return material == null || (!HAZARD_MATERIALS.contains(material) && PASSABLE_MATERIALS.contains(material));
     }
 
     public static boolean isPassableName(String name) {

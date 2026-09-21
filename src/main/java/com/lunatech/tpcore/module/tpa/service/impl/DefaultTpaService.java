@@ -20,7 +20,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 public final class DefaultTpaService implements TpaService {
@@ -75,7 +74,7 @@ public final class DefaultTpaService implements TpaService {
     }
 
     private ScheduledTask startExpirationSweeper() {
-        return this.plugin.getServer().getAsyncScheduler().runAtFixedRate(
+        return this.plugin.getServer().getGlobalRegionScheduler().runAtFixedRate(
             this.plugin,
             task -> {
                 for (TpaRequest request : this.repository.getAllRequests()) {
@@ -85,28 +84,41 @@ public final class DefaultTpaService implements TpaService {
                         Player sender = Bukkit.getPlayer(request.senderId());
                         if (sender != null && sender.isOnline()) {
                             Player target = Bukkit.getPlayer(request.targetId());
-                            this.sendMessage(
-                                sender,
-                                this.config().messages().requestExpired(),
-                                "player", (target != null) ? target.getName() : "Player"
+                            sender.getScheduler().run(
+                                this.plugin,
+                                t -> {
+                                    this.closeConfirmationMenuIfOpen(sender);
+                                    this.sendMessage(
+                                        sender,
+                                        this.config().messages().requestExpired(),
+                                        "player", (target != null) ? target.getName() : "Player"
+                                    );
+                                },
+                                null
                             );
                         }
 
                         Player target = Bukkit.getPlayer(request.targetId());
                         if (target != null && target.isOnline()) {
                             Player senderPlayer = Bukkit.getPlayer(request.senderId());
-                            this.sendMessage(
-                                target,
-                                this.config().messages().requestExpired(),
-                                "player", (senderPlayer != null) ? senderPlayer.getName() : "Player"
+                            target.getScheduler().run(
+                                this.plugin,
+                                t -> {
+                                    this.closeConfirmationMenuIfOpen(target);
+                                    this.sendMessage(
+                                        target,
+                                        this.config().messages().requestExpired(),
+                                        "player", (senderPlayer != null) ? senderPlayer.getName() : "Player"
+                                    );
+                                },
+                                null
                             );
                         }
                     }
                 }
             },
-            5L,
-            5L,
-            TimeUnit.SECONDS
+            100L,
+            100L
         );
     }
 
@@ -393,6 +405,17 @@ public final class DefaultTpaService implements TpaService {
         }
     }
 
+    @Override
+    public void handlePlayerTeleport(UUID playerId) {
+        this.cancelWarmup(playerId, null);
+    }
+
+    @Override
+    public void handlePlayerDeath(UUID playerId) {
+        this.repository.removeAllRequestsForPlayer(playerId);
+        this.cancelWarmup(playerId, null);
+    }
+
     private void executeTeleportSequence(Player player, Player destinationPlayer) {
         if (player == null || !player.isOnline() || destinationPlayer == null || !destinationPlayer.isOnline()) {
             return;
@@ -441,24 +464,38 @@ public final class DefaultTpaService implements TpaService {
     }
 
     private void performFinalTeleport(Player player, Player destinationPlayer) {
-        if (player.isInsideVehicle()) {
-            player.leaveVehicle();
+        if (player == null || !player.isOnline() || destinationPlayer == null || !destinationPlayer.isOnline()) {
+            return;
         }
 
-        Location rawTargetLoc = destinationPlayer.getLocation();
-        Location finalTargetLoc = rawTargetLoc;
+        destinationPlayer.getScheduler().run(
+            this.plugin,
+            task -> {
+                if (!player.isOnline() || !destinationPlayer.isOnline()) {
+                    return;
+                }
 
-        if (this.config().requireSafeLocation()) {
-            Location safeLoc = TpaSafetyInspector.findSafeLocation(rawTargetLoc);
-            if (safeLoc == null) {
-                this.sendMessage(player, this.config().messages().unsafeDestination());
-                this.sendMessage(destinationPlayer, this.config().messages().unsafeDestination());
-                return;
-            }
-            finalTargetLoc = safeLoc;
-        }
+                if (player.isInsideVehicle()) {
+                    player.leaveVehicle();
+                }
 
-        player.teleportAsync(finalTargetLoc);
+                Location rawTargetLoc = destinationPlayer.getLocation();
+                Location finalTargetLoc = rawTargetLoc;
+
+                if (this.config().requireSafeLocation()) {
+                    Location safeLoc = TpaSafetyInspector.findSafeLocation(rawTargetLoc);
+                    if (safeLoc == null) {
+                        this.sendMessage(player, this.config().messages().unsafeDestination());
+                        this.sendMessage(destinationPlayer, this.config().messages().unsafeDestination());
+                        return;
+                    }
+                    finalTargetLoc = safeLoc;
+                }
+
+                player.teleportAsync(finalTargetLoc);
+            },
+            null
+        );
     }
 
     private void cancelWarmup(UUID playerId, String cancelMessageTemplate) {
@@ -473,6 +510,24 @@ public final class DefaultTpaService implements TpaService {
                     this.sendMessage(player, cancelMessageTemplate);
                 }
             }
+        }
+    }
+
+    private void closeConfirmationMenuIfOpen(Player player) {
+        if (player == null || !player.isOnline()) {
+            return;
+        }
+        try {
+            if (player.getOpenInventory() != null && player.getOpenInventory().getTopInventory().getHolder() instanceof com.lunatech.tpcore.module.tpa.gui.TpaConfirmationHolder) {
+                player.closeInventory();
+            }
+        } catch (Throwable ignored) {
+        }
+        try {
+            java.lang.reflect.Method closeDialogMethod = player.getClass().getMethod("closeDialog");
+            closeDialogMethod.setAccessible(true);
+            closeDialogMethod.invoke(player);
+        } catch (Throwable ignored) {
         }
     }
 

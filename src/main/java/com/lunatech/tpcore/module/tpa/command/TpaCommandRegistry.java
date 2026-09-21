@@ -63,9 +63,14 @@ public final class TpaCommandRegistry {
                                     return com.mojang.brigadier.Command.SINGLE_SUCCESS;
                                 }
                                 if (!targets.isEmpty()) {
+                                    boolean isBulk = targets.size() > 1;
                                     for (Player target : targets) {
                                         if (target != null && target.isOnline()) {
-                                            handleSendOrMenu(sender, target, TpaType.TPA_TO);
+                                            if (isBulk) {
+                                                this.tpaService.sendRequest(sender, target, TpaType.TPA_TO);
+                                            } else {
+                                                handleSendOrMenu(sender, target, TpaType.TPA_TO);
+                                            }
                                         }
                                     }
                                 } else {
@@ -104,9 +109,14 @@ public final class TpaCommandRegistry {
                                     return com.mojang.brigadier.Command.SINGLE_SUCCESS;
                                 }
                                 if (!targets.isEmpty()) {
+                                    boolean isBulk = targets.size() > 1;
                                     for (Player target : targets) {
                                         if (target != null && target.isOnline()) {
-                                            handleSendOrMenu(sender, target, TpaType.TPA_HERE);
+                                            if (isBulk) {
+                                                this.tpaService.sendRequest(sender, target, TpaType.TPA_HERE);
+                                            } else {
+                                                handleSendOrMenu(sender, target, TpaType.TPA_HERE);
+                                            }
                                         }
                                     }
                                 } else {
