@@ -54,25 +54,29 @@ public final class TpaDialogListener implements Listener {
 
     private void handleCustomClick(Event event) {
         try {
-            Method getIdentifierMethod = event.getClass().getMethod("getIdentifier");
+            Method getIdentifierMethod = findPublicMethod(event.getClass(), "getIdentifier");
+            if (getIdentifierMethod == null) {
+                getIdentifierMethod = findPublicMethod(event.getClass(), "getKey");
+            }
+            if (getIdentifierMethod == null) {
+                this.logger.warn("Could not find getIdentifier or getKey on PlayerCustomClickEvent: {}", event.getClass().getName());
+                return;
+            }
+            getIdentifierMethod.setAccessible(true);
+
             Object keyObj = getIdentifierMethod.invoke(event);
             if (keyObj == null) {
                 return;
             }
 
-            String keyString;
-            if (keyObj instanceof Key adventureKey) {
-                keyString = adventureKey.asString();
-            } else {
-                keyString = keyObj.toString();
-            }
-
+            String keyString = (keyObj instanceof Key adventureKey) ? adventureKey.asString() : keyObj.toString();
             if (!keyString.startsWith("tpcore:tpa_")) {
                 return;
             }
 
             Player player = resolvePlayerFromEvent(event);
             if (player == null || !player.isOnline()) {
+                this.logger.warn("Could not resolve online player for custom click event key: {}", keyString);
                 return;
             }
 
@@ -107,7 +111,11 @@ public final class TpaDialogListener implements Listener {
 
     private Player resolvePlayerFromEvent(Event event) {
         try {
-            Method getCommonConnectionMethod = event.getClass().getMethod("getCommonConnection");
+            Method getCommonConnectionMethod = findPublicMethod(event.getClass(), "getCommonConnection");
+            if (getCommonConnectionMethod == null) {
+                return null;
+            }
+            getCommonConnectionMethod.setAccessible(true);
             Object connection = getCommonConnectionMethod.invoke(event);
             if (connection == null) {
                 return null;
@@ -117,28 +125,50 @@ public final class TpaDialogListener implements Listener {
                 return player;
             }
 
-            try {
-                Method getPlayerMethod = connection.getClass().getMethod("getPlayer");
+            Method getPlayerMethod = findPublicMethod(connection.getClass(), "getPlayer");
+            if (getPlayerMethod != null) {
+                getPlayerMethod.setAccessible(true);
                 Object playerObj = getPlayerMethod.invoke(connection);
                 if (playerObj instanceof Player p) {
                     return p;
                 }
-            } catch (NoSuchMethodException ignored) {
             }
 
-            try {
-                Method getProfileMethod = connection.getClass().getMethod("getProfile");
+            Method getProfileMethod = findPublicMethod(connection.getClass(), "getProfile");
+            if (getProfileMethod != null) {
+                getProfileMethod.setAccessible(true);
                 Object profile = getProfileMethod.invoke(connection);
                 if (profile != null) {
-                    Method getIdMethod = profile.getClass().getMethod("getId");
-                    Object uuidObj = getIdMethod.invoke(profile);
-                    if (uuidObj instanceof UUID uuid) {
-                        return Bukkit.getPlayer(uuid);
+                    Method getIdMethod = findPublicMethod(profile.getClass(), "getId");
+                    if (getIdMethod != null) {
+                        getIdMethod.setAccessible(true);
+                        Object uuidObj = getIdMethod.invoke(profile);
+                        if (uuidObj instanceof UUID uuid) {
+                            return Bukkit.getPlayer(uuid);
+                        }
                     }
                 }
-            } catch (NoSuchMethodException ignored) {
             }
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            this.logger.error("Error resolving player from custom click event", e);
+        }
+        return null;
+    }
+
+    private Method findPublicMethod(Class<?> clazz, String name) {
+        for (Class<?> c = clazz; c != null; c = c.getSuperclass()) {
+            for (Method m : c.getDeclaredMethods()) {
+                if (m.getName().equals(name)) {
+                    return m;
+                }
+            }
+            for (Class<?> itf : c.getInterfaces()) {
+                for (Method m : itf.getDeclaredMethods()) {
+                    if (m.getName().equals(name)) {
+                        return m;
+                    }
+                }
+            }
         }
         return null;
     }
