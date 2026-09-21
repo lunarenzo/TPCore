@@ -68,10 +68,10 @@ public final class ModularConfigManager {
 
     public CoreConfig loadCoreConfig() {
         Path file = this.dataDirectory.resolve("config.yml");
-        this.extractResourceIfMissing("config.yml", file);
+        boolean extracted = this.extractResourceIfMissing("config.yml", file);
 
         try {
-            CoreConfig result = this.loadAndMergeConfig(file, CoreConfig.class, CoreConfig.createDefault());
+            CoreConfig result = this.loadAndMergeConfig(file, CoreConfig.class, CoreConfig.createDefault(), extracted);
             this.coreConfigRef.set(result);
             return result;
         } catch (ConfigurateException e) {
@@ -85,12 +85,13 @@ public final class ModularConfigManager {
 
     public boolean reloadCoreConfig() {
         Path file = this.dataDirectory.resolve("config.yml");
+        boolean extracted = false;
         if (!Files.exists(file)) {
-            this.extractResourceIfMissing("config.yml", file);
+            extracted = this.extractResourceIfMissing("config.yml", file);
         }
 
         try {
-            CoreConfig newConfig = this.loadAndMergeConfig(file, CoreConfig.class, CoreConfig.createDefault());
+            CoreConfig newConfig = this.loadAndMergeConfig(file, CoreConfig.class, CoreConfig.createDefault(), extracted);
             this.coreConfigRef.set(newConfig);
             return true;
         } catch (ConfigurateException e) {
@@ -150,10 +151,10 @@ public final class ModularConfigManager {
 
     public <T> T loadModuleConfig(String moduleName, Class<T> configClass, T defaultConfig) {
         Path file = this.modulesDirectory.resolve(moduleName + ".yml");
-        this.extractResourceIfMissing("modules/" + moduleName + ".yml", file);
+        boolean extracted = this.extractResourceIfMissing("modules/" + moduleName + ".yml", file);
 
         try {
-            return this.loadAndMergeConfig(file, configClass, defaultConfig);
+            return this.loadAndMergeConfig(file, configClass, defaultConfig, extracted);
         } catch (ConfigurateException e) {
             this.logger.error("Error parsing module configuration {}.yml. Falling back to default settings.", moduleName, e);
         }
@@ -163,17 +164,18 @@ public final class ModularConfigManager {
 
     public <T> T tryLoadModuleConfig(String moduleName, Class<T> configClass, T defaultConfig) throws ConfigurateException {
         Path file = this.modulesDirectory.resolve(moduleName + ".yml");
+        boolean extracted = false;
         if (!Files.exists(file)) {
-            this.extractResourceIfMissing("modules/" + moduleName + ".yml", file);
+            extracted = this.extractResourceIfMissing("modules/" + moduleName + ".yml", file);
         }
         if (!Files.exists(file)) {
             return defaultConfig;
         }
 
-        return this.loadAndMergeConfig(file, configClass, defaultConfig);
+        return this.loadAndMergeConfig(file, configClass, defaultConfig, extracted);
     }
 
-    private <T> T loadAndMergeConfig(Path file, Class<T> configClass, T defaultConfig) throws ConfigurateException {
+    private <T> T loadAndMergeConfig(Path file, Class<T> configClass, T defaultConfig, boolean newlyExtracted) throws ConfigurateException {
         YamlConfigurationLoader loader = YamlConfigurationLoader.builder()
             .path(file)
             .nodeStyle(NodeStyle.BLOCK)
@@ -183,23 +185,44 @@ public final class ModularConfigManager {
         CommentedConfigurationNode defaultNode = CommentedConfigurationNode.root();
         defaultNode.set(configClass, defaultConfig);
 
-        rootNode.mergeFrom(defaultNode);
-        loader.save(rootNode);
+        boolean missingKeys = !newlyExtracted && hasMissingKeys(rootNode, defaultNode);
+        if (missingKeys) {
+            rootNode.mergeFrom(defaultNode);
+            loader.save(rootNode);
+        }
 
         T result = rootNode.get(configClass);
         return (result != null) ? result : defaultConfig;
     }
 
-    private void extractResourceIfMissing(String resourcePath, Path targetPath) {
+    private boolean hasMissingKeys(CommentedConfigurationNode current, CommentedConfigurationNode defaults) {
+        if (defaults.isMap()) {
+            for (Map.Entry<Object, ? extends CommentedConfigurationNode> entry : defaults.childrenMap().entrySet()) {
+                Object key = entry.getKey();
+                CommentedConfigurationNode childCurrent = current.node(key);
+                if (childCurrent.virtual() || childCurrent.raw() == null) {
+                    return true;
+                }
+                if (entry.getValue().isMap() && hasMissingKeys(childCurrent, entry.getValue())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean extractResourceIfMissing(String resourcePath, Path targetPath) {
         if (!Files.exists(targetPath)) {
             try (InputStream in = this.classLoader.getResourceAsStream(resourcePath)) {
                 if (in != null) {
                     Files.copy(in, targetPath, StandardCopyOption.REPLACE_EXISTING);
                     this.logger.info("Extracted default configuration resource to {}", targetPath.getFileName());
+                    return true;
                 }
             } catch (Exception e) {
                 this.logger.error("Failed to extract default configuration resource: {}", resourcePath, e);
             }
         }
+        return false;
     }
 }
