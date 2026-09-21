@@ -133,16 +133,7 @@ public final class TpaCommandRegistry {
                     .requires(src -> src.getSender().hasPermission(Permissions.TPA_ACCEPT))
                     .executes(ctx -> {
                         if (ctx.getSource().getSender() instanceof Player target) {
-                            TpaConfig cfg = this.configSupplier.get();
-                            String mode = (cfg.confirmationMode() != null) ? cfg.confirmationMode().toUpperCase() : "CHAT";
-                            if (("GUI".equals(mode) || "DIALOG".equals(mode)) && this.confirmationMenuService != null) {
-                                Collection<TpaRequest> pending = this.tpaService.getPendingRequestsForTarget(target);
-                                if (pending.size() == 1) {
-                                    this.confirmationMenuService.openConfirmation(target, pending.iterator().next());
-                                    return com.mojang.brigadier.Command.SINGLE_SUCCESS;
-                                }
-                            }
-                            this.tpaService.acceptRequest(target, null);
+                            handleAcceptOrMenu(target, null);
                         }
                         return com.mojang.brigadier.Command.SINGLE_SUCCESS;
                     })
@@ -152,7 +143,8 @@ public final class TpaCommandRegistry {
                             if (src.getSender() instanceof Player target) {
                                 PlayerSelectorArgumentResolver resolver = ctx.getArgument("player", PlayerSelectorArgumentResolver.class);
                                 Player sender = resolver.resolve(src).stream().findFirst().orElse(null);
-                                this.tpaService.acceptRequest(target, (sender != null) ? sender.getName() : null);
+                                String senderName = (sender != null) ? sender.getName() : null;
+                                handleAcceptOrMenu(target, senderName);
                             }
                             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
                         })
@@ -229,5 +221,20 @@ public final class TpaCommandRegistry {
                 List.of("tptoggle")
             );
         });
+    }
+
+    private void handleAcceptOrMenu(Player target, String optionalSenderName) {
+        TpaConfig cfg = this.configSupplier.get();
+        String mode = (cfg.confirmationMode() != null) ? cfg.confirmationMode().trim().toUpperCase() : "CHAT";
+
+        if (("GUI".equals(mode) || "DIALOG".equals(mode)) && this.confirmationMenuService != null) {
+            TpaRequest req = this.tpaService.findPendingRequest(target, optionalSenderName);
+            if (req != null) {
+                this.confirmationMenuService.openConfirmation(target, req);
+                return;
+            }
+        }
+
+        this.tpaService.acceptRequest(target, optionalSenderName);
     }
 }

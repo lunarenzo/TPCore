@@ -185,11 +185,8 @@ public final class ModularConfigManager {
         CommentedConfigurationNode defaultNode = CommentedConfigurationNode.root();
         defaultNode.set(configClass, defaultConfig);
 
-        boolean missingKeys = !newlyExtracted && hasMissingKeys(rootNode, defaultNode);
-        if (missingKeys) {
-            rootNode.mergeFrom(defaultNode);
-            loader.save(rootNode);
-        }
+        // Merge defaults in memory to ensure any missing keys acquire default values
+        rootNode.mergeFrom(defaultNode);
 
         T result = rootNode.get(configClass);
         return (result != null) ? result : defaultConfig;

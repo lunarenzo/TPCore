@@ -339,6 +339,37 @@ public final class DefaultTpaService implements TpaService {
     }
 
     @Override
+    public TpaRequest findPendingRequest(Player target, String optionalSenderName) {
+        if (target == null) {
+            return null;
+        }
+        Collection<TpaRequest> incoming = this.repository.getIncomingRequests(target.getUniqueId());
+        if (incoming.isEmpty()) {
+            return null;
+        }
+
+        if (optionalSenderName != null && !optionalSenderName.isBlank()) {
+            Player sender = Bukkit.getPlayer(optionalSenderName);
+            if (sender != null) {
+                Optional<TpaRequest> opt = this.repository.getRequest(target.getUniqueId(), sender.getUniqueId());
+                if (opt.isPresent() && !opt.get().isExpired(this.config().requestTimeoutSeconds())) {
+                    return opt.get();
+                }
+            }
+            return null;
+        }
+
+        if (incoming.size() == 1) {
+            TpaRequest first = incoming.iterator().next();
+            if (!first.isExpired(this.config().requestTimeoutSeconds())) {
+                return first;
+            }
+        }
+
+        return null;
+    }
+
+    @Override
     public void handlePlayerQuit(UUID playerId) {
         this.repository.removeAllRequestsForPlayer(playerId);
         this.cancelWarmup(playerId, null);

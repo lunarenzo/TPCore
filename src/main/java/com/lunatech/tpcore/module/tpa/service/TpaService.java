@@ -22,6 +22,8 @@ public interface TpaService {
 
     Collection<TpaRequest> getPendingRequestsForTarget(Player target);
 
+    TpaRequest findPendingRequest(Player target, String optionalSenderName);
+
     void handlePlayerQuit(UUID playerId);
 
     void handlePlayerDamage(UUID playerId);
