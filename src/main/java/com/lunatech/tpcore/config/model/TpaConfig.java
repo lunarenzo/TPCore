@@ -29,6 +29,15 @@ public record TpaConfig(
     @Comment("Whether to enable confirmation menus (GUI/Dialog) for TPA requests")
     boolean enableConfirmationMenu,
 
+    @Comment("Enable confirmation menu specifically for /tpa command")
+    boolean enableTpaConfirm,
+
+    @Comment("Enable confirmation menu specifically for /tpahere command")
+    boolean enableTpahereConfirm,
+
+    @Comment("Enable confirmation menu specifically for /tpaccept command")
+    boolean enableTpacceptConfirm,
+
     @Comment("Confirmation menu mode: GUI or DIALOG (Default: GUI)")
     String confirmationMode,
 
@@ -80,6 +89,9 @@ public record TpaConfig(
     public static TpaConfig createDefault() {
         return new TpaConfig(
             true, 30, 3, true, true, false, true,
+            true,
+            true,
+            true,
             true,
             "GUI",
             "<gradient:#00D2FF:#3A7BD5><bold>Teleport Request</bold></gradient>",

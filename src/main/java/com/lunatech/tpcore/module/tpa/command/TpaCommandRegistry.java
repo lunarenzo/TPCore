@@ -233,7 +233,10 @@ public final class TpaCommandRegistry {
     }
 
     private void handleSendOrMenu(Player sender, Player target, TpaType type) {
-        if (isConfirmationEnabled() && this.confirmationMenuService != null) {
+        TpaConfig cfg = this.configSupplier.get();
+        boolean specificToggle = (type == TpaType.TPA_HERE) ? cfg.enableTpahereConfirm() : cfg.enableTpaConfirm();
+
+        if (isConfirmationEnabled() && specificToggle && this.confirmationMenuService != null) {
             this.confirmationMenuService.openSendConfirmation(sender, target, type);
             return;
         }
@@ -242,7 +245,9 @@ public final class TpaCommandRegistry {
     }
 
     private void handleAcceptOrMenu(Player target, String optionalSenderName) {
-        if (isConfirmationEnabled() && this.confirmationMenuService != null) {
+        TpaConfig cfg = this.configSupplier.get();
+
+        if (isConfirmationEnabled() && cfg.enableTpacceptConfirm() && this.confirmationMenuService != null) {
             TpaRequest req = this.tpaService.findPendingRequest(target, optionalSenderName);
             if (req != null) {
                 this.confirmationMenuService.openConfirmation(target, req);

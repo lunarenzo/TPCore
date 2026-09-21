@@ -25,6 +25,16 @@ require-safe-location: true
 # When set to false, TPA operates in classic instant chat mode
 enable-confirmation-menu: true
 
+# Granular Confirmation Toggles (Used when enable-confirmation-menu is true)
+# Enable confirmation menu when executing /tpa
+enable-tpa-confirm: true
+
+# Enable confirmation menu when executing /tpahere
+enable-tpahere-confirm: true
+
+# Enable confirmation menu when executing /tpaccept
+enable-tpaccept-confirm: true
+
 # Confirmation interface mode when enabled: GUI or DIALOG (Default: GUI)
 # GUI = 3-row Chest Inventory menu with customizable player head and buttons
 # DIALOG = Native Paper Dialog API menu (Paper 1.21.6+ required, falls back to GUI on older versions)
