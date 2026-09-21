@@ -107,7 +107,7 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
                 : "<red><bold>CANCEL</bold></red>";
 
             String acceptKey = "tpcore:tpa_send_confirm/" + target.getUniqueId().toString().toLowerCase() + "/" + type.name().toLowerCase();
-            String denyKey = "tpcore:tpa_send_cancel";
+            String denyKey = null;
 
             boolean success = this.tryShowDialog(
                 sender,
@@ -154,22 +154,26 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
 
             // Accept button
             Object acceptBuilder = actionButtonClass.getMethod("builder", Component.class).invoke(null, acceptComp);
-            Object acceptAction = createCustomClickAction(cl, acceptKey);
-            if (acceptAction != null) {
-                Method actionMethod = findMethod(acceptBuilder.getClass(), "action");
-                if (actionMethod != null) {
-                    actionMethod.invoke(acceptBuilder, acceptAction);
+            if (acceptKey != null) {
+                Object acceptAction = createCustomClickAction(cl, acceptKey);
+                if (acceptAction != null) {
+                    Method actionMethod = findMethod(acceptBuilder.getClass(), "action");
+                    if (actionMethod != null) {
+                        actionMethod.invoke(acceptBuilder, acceptAction);
+                    }
                 }
             }
             Object acceptButton = acceptBuilder.getClass().getMethod("build").invoke(acceptBuilder);
 
-            // Deny button
+            // Deny/Cancel button
             Object denyBuilder = actionButtonClass.getMethod("builder", Component.class).invoke(null, denyComp);
-            Object denyAction = createCustomClickAction(cl, denyKey);
-            if (denyAction != null) {
-                Method actionMethod = findMethod(denyBuilder.getClass(), "action");
-                if (actionMethod != null) {
-                    actionMethod.invoke(denyBuilder, denyAction);
+            if (denyKey != null) {
+                Object denyAction = createCustomClickAction(cl, denyKey);
+                if (denyAction != null) {
+                    Method actionMethod = findMethod(denyBuilder.getClass(), "action");
+                    if (actionMethod != null) {
+                        actionMethod.invoke(denyBuilder, denyAction);
+                    }
                 }
             }
             Object denyButton = denyBuilder.getClass().getMethod("build").invoke(denyBuilder);
