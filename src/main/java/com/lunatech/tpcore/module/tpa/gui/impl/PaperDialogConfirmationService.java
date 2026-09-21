@@ -71,16 +71,8 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
                 body,
                 acceptText,
                 denyText,
-                () -> {
-                    if (this.serviceSupplier != null && this.serviceSupplier.get() != null) {
-                        this.serviceSupplier.get().acceptRequest(target, senderName);
-                    }
-                },
-                () -> {
-                    if (this.serviceSupplier != null && this.serviceSupplier.get() != null) {
-                        this.serviceSupplier.get().denyRequest(target, senderName);
-                    }
-                }
+                "tpcore:tpa_accept",
+                "tpcore:tpa_deny"
             );
             if (success) {
                 return;
@@ -114,20 +106,17 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
                 ? config.dialogSendCancelText()
                 : "<red><bold>CANCEL</bold></red>";
 
+            String acceptKey = "tpcore:tpa_send_confirm:" + target.getUniqueId() + ":" + type.name();
+            String denyKey = "tpcore:tpa_send_cancel";
+
             boolean success = this.tryShowDialog(
                 sender,
                 config.dialogTitle(),
                 body,
                 confirmText,
                 cancelText,
-                () -> {
-                    if (this.serviceSupplier != null && this.serviceSupplier.get() != null) {
-                        this.serviceSupplier.get().sendRequest(sender, target, type);
-                    }
-                },
-                () -> {
-                    // Cancel action
-                }
+                acceptKey,
+                denyKey
             );
             if (success) {
                 return;
@@ -138,7 +127,7 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
         this.fallbackChestGui.openSendConfirmation(sender, target, type);
     }
 
-    private boolean tryShowDialog(Player player, String titleText, String bodyText, String acceptText, String denyText, Runnable onAccept, Runnable onDeny) {
+    private boolean tryShowDialog(Player player, String titleText, String bodyText, String acceptText, String denyText, String acceptKey, String denyKey) {
         try {
             Class<?> dialogClass = Class.forName("io.papermc.paper.dialog.Dialog");
 
@@ -165,7 +154,7 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
 
             // Accept button
             Object acceptBuilder = actionButtonClass.getMethod("builder", Component.class).invoke(null, acceptComp);
-            Object acceptAction = createCustomClickAction(cl, onAccept);
+            Object acceptAction = createCustomClickAction(cl, acceptKey);
             if (acceptAction != null) {
                 Method actionMethod = findMethod(acceptBuilder.getClass(), "action");
                 if (actionMethod != null) {
@@ -176,7 +165,7 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
 
             // Deny button
             Object denyBuilder = actionButtonClass.getMethod("builder", Component.class).invoke(null, denyComp);
-            Object denyAction = createCustomClickAction(cl, onDeny);
+            Object denyAction = createCustomClickAction(cl, denyKey);
             if (denyAction != null) {
                 Method actionMethod = findMethod(denyBuilder.getClass(), "action");
                 if (actionMethod != null) {
@@ -219,27 +208,25 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
         return false;
     }
 
-    private Object createCustomClickAction(ClassLoader cl, Runnable callback) {
+    private Object createCustomClickAction(ClassLoader cl, String keyString) {
         try {
-            Class<?> callbackClass = Class.forName("io.papermc.paper.registry.data.dialog.action.DialogActionCallback", true, cl);
-            Object callbackProxy = Proxy.newProxyInstance(cl, new Class<?>[]{callbackClass}, (proxy, method, args) -> {
-                if (callback != null) {
-                    callback.run();
-                }
-                return null;
-            });
-
-            Class<?> optionsClass = Class.forName("net.kyori.adventure.text.event.ClickCallback$Options", true, cl);
-            Object optionsBuilder = optionsClass.getMethod("builder").invoke(null);
-            optionsBuilder.getClass().getMethod("uses", int.class).invoke(optionsBuilder, 1);
-            Object options = optionsBuilder.getClass().getMethod("build").invoke(optionsBuilder);
+            Class<?> keyClass = Class.forName("net.kyori.adventure.key.Key", true, cl);
+            Object key = keyClass.getMethod("key", String.class).invoke(null, keyString);
 
             Class<?> dialogActionClass = Class.forName("io.papermc.paper.registry.data.dialog.action.DialogAction", true, cl);
-            Method customClickMethod = dialogActionClass.getMethod("customClick", callbackClass, optionsClass);
-            return customClickMethod.invoke(null, callbackProxy, options);
-        } catch (Throwable ignored) {
-            return null;
+            for (Method m : dialogActionClass.getMethods()) {
+                if (m.getName().equals("customClick") && m.getParameterCount() >= 1) {
+                    if (m.getParameterCount() == 1) {
+                        return m.invoke(null, key);
+                    } else if (m.getParameterCount() == 2) {
+                        return m.invoke(null, key, null);
+                    }
+                }
+            }
+        } catch (Throwable t) {
+            this.logger.error("Failed to create DialogAction customClick for key {}", keyString, t);
         }
+        return null;
     }
 
     private Method findMethod(Class<?> clazz, String name) {

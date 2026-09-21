@@ -5,7 +5,8 @@ import com.lunatech.tpcore.config.ReloadableModule;
 import com.lunatech.tpcore.config.model.TpaConfig;
 import com.lunatech.tpcore.module.tpa.command.TpaCommandRegistry;
 import com.lunatech.tpcore.module.tpa.gui.TpaConfirmationMenuService;
-import com.lunatech.tpcore.module.tpa.gui.impl.PaperDialogConfirmationService;
+import com.lunatech.tpcore.module.tpa.gui.impl.DynamicConfirmationMenuService;
+import com.lunatech.tpcore.module.tpa.listener.TpaDialogListener;
 import com.lunatech.tpcore.module.tpa.listener.TpaEventListener;
 import com.lunatech.tpcore.module.tpa.listener.TpaGuiListener;
 import com.lunatech.tpcore.module.tpa.repository.TpaRepository;
@@ -26,6 +27,7 @@ public final class TpaModule implements ReloadableModule {
     private TpaConfirmationMenuService confirmationMenuService;
     private TpaEventListener listener;
     private TpaGuiListener guiListener;
+    private TpaDialogListener dialogListener;
     private TpaCommandRegistry commandRegistry;
 
     public TpaModule(JavaPlugin plugin, ModularConfigManager configManager, TpaConfig config) {
@@ -64,13 +66,15 @@ public final class TpaModule implements ReloadableModule {
 
         this.repository = new ConcurrentTpaRepository();
         this.service = new DefaultTpaService(this.plugin, this.repository, this.config);
-        this.confirmationMenuService = new PaperDialogConfirmationService(() -> this.config, () -> this.service, this.plugin.getSLF4JLogger());
+        this.confirmationMenuService = new DynamicConfirmationMenuService(() -> this.config, () -> this.service, this.plugin.getSLF4JLogger());
         this.listener = new TpaEventListener(this.service);
         this.guiListener = new TpaGuiListener(this.service, () -> this.config);
+        this.dialogListener = new TpaDialogListener(this.plugin, () -> this.service);
         this.commandRegistry = new TpaCommandRegistry(this.plugin, this.service, () -> this.config, this.confirmationMenuService);
 
         this.plugin.getServer().getPluginManager().registerEvents(this.listener, this.plugin);
         this.plugin.getServer().getPluginManager().registerEvents(this.guiListener, this.plugin);
+        this.dialogListener.registerIfSupported();
         this.commandRegistry.registerAll();
         this.configManager.registerModule(this);
 
@@ -84,6 +88,9 @@ public final class TpaModule implements ReloadableModule {
         }
         if (this.guiListener != null) {
             HandlerList.unregisterAll(this.guiListener);
+        }
+        if (this.dialogListener != null) {
+            HandlerList.unregisterAll(this.dialogListener);
         }
         if (this.service != null) {
             this.service.shutdown();
