@@ -47,13 +47,30 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
 
         if (ServerVersion.IS_DIALOG_SUPPORTED) {
             TpaConfig config = this.configSupplier.get();
-            String body = config.dialogBodyText().replace("<sender>", senderName);
+            String body = (request.type() == TpaType.TPA_HERE)
+                ? config.dialogAcceptTpahereBodyText()
+                : config.dialogAcceptTpaBodyText();
+            if (body == null || body.isBlank()) {
+                body = config.dialogBodyText();
+            }
+            if (body == null || body.isBlank()) {
+                body = "<yellow><sender></yellow> <gray>sent a teleport request.\nDo you accept?</gray>";
+            }
+            body = body.replace("<sender>", senderName).replace("<target>", target.getName());
+
+            String acceptText = (config.dialogAcceptText() != null && !config.dialogAcceptText().isBlank())
+                ? config.dialogAcceptText()
+                : "<green><bold>ACCEPT</bold></green>";
+            String denyText = (config.dialogDenyText() != null && !config.dialogDenyText().isBlank())
+                ? config.dialogDenyText()
+                : "<red><bold>DENY</bold></red>";
+
             boolean success = this.tryShowDialog(
                 target,
                 config.dialogTitle(),
                 body,
-                config.dialogAcceptText(),
-                config.dialogDenyText(),
+                acceptText,
+                denyText,
                 () -> {
                     if (this.serviceSupplier != null && this.serviceSupplier.get() != null) {
                         this.serviceSupplier.get().acceptRequest(target, senderName);
@@ -82,13 +99,27 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
 
         if (ServerVersion.IS_DIALOG_SUPPORTED) {
             TpaConfig config = this.configSupplier.get();
-            String body = config.dialogBodyText().replace("<sender>", sender.getName());
+            String body = (type == TpaType.TPA_HERE)
+                ? config.dialogSendTpahereBodyText()
+                : config.dialogSendTpaBodyText();
+            if (body == null || body.isBlank()) {
+                body = "<gray>Send a teleport request to </gray><yellow><target></yellow>?";
+            }
+            body = body.replace("<sender>", sender.getName()).replace("<target>", target.getName());
+
+            String confirmText = (config.dialogSendConfirmText() != null && !config.dialogSendConfirmText().isBlank())
+                ? config.dialogSendConfirmText()
+                : "<green><bold>CONFIRM & SEND</bold></green>";
+            String cancelText = (config.dialogSendCancelText() != null && !config.dialogSendCancelText().isBlank())
+                ? config.dialogSendCancelText()
+                : "<red><bold>CANCEL</bold></red>";
+
             boolean success = this.tryShowDialog(
                 sender,
                 config.dialogTitle(),
                 body,
-                config.dialogAcceptText(),
-                config.dialogDenyText(),
+                confirmText,
+                cancelText,
                 () -> {
                     if (this.serviceSupplier != null && this.serviceSupplier.get() != null) {
                         this.serviceSupplier.get().sendRequest(sender, target, type);

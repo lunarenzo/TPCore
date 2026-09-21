@@ -55,6 +55,12 @@ gui-fill-empty-slots: true
 # Paper Dialog API Settings (Used when confirmation-mode is DIALOG on Paper 1.21.6+)
 dialog-title: "<gradient:#00D2FF:#3A7BD5><bold>Teleport Confirmation</bold></gradient>"
 dialog-body-text: "<yellow><sender></yellow> sent a teleport request.\nDo you accept?"
+dialog-send-tpa-body-text: "<gray>Send a teleport request to </gray><yellow><target></yellow>?\n<gray>You will be teleported to their location once accepted.</gray>"
+dialog-send-tpahere-body-text: "<gray>Request </gray><yellow><target></yellow><gray> to teleport to you?</gray>\n<gray>They will be teleported to your location once accepted.</gray>"
+dialog-accept-tpa-body-text: "<yellow><sender></yellow><gray> wants to teleport to your location.</gray>\n<gray>Do you accept?</gray>"
+dialog-accept-tpahere-body-text: "<yellow><sender></yellow><gray> requests you to teleport to their location.</gray>\n<gray>Do you accept?</gray>"
+dialog-send-confirm-text: "<green><bold>CONFIRM & SEND</bold></green>"
+dialog-send-cancel-text: "<red><bold>CANCEL</bold></red>"
 dialog-accept-text: "<green><bold>ACCEPT</bold></green>"
 dialog-deny-text: "<red><bold>DENY</bold></red>"
 

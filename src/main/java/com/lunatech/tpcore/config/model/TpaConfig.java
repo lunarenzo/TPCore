@@ -74,8 +74,26 @@ public record TpaConfig(
     @Comment("Title for Paper Dialog confirmation menu (1.21.6+)")
     String dialogTitle,
 
-    @Comment("Body text for Paper Dialog menu")
+    @Comment("Legacy Body text for Paper Dialog menu (fallback)")
     String dialogBodyText,
+
+    @Comment("Body text when sender confirms /tpa")
+    String dialogSendTpaBodyText,
+
+    @Comment("Body text when sender confirms /tpahere")
+    String dialogSendTpahereBodyText,
+
+    @Comment("Body text when target accepts /tpa request")
+    String dialogAcceptTpaBodyText,
+
+    @Comment("Body text when target accepts /tpahere request")
+    String dialogAcceptTpahereBodyText,
+
+    @Comment("Confirm button label for sender Paper Dialog menu")
+    String dialogSendConfirmText,
+
+    @Comment("Cancel button label for sender Paper Dialog menu")
+    String dialogSendCancelText,
 
     @Comment("Accept button label for Paper Dialog menu")
     String dialogAcceptText,
@@ -104,6 +122,12 @@ public record TpaConfig(
             true,
             "<gradient:#00D2FF:#3A7BD5><bold>Teleport Confirmation</bold></gradient>",
             "<yellow><sender></yellow> sent a teleport request.\nDo you accept?",
+            "<gray>Send a teleport request to </gray><yellow><target></yellow>?\n<gray>You will be teleported to their location once accepted.</gray>",
+            "<gray>Request </gray><yellow><target></yellow><gray> to teleport to you?</gray>\n<gray>They will be teleported to your location once accepted.</gray>",
+            "<yellow><sender></yellow><gray> wants to teleport to your location.</gray>\n<gray>Do you accept?</gray>",
+            "<yellow><sender></yellow><gray> requests you to teleport to their location.</gray>\n<gray>Do you accept?</gray>",
+            "<green><bold>CONFIRM & SEND</bold></green>",
+            "<red><bold>CANCEL</bold></red>",
             "<green><bold>ACCEPT</bold></green>",
             "<red><bold>DENY</bold></red>",
             TpaMessages.createDefault()
