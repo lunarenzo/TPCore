@@ -215,11 +215,15 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
 
             Class<?> dialogActionClass = Class.forName("io.papermc.paper.registry.data.dialog.action.DialogAction", true, cl);
             for (Method m : dialogActionClass.getMethods()) {
-                if (m.getName().equals("customClick") && m.getParameterCount() >= 1) {
-                    if (m.getParameterCount() == 1) {
-                        return m.invoke(null, key);
-                    } else if (m.getParameterCount() == 2) {
-                        return m.invoke(null, key, null);
+                if (m.getName().equals("customClick")) {
+                    Class<?>[] paramTypes = m.getParameterTypes();
+                    if (paramTypes.length > 0 && paramTypes[0].isAssignableFrom(keyClass)) {
+                        m.setAccessible(true);
+                        if (paramTypes.length == 1) {
+                            return m.invoke(null, key);
+                        } else if (paramTypes.length == 2) {
+                            return m.invoke(null, new Object[]{ key, null });
+                        }
                     }
                 }
             }
