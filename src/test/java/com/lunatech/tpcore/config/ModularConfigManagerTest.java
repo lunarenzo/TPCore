@@ -64,4 +64,29 @@ class ModularConfigManagerTest {
         boolean containsHeaderComment = lines.stream().anyMatch(l -> l.contains("# TPCore"));
         assertTrue(containsHeaderComment, "Reloaded tpa.yml must still retain comments");
     }
+
+    @Test
+    void testAutoAppendsMissingKeysAndComments() throws IOException {
+        Path tpaFile = tempDir.resolve("modules").resolve("tpa.yml");
+
+        // Write an old tpa.yml missing newer config keys
+        String oldYaml = """
+            # Legacy Config
+            enabled: true
+            request-timeout-seconds: 30
+            warmup-seconds: 3
+            """;
+        Files.writeString(tpaFile, oldYaml);
+
+        TpaConfig config = configManager.loadModuleConfig("tpa", TpaConfig.class, TpaConfig.createDefault());
+        assertNotNull(config);
+        assertTrue(config.enableConfirmationMenu());
+
+        List<String> updatedLines = Files.readAllLines(tpaFile);
+        boolean containsMissingKey = updatedLines.stream().anyMatch(l -> l.contains("enable-confirmation-menu"));
+        boolean containsMissingComment = updatedLines.stream().anyMatch(l -> l.contains("# Whether to enable confirmation menus"));
+
+        assertTrue(containsMissingKey, "Missing key enable-confirmation-menu must be auto-appended to tpa.yml");
+        assertTrue(containsMissingComment, "Missing key comments must be auto-appended to tpa.yml");
+    }
 }

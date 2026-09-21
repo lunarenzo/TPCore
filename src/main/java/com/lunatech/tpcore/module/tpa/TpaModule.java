@@ -64,7 +64,7 @@ public final class TpaModule implements ReloadableModule {
 
         this.repository = new ConcurrentTpaRepository();
         this.service = new DefaultTpaService(this.plugin, this.repository, this.config);
-        this.confirmationMenuService = new PaperDialogConfirmationService(() -> this.config, this.plugin.getSLF4JLogger());
+        this.confirmationMenuService = new PaperDialogConfirmationService(() -> this.config, () -> this.service, this.plugin.getSLF4JLogger());
         this.listener = new TpaEventListener(this.service);
         this.guiListener = new TpaGuiListener(this.service, () -> this.config);
         this.commandRegistry = new TpaCommandRegistry(this.plugin, this.service, () -> this.config, this.confirmationMenuService);
