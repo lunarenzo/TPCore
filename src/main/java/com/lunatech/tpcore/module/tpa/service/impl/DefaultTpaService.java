@@ -331,6 +331,14 @@ public final class DefaultTpaService implements TpaService {
     }
 
     @Override
+    public Collection<TpaRequest> getPendingRequestsForTarget(Player target) {
+        if (target == null) {
+            return java.util.Collections.emptyList();
+        }
+        return this.repository.getIncomingRequests(target.getUniqueId());
+    }
+
+    @Override
     public void handlePlayerQuit(UUID playerId) {
         this.repository.removeAllRequestsForPlayer(playerId);
         this.cancelWarmup(playerId, null);

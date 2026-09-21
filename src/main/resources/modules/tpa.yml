@@ -21,6 +21,27 @@ allow-self-tpa: false
 # Whether to require destination ground safety before teleportation
 require-safe-location: true
 
+# Confirmation interface mode: CHAT, GUI, or DIALOG (Default: CHAT)
+# CHAT = MiniMessage clickable buttons in chat
+# GUI = 3-row Chest Inventory menu with customizable player head and buttons
+# DIALOG = Native Paper Dialog API menu (Paper 1.21.6+ required, falls back to GUI on older versions)
+confirmation-mode: CHAT
+
+# 3-Row Chest GUI Settings (Used when confirmation-mode is GUI)
+gui-title: "<gradient:#00D2FF:#3A7BD5><bold>Teleport Request</bold></gradient>"
+gui-accept-slot: 15
+gui-deny-slot: 11
+gui-head-slot: 13
+gui-accept-item: "LIME_STAINED_GLASS_PANE"
+gui-deny-item: "RED_STAINED_GLASS_PANE"
+gui-fill-item: "GRAY_STAINED_GLASS_PANE"
+
+# Paper Dialog API Settings (Used when confirmation-mode is DIALOG on Paper 1.21.6+)
+dialog-title: "<gradient:#00D2FF:#3A7BD5><bold>Teleport Confirmation</bold></gradient>"
+dialog-body-text: "<yellow><sender></yellow> sent a teleport request.\nDo you accept?"
+dialog-accept-text: "<green><bold>ACCEPT</bold></green>"
+dialog-deny-text: "<red><bold>DENY</bold></red>"
+
 # Module message strings (Alphabetically ordered for server admin convenience)
 messages:
   already-has-pending-request: "<prefix><red>You already have an active pending teleport request with <yellow><target></yellow>!</red>"

@@ -26,11 +26,60 @@ public record TpaConfig(
     @Comment("Require destination ground safety before teleportation")
     boolean requireSafeLocation,
 
+    @Comment("Confirmation menu mode: CHAT, GUI, or DIALOG (Default: CHAT)")
+    String confirmationMode,
+
+    @Comment("Title for the 3-row Chest Confirmation GUI")
+    String guiTitle,
+
+    @Comment("Slot for the Accept button (0-26, default 15)")
+    int guiAcceptSlot,
+
+    @Comment("Slot for the Deny/Cancel button (0-26, default 11)")
+    int guiDenySlot,
+
+    @Comment("Slot for the Player Head (0-26, default 13)")
+    int guiHeadSlot,
+
+    @Comment("Item material for Accept button")
+    String guiAcceptItem,
+
+    @Comment("Item material for Deny button")
+    String guiDenyItem,
+
+    @Comment("Item material for Background filler")
+    String guiFillItem,
+
+    @Comment("Title for Paper Dialog confirmation menu (1.21.6+)")
+    String dialogTitle,
+
+    @Comment("Body text for Paper Dialog menu")
+    String dialogBodyText,
+
+    @Comment("Accept button label for Paper Dialog menu")
+    String dialogAcceptText,
+
+    @Comment("Deny button label for Paper Dialog menu")
+    String dialogDenyText,
+
     @Comment("Module message strings (Alphabetically ordered)")
     TpaMessages messages
 ) {
     public static TpaConfig createDefault() {
-        return new TpaConfig(true, 30, 3, true, true, false, true, TpaMessages.createDefault());
+        return new TpaConfig(
+            true, 30, 3, true, true, false, true,
+            "CHAT",
+            "<gradient:#00D2FF:#3A7BD5><bold>Teleport Request</bold></gradient>",
+            15, 11, 13,
+            "LIME_STAINED_GLASS_PANE",
+            "RED_STAINED_GLASS_PANE",
+            "GRAY_STAINED_GLASS_PANE",
+            "<gradient:#00D2FF:#3A7BD5><bold>Teleport Confirmation</bold></gradient>",
+            "<yellow><sender></yellow> sent a teleport request.\nDo you accept?",
+            "<green><bold>ACCEPT</bold></green>",
+            "<red><bold>DENY</bold></red>",
+            TpaMessages.createDefault()
+        );
     }
 
     @ConfigSerializable

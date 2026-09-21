@@ -10,6 +10,7 @@ public final class ServerVersion {
     public static final boolean IS_DATA_COMPONENTS;
     public static final boolean IS_PDC_DIRECT;
     public static final boolean IS_YEAR_VERSIONED;
+    public static final boolean IS_DIALOG_SUPPORTED;
 
     static {
         String raw = Bukkit.getBukkitVersion().split("-")[0];
@@ -32,6 +33,7 @@ public final class ServerVersion {
         IS_YEAR_VERSIONED = MAJOR >= 26;
         IS_DATA_COMPONENTS = IS_YEAR_VERSIONED || (MAJOR == 1 && (MINOR > 20 || (MINOR == 20 && PATCH >= 5)));
         IS_PDC_DIRECT = IS_YEAR_VERSIONED || (MAJOR == 1 && (MINOR > 21 || (MINOR == 21 && PATCH >= 4)));
+        IS_DIALOG_SUPPORTED = IS_YEAR_VERSIONED || (MAJOR == 1 && (MINOR > 21 || (MINOR == 21 && PATCH >= 6)));
     }
 
     private ServerVersion() {

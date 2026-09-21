@@ -2,6 +2,8 @@ package com.lunatech.tpcore.module.tpa.command;
 
 import com.lunatech.tpcore.config.model.TpaConfig;
 import com.lunatech.tpcore.constant.Permissions;
+import com.lunatech.tpcore.module.tpa.gui.TpaConfirmationMenuService;
+import com.lunatech.tpcore.module.tpa.model.TpaRequest;
 import com.lunatech.tpcore.module.tpa.model.TpaType;
 import com.lunatech.tpcore.module.tpa.service.TpaService;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
@@ -14,6 +16,7 @@ import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.function.Supplier;
 
@@ -22,12 +25,19 @@ public final class TpaCommandRegistry {
     private final JavaPlugin plugin;
     private final TpaService tpaService;
     private final Supplier<TpaConfig> configSupplier;
+    private final TpaConfirmationMenuService confirmationMenuService;
     private final MiniMessage miniMessage;
 
-    public TpaCommandRegistry(JavaPlugin plugin, TpaService tpaService, Supplier<TpaConfig> configSupplier) {
+    public TpaCommandRegistry(
+        JavaPlugin plugin,
+        TpaService tpaService,
+        Supplier<TpaConfig> configSupplier,
+        TpaConfirmationMenuService confirmationMenuService
+    ) {
         this.plugin = plugin;
         this.tpaService = tpaService;
         this.configSupplier = configSupplier;
+        this.confirmationMenuService = confirmationMenuService;
         this.miniMessage = MiniMessage.miniMessage();
     }
 
@@ -123,6 +133,15 @@ public final class TpaCommandRegistry {
                     .requires(src -> src.getSender().hasPermission(Permissions.TPA_ACCEPT))
                     .executes(ctx -> {
                         if (ctx.getSource().getSender() instanceof Player target) {
+                            TpaConfig cfg = this.configSupplier.get();
+                            String mode = (cfg.confirmationMode() != null) ? cfg.confirmationMode().toUpperCase() : "CHAT";
+                            if (("GUI".equals(mode) || "DIALOG".equals(mode)) && this.confirmationMenuService != null) {
+                                Collection<TpaRequest> pending = this.tpaService.getPendingRequestsForTarget(target);
+                                if (pending.size() == 1) {
+                                    this.confirmationMenuService.openConfirmation(target, pending.iterator().next());
+                                    return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+                                }
+                            }
                             this.tpaService.acceptRequest(target, null);
                         }
                         return com.mojang.brigadier.Command.SINGLE_SUCCESS;

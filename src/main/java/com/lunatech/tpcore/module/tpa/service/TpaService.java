@@ -1,9 +1,11 @@
 package com.lunatech.tpcore.module.tpa.service;
 
 import com.lunatech.tpcore.config.model.TpaConfig;
+import com.lunatech.tpcore.module.tpa.model.TpaRequest;
 import com.lunatech.tpcore.module.tpa.model.TpaType;
 import org.bukkit.entity.Player;
 
+import java.util.Collection;
 import java.util.UUID;
 
 public interface TpaService {
@@ -17,6 +19,8 @@ public interface TpaService {
     void cancelRequest(Player sender, String optionalTargetName);
 
     boolean toggleTpa(Player player);
+
+    Collection<TpaRequest> getPendingRequestsForTarget(Player target);
 
     void handlePlayerQuit(UUID playerId);
 
