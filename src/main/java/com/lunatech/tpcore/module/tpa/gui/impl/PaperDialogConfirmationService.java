@@ -77,7 +77,7 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
     private void logFallbackNoticeOnce() {
         if (!this.loggedNotice) {
             this.loggedNotice = true;
-            this.logger.info("Paper Dialog API requires Paper 1.21.7+. Falling back to Chest GUI confirmation menu.");
+            this.logger.info("Paper Dialog API requires Paper 1.21.6+ (API 1.21.7+). Falling back to Chest GUI confirmation menu.");
         }
     }
 }
