@@ -65,7 +65,7 @@ public final class TpaCommandRegistry {
                                 if (!targets.isEmpty()) {
                                     for (Player target : targets) {
                                         if (target != null && target.isOnline()) {
-                                            this.tpaService.sendRequest(sender, target, TpaType.TPA_TO);
+                                            handleSendOrMenu(sender, target, TpaType.TPA_TO);
                                         }
                                     }
                                 } else {
@@ -106,7 +106,7 @@ public final class TpaCommandRegistry {
                                 if (!targets.isEmpty()) {
                                     for (Player target : targets) {
                                         if (target != null && target.isOnline()) {
-                                            this.tpaService.sendRequest(sender, target, TpaType.TPA_HERE);
+                                            handleSendOrMenu(sender, target, TpaType.TPA_HERE);
                                         }
                                     }
                                 } else {
@@ -221,6 +221,18 @@ public final class TpaCommandRegistry {
                 List.of("tptoggle")
             );
         });
+    }
+
+    private void handleSendOrMenu(Player sender, Player target, TpaType type) {
+        TpaConfig cfg = this.configSupplier.get();
+        String mode = (cfg.confirmationMode() != null) ? cfg.confirmationMode().trim().toUpperCase() : "CHAT";
+
+        if (("GUI".equals(mode) || "DIALOG".equals(mode)) && this.confirmationMenuService != null) {
+            this.confirmationMenuService.openSendConfirmation(sender, target, type);
+            return;
+        }
+
+        this.tpaService.sendRequest(sender, target, type);
     }
 
     private void handleAcceptOrMenu(Player target, String optionalSenderName) {

@@ -35,18 +35,35 @@ public final class TpaGuiListener implements Listener {
 
             TpaConfig cfg = this.configSupplier.get();
             int slot = event.getRawSlot();
-            TpaRequest request = holder.getRequest();
 
-            if (slot == cfg.guiAcceptSlot()) {
-                player.closeInventory();
-                Player sender = Bukkit.getPlayer(request.senderId());
-                String senderName = (sender != null) ? sender.getName() : null;
-                this.tpaService.acceptRequest(player, senderName);
-            } else if (slot == cfg.guiDenySlot()) {
-                player.closeInventory();
-                Player sender = Bukkit.getPlayer(request.senderId());
-                String senderName = (sender != null) ? sender.getName() : null;
-                this.tpaService.denyRequest(player, senderName);
+            if (holder.getConfirmationType() == TpaConfirmationHolder.ConfirmationType.SEND_REQUEST) {
+                Player target = holder.getTargetPlayer();
+                if (slot == cfg.guiAcceptSlot()) {
+                    player.closeInventory();
+                    if (target != null && target.isOnline()) {
+                        this.tpaService.sendRequest(player, target, holder.getTpaType());
+                    }
+                } else if (slot == cfg.guiDenySlot()) {
+                    player.closeInventory();
+                }
+            } else if (holder.getConfirmationType() == TpaConfirmationHolder.ConfirmationType.ACCEPT_REQUEST) {
+                TpaRequest request = holder.getRequest();
+                if (request == null) {
+                    player.closeInventory();
+                    return;
+                }
+
+                if (slot == cfg.guiAcceptSlot()) {
+                    player.closeInventory();
+                    Player sender = Bukkit.getPlayer(request.senderId());
+                    String senderName = (sender != null) ? sender.getName() : null;
+                    this.tpaService.acceptRequest(player, senderName);
+                } else if (slot == cfg.guiDenySlot()) {
+                    player.closeInventory();
+                    Player sender = Bukkit.getPlayer(request.senderId());
+                    String senderName = (sender != null) ? sender.getName() : null;
+                    this.tpaService.denyRequest(player, senderName);
+                }
             }
         }
     }
