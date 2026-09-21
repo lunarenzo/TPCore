@@ -33,8 +33,11 @@ gui-accept-slot: 15
 gui-deny-slot: 11
 gui-head-slot: 13
 gui-accept-item: "LIME_STAINED_GLASS_PANE"
+gui-accept-name: "<green><bold>ACCEPT REQUEST</bold></green>"
 gui-deny-item: "RED_STAINED_GLASS_PANE"
+gui-deny-name: "<red><bold>DENY REQUEST</bold></red>"
 gui-fill-item: "GRAY_STAINED_GLASS_PANE"
+gui-fill-empty-slots: true
 
 # Paper Dialog API Settings (Used when confirmation-mode is DIALOG on Paper 1.21.6+)
 dialog-title: "<gradient:#00D2FF:#3A7BD5><bold>Teleport Confirmation</bold></gradient>"

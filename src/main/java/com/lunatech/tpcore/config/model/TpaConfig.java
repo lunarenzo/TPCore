@@ -44,11 +44,20 @@ public record TpaConfig(
     @Comment("Item material for Accept button")
     String guiAcceptItem,
 
+    @Comment("Display name for Accept button")
+    String guiAcceptName,
+
     @Comment("Item material for Deny button")
     String guiDenyItem,
 
+    @Comment("Display name for Deny button")
+    String guiDenyName,
+
     @Comment("Item material for Background filler")
     String guiFillItem,
+
+    @Comment("Whether to fill empty GUI slots with filler material")
+    boolean guiFillEmptySlots,
 
     @Comment("Title for Paper Dialog confirmation menu (1.21.6+)")
     String dialogTitle,
@@ -72,8 +81,11 @@ public record TpaConfig(
             "<gradient:#00D2FF:#3A7BD5><bold>Teleport Request</bold></gradient>",
             15, 11, 13,
             "LIME_STAINED_GLASS_PANE",
+            "<green><bold>ACCEPT REQUEST</bold></green>",
             "RED_STAINED_GLASS_PANE",
+            "<red><bold>DENY REQUEST</bold></red>",
             "GRAY_STAINED_GLASS_PANE",
+            true,
             "<gradient:#00D2FF:#3A7BD5><bold>Teleport Confirmation</bold></gradient>",
             "<yellow><sender></yellow> sent a teleport request.\nDo you accept?",
             "<green><bold>ACCEPT</bold></green>",

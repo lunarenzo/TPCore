@@ -6,6 +6,7 @@ import com.lunatech.tpcore.module.tpa.gui.TpaConfirmationMenuService;
 import com.lunatech.tpcore.module.tpa.model.TpaRequest;
 import com.lunatech.tpcore.module.tpa.model.TpaType;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
@@ -36,14 +37,16 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
         }
 
         TpaConfig cfg = this.configSupplier.get();
-        Component title = this.miniMessage.deserialize(cfg.guiTitle());
+        Component title = formatComponent(cfg.guiTitle());
 
         Inventory inventory = Bukkit.createInventory(new TpaConfirmationHolder(request), 27, title);
 
-        Material fillMat = parseMaterial(cfg.guiFillItem(), Material.GRAY_STAINED_GLASS_PANE);
-        ItemStack fillItem = createItem(fillMat, "<gray> </gray>");
-        for (int i = 0; i < inventory.getSize(); i++) {
-            inventory.setItem(i, fillItem.clone());
+        if (cfg.guiFillEmptySlots()) {
+            Material fillMat = parseMaterial(cfg.guiFillItem(), Material.GRAY_STAINED_GLASS_PANE);
+            ItemStack fillItem = createItem(fillMat, "<gray> </gray>");
+            for (int i = 0; i < inventory.getSize(); i++) {
+                inventory.setItem(i, fillItem.clone());
+            }
         }
 
         // Slot 13: Player Head
@@ -59,15 +62,15 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
             }
 
             String senderName = (senderPlayer != null) ? senderPlayer.getName() : "Player";
-            skullMeta.displayName(this.miniMessage.deserialize("<yellow><bold>" + senderName + "</bold></yellow>"));
+            skullMeta.displayName(formatComponent("<yellow><bold>" + senderName + "</bold></yellow>"));
 
             String reqTypeText = (request.type() == TpaType.TPA_HERE)
                 ? "<gray>Request Type: <gold>TPA Here (Teleport to them)</gold></gray>"
                 : "<gray>Request Type: <gold>TPA (Teleport to you)</gold></gray>";
 
             skullMeta.lore(List.of(
-                this.miniMessage.deserialize(reqTypeText),
-                this.miniMessage.deserialize("<gray>Expires in: <gold>" + cfg.requestTimeoutSeconds() + "s</gold></gray>")
+                formatComponent(reqTypeText),
+                formatComponent("<gray>Expires in: <gold>" + cfg.requestTimeoutSeconds() + "s</gold></gray>")
             ));
 
             headItem.setItemMeta(skullMeta);
@@ -77,13 +80,19 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
 
         // Slot 15: Accept Button
         Material acceptMat = parseMaterial(cfg.guiAcceptItem(), Material.LIME_STAINED_GLASS_PANE);
-        ItemStack acceptItem = createItem(acceptMat, "<green><bold>ACCEPT REQUEST</bold></green>");
+        String acceptName = (cfg.guiAcceptName() != null && !cfg.guiAcceptName().isBlank())
+            ? cfg.guiAcceptName()
+            : "<green><bold>ACCEPT REQUEST</bold></green>";
+        ItemStack acceptItem = createItem(acceptMat, acceptName);
         int acceptSlot = clampSlot(cfg.guiAcceptSlot(), 15);
         inventory.setItem(acceptSlot, acceptItem);
 
         // Slot 11: Deny Button
         Material denyMat = parseMaterial(cfg.guiDenyItem(), Material.RED_STAINED_GLASS_PANE);
-        ItemStack denyItem = createItem(denyMat, "<red><bold>DENY REQUEST</bold></red>");
+        String denyName = (cfg.guiDenyName() != null && !cfg.guiDenyName().isBlank())
+            ? cfg.guiDenyName()
+            : "<red><bold>DENY REQUEST</bold></red>";
+        ItemStack denyItem = createItem(denyMat, denyName);
         int denySlot = clampSlot(cfg.guiDenySlot(), 11);
         inventory.setItem(denySlot, denyItem);
 
@@ -94,10 +103,17 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
         ItemStack item = new ItemStack(material);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            meta.displayName(this.miniMessage.deserialize(nameMiniMessage));
+            meta.displayName(formatComponent(nameMiniMessage));
             item.setItemMeta(meta);
         }
         return item;
+    }
+
+    private Component formatComponent(String miniMessageText) {
+        if (miniMessageText == null || miniMessageText.isBlank()) {
+            return Component.empty().decoration(TextDecoration.ITALIC, false);
+        }
+        return this.miniMessage.deserialize(miniMessageText).decoration(TextDecoration.ITALIC, false);
     }
 
     private Material parseMaterial(String name, Material fallback) {
