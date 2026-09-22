@@ -8,9 +8,13 @@ import com.lunatech.tpcore.module.tpa.model.TpaUserSettings;
 import com.lunatech.tpcore.module.tpa.repository.TpaRepository;
 import com.lunatech.tpcore.module.tpa.service.TpaService;
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
+import net.kyori.adventure.bossbar.BossBar;
+import net.kyori.adventure.key.Key;
+import net.kyori.adventure.sound.Sound;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
+import net.kyori.adventure.title.Title;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.NamespacedKey;
@@ -19,16 +23,19 @@ import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 public final class DefaultTpaService implements TpaService {
@@ -49,7 +56,10 @@ public final class DefaultTpaService implements TpaService {
         double startX,
         double startY,
         double startZ,
-        ScheduledTask task
+        int totalWarmupSeconds,
+        AtomicInteger remainingSeconds,
+        BossBar bossBar,
+        AtomicReference<ScheduledTask> taskRef
     ) {
         public boolean hasMoved(Location currentLoc) {
             if (currentLoc == null || currentLoc.getWorld() == null) {
@@ -585,31 +595,148 @@ public final class DefaultTpaService implements TpaService {
             "seconds", String.valueOf(warmupSeconds)
         );
 
+        TpaConfig cfg = this.config();
+        BossBar bossBar = null;
+        if (cfg.enableBossbar()) {
+            BossBar.Color color = parseBossBarColor(cfg.bossbarColor());
+            BossBar.Overlay overlay = parseBossBarOverlay(cfg.bossbarOverlay());
+            TagResolver prefixResolver = Placeholder.parsed("prefix", cfg.messages().prefix());
+            TagResolver secResolver = Placeholder.unparsed("seconds", String.valueOf(warmupSeconds));
+            bossBar = BossBar.bossBar(
+                this.miniMessage.deserialize(cfg.bossbarFormat().replace("<seconds>", String.valueOf(warmupSeconds)), TagResolver.resolver(prefixResolver, secResolver)),
+                1.0f,
+                color,
+                overlay
+            );
+            player.showBossBar(bossBar);
+        }
+
         Location currentLoc = player.getLocation();
-        ScheduledTask task = player.getScheduler().runDelayed(
+        AtomicInteger remaining = new AtomicInteger(warmupSeconds);
+        AtomicReference<ScheduledTask> taskRef = new AtomicReference<>();
+        BossBar finalBossBar = bossBar;
+
+        ActiveWarmup warmup = new ActiveWarmup(
+            player.getUniqueId(),
+            currentLoc.getWorld().getName(),
+            currentLoc.getX(),
+            currentLoc.getY(),
+            currentLoc.getZ(),
+            warmupSeconds,
+            remaining,
+            finalBossBar,
+            taskRef
+        );
+        this.activeWarmups.put(player.getUniqueId(), warmup);
+
+        updateWarmupFeedback(player, warmupSeconds, warmupSeconds);
+
+        ScheduledTask task = player.getScheduler().runAtFixedRate(
             this.plugin,
             scheduledTask -> {
-                ActiveWarmup warmup = this.activeWarmups.remove(player.getUniqueId());
-                if (warmup != null && player.isOnline() && destinationPlayer.isOnline()) {
-                    performFinalTeleport(player, destinationPlayer);
+                if (!player.isOnline() || !destinationPlayer.isOnline()) {
+                    this.cancelWarmup(player.getUniqueId(), null);
+                    return;
+                }
+
+                int rem = remaining.decrementAndGet();
+                if (rem > 0) {
+                    updateWarmupFeedback(player, rem, warmupSeconds);
+                    if (finalBossBar != null) {
+                        float progress = Math.max(0.0f, Math.min(1.0f, (float) rem / (float) warmupSeconds));
+                        finalBossBar.progress(progress);
+                        TagResolver prefixResolver = Placeholder.parsed("prefix", cfg.messages().prefix());
+                        TagResolver secResolver = Placeholder.unparsed("seconds", String.valueOf(rem));
+                        finalBossBar.name(this.miniMessage.deserialize(cfg.bossbarFormat().replace("<seconds>", String.valueOf(rem)), TagResolver.resolver(prefixResolver, secResolver)));
+                    }
+                } else {
+                    scheduledTask.cancel();
+                    ActiveWarmup removed = this.activeWarmups.remove(player.getUniqueId());
+                    if (removed != null) {
+                        if (finalBossBar != null) {
+                            player.hideBossBar(finalBossBar);
+                        }
+                        if (cfg.enableTitle()) {
+                            player.clearTitle();
+                        }
+                        if (cfg.enableSounds()) {
+                            playSound(player, cfg.completionSound(), (float) cfg.completionSoundVolume(), (float) cfg.completionSoundPitch());
+                        }
+                        performFinalTeleport(player, destinationPlayer);
+                    }
                 }
             },
             null,
-            warmupSeconds * 20L
+            20L,
+            20L
         );
 
-        if (task != null) {
-            this.activeWarmups.put(
-                player.getUniqueId(),
-                new ActiveWarmup(
-                    player.getUniqueId(),
-                    currentLoc.getWorld().getName(),
-                    currentLoc.getX(),
-                    currentLoc.getY(),
-                    currentLoc.getZ(),
-                    task
-                )
+        taskRef.set(task);
+    }
+
+    private void updateWarmupFeedback(Player player, int remainingSeconds, int totalWarmupSeconds) {
+        TpaConfig cfg = this.config();
+        TagResolver prefixResolver = Placeholder.parsed("prefix", cfg.messages().prefix());
+        TagResolver secResolver = Placeholder.unparsed("seconds", String.valueOf(remainingSeconds));
+        TagResolver combined = TagResolver.resolver(prefixResolver, secResolver);
+
+        if (cfg.enableActionBar()) {
+            String processed = cfg.actionBarFormat().replace("<seconds>", String.valueOf(remainingSeconds));
+            player.sendActionBar(this.miniMessage.deserialize(processed, combined));
+        }
+
+        if (cfg.enableTitle()) {
+            String processedTitle = cfg.titleFormat().replace("<seconds>", String.valueOf(remainingSeconds));
+            String processedSubtitle = cfg.subtitleFormat().replace("<seconds>", String.valueOf(remainingSeconds));
+            Title title = Title.title(
+                this.miniMessage.deserialize(processedTitle, combined),
+                this.miniMessage.deserialize(processedSubtitle, combined),
+                Title.Times.times(Duration.ZERO, Duration.ofMillis(1200), Duration.ofMillis(200))
             );
+            player.showTitle(title);
+        }
+
+        if (cfg.enableSounds()) {
+            int elapsed = totalWarmupSeconds - remainingSeconds;
+            float pitch = cfg.tickSoundVolume() > 0 ? (float) (1.0 + (cfg.tickSoundPitchStep() * elapsed)) : 1.0f;
+            playSound(player, cfg.tickSound(), (float) cfg.tickSoundVolume(), pitch);
+        }
+    }
+
+    private void playSound(Player player, String soundKey, float volume, float pitch) {
+        if (player == null || !player.isOnline() || soundKey == null || soundKey.isBlank()) {
+            return;
+        }
+        try {
+            String cleanKey = soundKey.toLowerCase(Locale.ROOT).replace('_', '.');
+            if (!cleanKey.contains(":")) {
+                cleanKey = "minecraft:" + cleanKey;
+            }
+            Sound sound = Sound.sound(Key.key(cleanKey), Sound.Source.MASTER, volume, pitch);
+            player.playSound(sound);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private BossBar.Color parseBossBarColor(String colorStr) {
+        if (colorStr == null || colorStr.isBlank()) {
+            return BossBar.Color.YELLOW;
+        }
+        try {
+            return BossBar.Color.valueOf(colorStr.toUpperCase(Locale.ROOT));
+        } catch (Throwable ignored) {
+            return BossBar.Color.YELLOW;
+        }
+    }
+
+    private BossBar.Overlay parseBossBarOverlay(String overlayStr) {
+        if (overlayStr == null || overlayStr.isBlank()) {
+            return BossBar.Overlay.PROGRESS;
+        }
+        try {
+            return BossBar.Overlay.valueOf(overlayStr.toUpperCase(Locale.ROOT));
+        } catch (Throwable ignored) {
+            return BossBar.Overlay.PROGRESS;
         }
     }
 
@@ -651,13 +778,23 @@ public final class DefaultTpaService implements TpaService {
     private void cancelWarmup(UUID playerId, String cancelMessageTemplate) {
         ActiveWarmup warmup = this.activeWarmups.remove(playerId);
         if (warmup != null) {
-            if (warmup.task() != null) {
-                warmup.task().cancel();
+            if (warmup.taskRef() != null && warmup.taskRef().get() != null) {
+                warmup.taskRef().get().cancel();
             }
-            if (cancelMessageTemplate != null) {
-                Player player = Bukkit.getPlayer(playerId);
-                if (player != null && player.isOnline()) {
+            Player player = Bukkit.getPlayer(playerId);
+            if (player != null && player.isOnline()) {
+                if (warmup.bossBar() != null) {
+                    player.hideBossBar(warmup.bossBar());
+                }
+                if (this.config().enableTitle()) {
+                    player.clearTitle();
+                }
+                if (cancelMessageTemplate != null) {
                     this.sendMessage(player, cancelMessageTemplate);
+                    if (this.config().enableSounds()) {
+                        TpaConfig cfg = this.config();
+                        playSound(player, cfg.cancelSound(), (float) cfg.cancelSoundVolume(), (float) cfg.cancelSoundPitch());
+                    }
                 }
             }
         }
@@ -723,8 +860,17 @@ public final class DefaultTpaService implements TpaService {
             this.sweeperTask.cancel();
         }
         for (ActiveWarmup warmup : this.activeWarmups.values()) {
-            if (warmup.task() != null) {
-                warmup.task().cancel();
+            if (warmup.taskRef() != null && warmup.taskRef().get() != null) {
+                warmup.taskRef().get().cancel();
+            }
+            Player player = Bukkit.getPlayer(warmup.teleportingPlayerId());
+            if (player != null && player.isOnline()) {
+                if (warmup.bossBar() != null) {
+                    player.hideBossBar(warmup.bossBar());
+                }
+                if (this.config().enableTitle()) {
+                    player.clearTitle();
+                }
             }
         }
         this.activeWarmups.clear();

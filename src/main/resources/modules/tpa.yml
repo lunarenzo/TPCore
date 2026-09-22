@@ -67,6 +67,30 @@ dialog-send-cancel-text: "<red><bold>CANCEL</bold></red>"
 dialog-accept-text: "<green><bold>ACCEPT</bold></green>"
 dialog-deny-text: "<red><bold>DENY</bold></red>"
 
+# Audio-Visual Countdown & Feedback Settings (Warmup)
+enable-action-bar: true
+action-bar-format: "<gold>Teleporting in <yellow><seconds>s</yellow>... Do not move!</gold>"
+
+enable-title: true
+title-format: "<gold><bold>TELEPORTING</bold></gold>"
+subtitle-format: "<gray>in <yellow><seconds>s</yellow>... Stay still!</gray>"
+
+enable-bossbar: true
+bossbar-format: "<gold>Teleporting in <yellow><seconds>s</yellow>...</gold>"
+bossbar-color: "YELLOW"
+bossbar-overlay: "PROGRESS"
+
+enable-sounds: true
+tick-sound: "block.note_block.pling"
+tick-sound-volume: 0.8
+tick-sound-pitch-step: 0.15
+completion-sound: "entity.player.teleport"
+completion-sound-volume: 1.0
+completion-sound-pitch: 1.0
+cancel-sound: "entity.villager.no"
+cancel-sound-volume: 0.8
+cancel-sound-pitch: 1.0
+
 # Module message strings (Alphabetically ordered for server admin convenience)
 messages:
   already-has-pending-request: "<prefix><red>You already have an active pending teleport request with <yellow><target></yellow>!</red>"

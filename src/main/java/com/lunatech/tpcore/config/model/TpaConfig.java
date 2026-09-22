@@ -104,6 +104,63 @@ public record TpaConfig(
     @Comment("Deny button label for Paper Dialog menu")
     String dialogDenyText,
 
+    @Comment("Enable or disable Action Bar countdown feedback")
+    boolean enableActionBar,
+
+    @Comment("MiniMessage format for Action Bar countdown")
+    String actionBarFormat,
+
+    @Comment("Enable or disable Title & Subtitle countdown feedback")
+    boolean enableTitle,
+
+    @Comment("MiniMessage format for main Title text")
+    String titleFormat,
+
+    @Comment("MiniMessage format for Subtitle text")
+    String subtitleFormat,
+
+    @Comment("Enable or disable BossBar countdown feedback")
+    boolean enableBossbar,
+
+    @Comment("MiniMessage format for BossBar title")
+    String bossbarFormat,
+
+    @Comment("BossBar color (BLUE, GREEN, PINK, PURPLE, RED, WHITE, YELLOW)")
+    String bossbarColor,
+
+    @Comment("BossBar overlay/style (PROGRESS, NOTCHED_6, NOTCHED_10, NOTCHED_12, NOTCHED_20)")
+    String bossbarOverlay,
+
+    @Comment("Enable or disable countdown audio feedback")
+    boolean enableSounds,
+
+    @Comment("Sound played on each countdown tick (e.g. block.note_block.pling)")
+    String tickSound,
+
+    @Comment("Volume for tick sound")
+    double tickSoundVolume,
+
+    @Comment("Pitch increase per tick step")
+    double tickSoundPitchStep,
+
+    @Comment("Sound played when warmup completes and teleportation occurs")
+    String completionSound,
+
+    @Comment("Volume for completion sound")
+    double completionSoundVolume,
+
+    @Comment("Pitch for completion sound")
+    double completionSoundPitch,
+
+    @Comment("Sound played when warmup is cancelled")
+    String cancelSound,
+
+    @Comment("Volume for cancel sound")
+    double cancelSoundVolume,
+
+    @Comment("Pitch for cancel sound")
+    double cancelSoundPitch,
+
     @Comment("Module message strings (Alphabetically ordered)")
     TpaMessages messages
 ) {
@@ -133,6 +190,25 @@ public record TpaConfig(
             "<red><bold>CANCEL</bold></red>",
             "<green><bold>ACCEPT</bold></green>",
             "<red><bold>DENY</bold></red>",
+            true,
+            "<gold>Teleporting in <yellow><seconds>s</yellow>... Do not move!</gold>",
+            true,
+            "<gold><bold>TELEPORTING</bold></gold>",
+            "<gray>in <yellow><seconds>s</yellow>... Stay still!</gray>",
+            true,
+            "<gold>Teleporting in <yellow><seconds>s</yellow>...</gold>",
+            "YELLOW",
+            "PROGRESS",
+            true,
+            "block.note_block.pling",
+            0.8,
+            0.15,
+            "entity.player.teleport",
+            1.0,
+            1.0,
+            "entity.villager.no",
+            0.8,
+            1.0,
             TpaMessages.createDefault()
         );
     }
