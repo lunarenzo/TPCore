@@ -140,60 +140,59 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
 
             // DialogBase
             Object baseBuilder = DialogReflectionCache.DIALOG_BASE_BUILDER.invoke(null, titleComp);
-            Method setCanClose = findMethod(baseBuilder.getClass(), "canCloseWithEscape", boolean.class);
-            if (setCanClose != null) {
-                setCanClose.invoke(baseBuilder, true);
+            if (DialogReflectionCache.DIALOG_BASE_CAN_CLOSE != null) {
+                DialogReflectionCache.DIALOG_BASE_CAN_CLOSE.invoke(baseBuilder, true);
             }
 
             Object bodyItem = DialogReflectionCache.DIALOG_BODY_PLAIN.invoke(null, bodyComp);
-            Method setBody = findMethod(baseBuilder.getClass(), "body", List.class);
-            if (setBody != null) {
-                setBody.invoke(baseBuilder, List.of(bodyItem));
+            if (DialogReflectionCache.DIALOG_BASE_BODY != null) {
+                DialogReflectionCache.DIALOG_BASE_BODY.invoke(baseBuilder, List.of(bodyItem));
             }
-            Object dialogBase = baseBuilder.getClass().getMethod("build").invoke(baseBuilder);
+            Object dialogBase = DialogReflectionCache.DIALOG_BASE_BUILD != null
+                ? DialogReflectionCache.DIALOG_BASE_BUILD.invoke(baseBuilder)
+                : baseBuilder.getClass().getMethod("build").invoke(baseBuilder);
 
             // Accept button
             Object acceptBuilder = DialogReflectionCache.ACTION_BUTTON_BUILDER.invoke(null, acceptComp);
             if (acceptKey != null) {
                 Object acceptAction = createCustomClickAction(acceptKey);
-                if (acceptAction != null) {
-                    Method actionMethod = findMethod(acceptBuilder.getClass(), "action", acceptAction.getClass());
-                    if (actionMethod != null) {
-                        actionMethod.invoke(acceptBuilder, acceptAction);
-                    }
+                if (acceptAction != null && DialogReflectionCache.ACTION_BUTTON_ACTION != null) {
+                    DialogReflectionCache.ACTION_BUTTON_ACTION.invoke(acceptBuilder, acceptAction);
                 }
             }
-            Object acceptButton = acceptBuilder.getClass().getMethod("build").invoke(acceptBuilder);
+            Object acceptButton = DialogReflectionCache.ACTION_BUTTON_BUILD != null
+                ? DialogReflectionCache.ACTION_BUTTON_BUILD.invoke(acceptBuilder)
+                : acceptBuilder.getClass().getMethod("build").invoke(acceptBuilder);
 
             // Deny/Cancel button
             Object denyBuilder = DialogReflectionCache.ACTION_BUTTON_BUILDER.invoke(null, denyComp);
             if (denyKey != null) {
                 Object denyAction = createCustomClickAction(denyKey);
-                if (denyAction != null) {
-                    Method actionMethod = findMethod(denyBuilder.getClass(), "action", denyAction.getClass());
-                    if (actionMethod != null) {
-                        actionMethod.invoke(denyBuilder, denyAction);
-                    }
+                if (denyAction != null && DialogReflectionCache.ACTION_BUTTON_ACTION != null) {
+                    DialogReflectionCache.ACTION_BUTTON_ACTION.invoke(denyBuilder, denyAction);
                 }
             }
-            Object denyButton = denyBuilder.getClass().getMethod("build").invoke(denyBuilder);
+            Object denyButton = DialogReflectionCache.ACTION_BUTTON_BUILD != null
+                ? DialogReflectionCache.ACTION_BUTTON_BUILD.invoke(denyBuilder)
+                : denyBuilder.getClass().getMethod("build").invoke(denyBuilder);
 
             // DialogType
             Object dialogType = DialogReflectionCache.DIALOG_TYPE_CONFIRMATION.invoke(null, acceptButton, denyButton);
 
             // Build Dialog via Dialog.create(consumer)
-            Class<?> consumerClass = Class.forName("java.util.function.Consumer");
-            Object consumerProxy = Proxy.newProxyInstance(player.getClass().getClassLoader(), new Class<?>[]{consumerClass}, (proxy, method, args) -> {
+            Object consumerProxy = Proxy.newProxyInstance(player.getClass().getClassLoader(), new Class<?>[]{ DialogReflectionCache.CONSUMER_CLASS }, (proxy, method, args) -> {
                 if ("accept".equals(method.getName()) && args.length == 1) {
                     Object builder = args[0];
-                    Object emptyBuilder = builder.getClass().getMethod("empty").invoke(builder);
-                    Method setBase = findMethod(emptyBuilder.getClass(), "base", dialogBase.getClass());
-                    if (setBase != null) {
-                        setBase.invoke(emptyBuilder, dialogBase);
+                    Method emptyMethod = findMethod(builder.getClass(), "empty");
+                    Object emptyBuilder = (emptyMethod != null) ? emptyMethod.invoke(builder) : builder;
+
+                    Method baseMethod = findMethod(emptyBuilder.getClass(), "base", dialogBase.getClass());
+                    if (baseMethod != null) {
+                        baseMethod.invoke(emptyBuilder, dialogBase);
                     }
-                    Method setType = findMethod(emptyBuilder.getClass(), "type", dialogType.getClass());
-                    if (setType != null) {
-                        setType.invoke(emptyBuilder, dialogType);
+                    Method typeMethod = findMethod(emptyBuilder.getClass(), "type", dialogType.getClass());
+                    if (typeMethod != null) {
+                        typeMethod.invoke(emptyBuilder, dialogType);
                     }
                 }
                 return null;
@@ -251,9 +250,15 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
 
     private static final class DialogReflectionCache {
         private static final boolean SUPPORTED;
+        private static final Class<?> CONSUMER_CLASS;
         private static final Method DIALOG_BASE_BUILDER;
+        private static final Method DIALOG_BASE_CAN_CLOSE;
+        private static final Method DIALOG_BASE_BODY;
+        private static final Method DIALOG_BASE_BUILD;
         private static final Method DIALOG_BODY_PLAIN;
         private static final Method ACTION_BUTTON_BUILDER;
+        private static final Method ACTION_BUTTON_ACTION;
+        private static final Method ACTION_BUTTON_BUILD;
         private static final Method DIALOG_TYPE_CONFIRMATION;
         private static final Method DIALOG_CREATE;
         private static final Method SHOW_DIALOG;
@@ -263,9 +268,15 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
 
         static {
             boolean supp = false;
+            Class<?> consumerCls = null;
             Method dbBuilder = null;
+            Method dbCanClose = null;
+            Method dbBody = null;
+            Method dbBuild = null;
             Method dBodyPlain = null;
             Method abBuilder = null;
+            Method abAction = null;
+            Method abBuild = null;
             Method dtConfirmation = null;
             Method dCreate = null;
             Method sDialog = null;
@@ -274,6 +285,7 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
             Method kFactory = null;
 
             try {
+                consumerCls = Class.forName("java.util.function.Consumer");
                 Class<?> dClass = Class.forName("io.papermc.paper.dialog.Dialog");
                 Class<?> kClass = Class.forName("net.kyori.adventure.key.Key");
                 kFactory = kClass.getMethod("key", String.class);
@@ -281,18 +293,28 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
 
                 Class<?> dbClass = Class.forName("io.papermc.paper.registry.data.dialog.DialogBase");
                 dbBuilder = findMethodWithParam(dbClass, "builder", Component.class);
+                if (dbBuilder != null) {
+                    Class<?> dbBuilderClass = dbBuilder.getReturnType();
+                    dbCanClose = findMethodByName(dbBuilderClass, "canCloseWithEscape");
+                    dbBody = findMethodByName(dbBuilderClass, "body");
+                    dbBuild = findMethodByName(dbBuilderClass, "build");
+                }
 
                 Class<?> dBodyClass = Class.forName("io.papermc.paper.registry.data.dialog.body.DialogBody");
                 dBodyPlain = findMethodWithParam(dBodyClass, "plainMessage", Component.class);
 
                 Class<?> abClass = Class.forName("io.papermc.paper.registry.data.dialog.ActionButton");
                 abBuilder = findMethodWithParam(abClass, "builder", Component.class);
+                if (abBuilder != null) {
+                    Class<?> abBuilderClass = abBuilder.getReturnType();
+                    abAction = findMethodByName(abBuilderClass, "action");
+                    abBuild = findMethodByName(abBuilderClass, "build");
+                }
 
                 Class<?> dtClass = Class.forName("io.papermc.paper.registry.data.dialog.type.DialogType");
                 dtConfirmation = findMethodWithParam(dtClass, "confirmation", abClass, abClass);
 
-                Class<?> consumerClass = Class.forName("java.util.function.Consumer");
-                dCreate = findMethodWithParam(dClass, "create", consumerClass);
+                dCreate = findMethodWithParam(dClass, "create", consumerCls);
 
                 sDialog = findMethodWithParam(Player.class, "showDialog", dClass);
 
@@ -317,15 +339,34 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
             }
 
             SUPPORTED = supp;
+            CONSUMER_CLASS = consumerCls;
             DIALOG_BASE_BUILDER = dbBuilder;
+            DIALOG_BASE_CAN_CLOSE = dbCanClose;
+            DIALOG_BASE_BODY = dbBody;
+            DIALOG_BASE_BUILD = dbBuild;
             DIALOG_BODY_PLAIN = dBodyPlain;
             ACTION_BUTTON_BUILDER = abBuilder;
+            ACTION_BUTTON_ACTION = abAction;
+            ACTION_BUTTON_BUILD = abBuild;
             DIALOG_TYPE_CONFIRMATION = dtConfirmation;
             DIALOG_CREATE = dCreate;
             SHOW_DIALOG = sDialog;
             CUSTOM_CLICK_1 = cClick1;
             CUSTOM_CLICK_2 = cClick2;
             KEY_FACTORY = kFactory;
+        }
+
+        private static Method findMethodByName(Class<?> clazz, String name) {
+            try {
+                for (Method m : clazz.getMethods()) {
+                    if (m.getName().equals(name)) {
+                        m.setAccessible(true);
+                        return m;
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+            return null;
         }
 
         private static Method findMethodWithParam(Class<?> clazz, String name, Class<?>... paramTypes) {
