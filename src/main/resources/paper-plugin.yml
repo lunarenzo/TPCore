@@ -8,7 +8,7 @@ folia-supported: true
 
 permissions:
   tpcore.tpa.player:
-    description: Grants default TPA permissions for non-op players (use, here, accept, deny, cancel, toggle)
+    description: Grants default TPA permissions for non-op players (use, here, accept, deny, cancel, toggle, block, unblock, blocklist, autoaccept)
     default: true
     children:
       tpcore.tpa.use: true
@@ -17,6 +17,10 @@ permissions:
       tpcore.tpa.deny: true
       tpcore.tpa.cancel: true
       tpcore.tpa.toggle: true
+      tpcore.tpa.block: true
+      tpcore.tpa.unblock: true
+      tpcore.tpa.blocklist: true
+      tpcore.tpa.autoaccept: true
 
   tpcore.tpa.admin:
     description: Grants administrative TPA permissions (bulk selectors, warmup bypass, admin commands)
