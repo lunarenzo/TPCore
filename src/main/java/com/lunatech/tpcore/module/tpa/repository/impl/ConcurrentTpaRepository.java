@@ -127,8 +127,24 @@ public final class ConcurrentTpaRepository implements TpaRepository {
             this.toggledOffPlayers.remove(playerId);
         }
         this.userSettingsMap.compute(playerId, (id, current) -> {
+            boolean autoAccept = (current != null) && current.autoAccept();
             Set<UUID> blocked = (current != null) ? current.blockedPlayers() : Collections.emptySet();
-            return new TpaUserSettings(toggledOff, blocked);
+            return new TpaUserSettings(toggledOff, autoAccept, blocked);
+        });
+    }
+
+    @Override
+    public boolean isAutoAcceptEnabled(UUID playerId) {
+        TpaUserSettings settings = this.userSettingsMap.get(playerId);
+        return settings != null && settings.autoAccept();
+    }
+
+    @Override
+    public void setAutoAcceptEnabled(UUID playerId, boolean autoAccept) {
+        this.userSettingsMap.compute(playerId, (id, current) -> {
+            boolean toggledOff = (current != null) && current.toggledOff();
+            Set<UUID> blocked = (current != null) ? current.blockedPlayers() : Collections.emptySet();
+            return new TpaUserSettings(toggledOff, autoAccept, blocked);
         });
     }
 
@@ -162,13 +178,14 @@ public final class ConcurrentTpaRepository implements TpaRepository {
     public void setPlayerBlocked(UUID playerId, UUID targetId, boolean blocked) {
         this.userSettingsMap.compute(playerId, (id, current) -> {
             boolean toggledOff = (current != null) && current.toggledOff();
+            boolean autoAccept = (current != null) && current.autoAccept();
             Set<UUID> blockedSet = new HashSet<>((current != null && current.blockedPlayers() != null) ? current.blockedPlayers() : Collections.emptySet());
             if (blocked) {
                 blockedSet.add(targetId);
             } else {
                 blockedSet.remove(targetId);
             }
-            return new TpaUserSettings(toggledOff, Collections.unmodifiableSet(blockedSet));
+            return new TpaUserSettings(toggledOff, autoAccept, Collections.unmodifiableSet(blockedSet));
         });
     }
 

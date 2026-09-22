@@ -27,6 +27,10 @@ public interface TpaRepository {
 
     void setTpaToggledOff(UUID playerId, boolean toggledOff);
 
+    boolean isAutoAcceptEnabled(UUID playerId);
+
+    void setAutoAcceptEnabled(UUID playerId, boolean autoAccept);
+
     TpaUserSettings getUserSettings(UUID playerId);
 
     void setUserSettings(UUID playerId, TpaUserSettings settings);

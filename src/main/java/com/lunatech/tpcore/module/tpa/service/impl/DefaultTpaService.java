@@ -46,6 +46,7 @@ public final class DefaultTpaService implements TpaService {
     private final AtomicReference<TpaConfig> configRef;
     private final MiniMessage miniMessage;
     private final NamespacedKey keyToggledOff;
+    private final NamespacedKey keyAutoAccept;
     private final NamespacedKey keyBlockList;
 
     private final Map<UUID, ActiveWarmup> activeWarmups = new ConcurrentHashMap<>();
@@ -82,6 +83,7 @@ public final class DefaultTpaService implements TpaService {
         this.configRef = new AtomicReference<>(config);
         this.miniMessage = MiniMessage.miniMessage();
         this.keyToggledOff = new NamespacedKey(plugin, "tpa_toggled_off");
+        this.keyAutoAccept = new NamespacedKey(plugin, "tpa_auto_accept");
         this.keyBlockList = new NamespacedKey(plugin, "tpa_block_list");
         this.sweeperTask = this.startExpirationSweeper();
     }
@@ -155,6 +157,9 @@ public final class DefaultTpaService implements TpaService {
         Byte toggledOffByte = pdc.get(this.keyToggledOff, PersistentDataType.BYTE);
         boolean toggledOff = toggledOffByte != null && toggledOffByte == (byte) 1;
 
+        Byte autoAcceptByte = pdc.get(this.keyAutoAccept, PersistentDataType.BYTE);
+        boolean autoAccept = autoAcceptByte != null && autoAcceptByte == (byte) 1;
+
         Set<UUID> blockedSet = Collections.emptySet();
         if (pdc.has(this.keyBlockList, PersistentDataType.BYTE_ARRAY)) {
             byte[] bytes = pdc.get(this.keyBlockList, PersistentDataType.BYTE_ARRAY);
@@ -180,7 +185,7 @@ public final class DefaultTpaService implements TpaService {
             }
         }
 
-        TpaUserSettings settings = new TpaUserSettings(toggledOff, blockedSet);
+        TpaUserSettings settings = new TpaUserSettings(toggledOff, autoAccept, blockedSet);
         this.repository.setUserSettings(player.getUniqueId(), settings);
     }
 
@@ -191,6 +196,7 @@ public final class DefaultTpaService implements TpaService {
         TpaUserSettings settings = this.repository.getUserSettings(player.getUniqueId());
         PersistentDataContainer pdc = player.getPersistentDataContainer();
         pdc.set(this.keyToggledOff, PersistentDataType.BYTE, settings.toggledOff() ? (byte) 1 : (byte) 0);
+        pdc.set(this.keyAutoAccept, PersistentDataType.BYTE, settings.autoAccept() ? (byte) 1 : (byte) 0);
 
         if (settings.blockedPlayers() != null && !settings.blockedPlayers().isEmpty()) {
             byte[] bytes = uuidSetToBytes(settings.blockedPlayers());
@@ -241,6 +247,15 @@ public final class DefaultTpaService implements TpaService {
                 this.config().messages().targetToggledOff(),
                 "target", target.getName()
             );
+            return;
+        }
+
+        if (this.repository.isAutoAcceptEnabled(target.getUniqueId())) {
+            TpaRequest req = new TpaRequest(sender.getUniqueId(), target.getUniqueId(), type, System.currentTimeMillis());
+            this.repository.addRequest(req);
+            this.sendMessage(sender, this.config().messages().requestAutoAcceptedSender(), "target", target.getName());
+            this.sendMessage(target, this.config().messages().requestAutoAcceptedTarget(), "sender", sender.getName());
+            this.acceptRequest(target, sender.getName());
             return;
         }
 
@@ -489,6 +504,21 @@ public final class DefaultTpaService implements TpaService {
     }
 
     @Override
+    public boolean toggleAutoAccept(Player player) {
+        boolean current = this.repository.isAutoAcceptEnabled(player.getUniqueId());
+        boolean newStatus = !current;
+        this.repository.setAutoAcceptEnabled(player.getUniqueId(), newStatus);
+        this.saveUserSettingsToPdc(player);
+
+        if (newStatus) {
+            this.sendMessage(player, this.config().messages().autoAcceptOn());
+        } else {
+            this.sendMessage(player, this.config().messages().autoAcceptOff());
+        }
+        return newStatus;
+    }
+
+    @Override
     public void blockPlayer(Player player, String targetName) {
         if (player == null || targetName == null || targetName.isBlank()) {
             return;
@@ -551,6 +581,15 @@ public final class DefaultTpaService implements TpaService {
         }
         String joined = String.join(", ", names);
         this.sendMessage(player, this.config().messages().blockListHeader(), "players", joined);
+    }
+
+    @Override
+    public Set<UUID> getBlockedPlayers(Player player) {
+        if (player == null) {
+            return Collections.emptySet();
+        }
+        TpaUserSettings settings = this.repository.getUserSettings(player.getUniqueId());
+        return (settings.blockedPlayers() != null) ? settings.blockedPlayers() : Collections.emptySet();
     }
 
     @Override

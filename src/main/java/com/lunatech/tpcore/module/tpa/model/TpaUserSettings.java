@@ -6,10 +6,11 @@ import java.util.UUID;
 
 public record TpaUserSettings(
     boolean toggledOff,
+    boolean autoAccept,
     Set<UUID> blockedPlayers
 ) {
     public static TpaUserSettings createDefault() {
-        return new TpaUserSettings(false, Collections.emptySet());
+        return new TpaUserSettings(false, false, Collections.emptySet());
     }
 
     public boolean isBlocked(UUID targetId) {

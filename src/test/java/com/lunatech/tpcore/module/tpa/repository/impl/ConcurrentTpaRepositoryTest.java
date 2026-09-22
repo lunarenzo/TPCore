@@ -62,14 +62,16 @@ class ConcurrentTpaRepositoryTest {
         assertFalse(this.repository.getUserSettings(player1).blockedPlayers().contains(player2));
 
         // Set user settings directly
-        TpaUserSettings newSettings = new TpaUserSettings(true, Set.of(player2));
+        TpaUserSettings newSettings = new TpaUserSettings(true, true, Set.of(player2));
         this.repository.setUserSettings(player1, newSettings);
         assertTrue(this.repository.isTpaToggledOff(player1));
+        assertTrue(this.repository.isAutoAcceptEnabled(player1));
         assertTrue(this.repository.isPlayerBlocked(player1, player2));
 
         // Clean up on disconnect
         this.repository.removeAllRequestsForPlayer(player1);
         assertFalse(this.repository.isTpaToggledOff(player1));
+        assertFalse(this.repository.isAutoAcceptEnabled(player1));
         assertFalse(this.repository.isPlayerBlocked(player1, player2));
     }
 

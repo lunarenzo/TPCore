@@ -6,6 +6,7 @@ import com.lunatech.tpcore.module.tpa.model.TpaType;
 import org.bukkit.entity.Player;
 
 import java.util.Collection;
+import java.util.Set;
 import java.util.UUID;
 
 public interface TpaService {
@@ -20,11 +21,15 @@ public interface TpaService {
 
     boolean toggleTpa(Player player);
 
+    boolean toggleAutoAccept(Player player);
+
     void blockPlayer(Player player, String targetName);
 
     void unblockPlayer(Player player, String targetName);
 
     void listBlockedPlayers(Player player);
+
+    Set<UUID> getBlockedPlayers(Player player);
 
     Collection<TpaRequest> getPendingRequestsForTarget(Player target);
 

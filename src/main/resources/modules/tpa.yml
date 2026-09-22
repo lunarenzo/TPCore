@@ -94,6 +94,8 @@ cancel-sound-pitch: 1.0
 # Module message strings (Alphabetically ordered for server admin convenience)
 messages:
   already-has-pending-request: "<prefix><red>You already have an active pending teleport request with <yellow><target></yellow>!</red>"
+  auto-accept-off: "<prefix><gray>TPA Auto-Accept is now <red>DISABLED</red>.</gray>"
+  auto-accept-on: "<prefix><gray>TPA Auto-Accept is now <green>ENABLED</green>.</gray>"
   block-list-empty: "<prefix><gray>You have no blocked players.</gray>"
   block-list-header: "<prefix><gray>Blocked Players: <yellow><players></yellow></gray>"
   cooldown-active: "<prefix><red>Please wait <gold><seconds>s</gold> before sending another TPA request!</red>"
@@ -107,6 +109,8 @@ messages:
   reject-self-tpa: "<prefix><red>You cannot send a teleport request to yourself!</red>"
   request-accepted-sender: "<prefix><yellow><target></yellow> <green>accepted your teleport request!</green>"
   request-accepted-target: "<prefix><green>Accepted teleport request from <yellow><sender></yellow>.</green>"
+  request-auto-accepted-sender: "<prefix><yellow><target></yellow> <green>auto-accepted your teleport request!</green>"
+  request-auto-accepted-target: "<prefix><gray>Auto-accepted teleport request from <yellow><sender></yellow>.</gray>"
   request-cancelled-sender: "<prefix><gray>Cancelled your teleport request to <yellow><target></yellow>.</gray>"
   request-cancelled-target: "<prefix><yellow><sender></yellow> <gray>cancelled their teleport request.</gray>"
   request-denied-sender: "<prefix><yellow><target></yellow> <red>denied your teleport request.</red>"

@@ -216,6 +216,8 @@ public record TpaConfig(
     @ConfigSerializable
     public record TpaMessages(
         String alreadyHasPendingRequest,
+        String autoAcceptOff,
+        String autoAcceptOn,
         String blockListEmpty,
         String blockListHeader,
         String cooldownActive,
@@ -229,6 +231,8 @@ public record TpaConfig(
         String rejectSelfTpa,
         String requestAcceptedSender,
         String requestAcceptedTarget,
+        String requestAutoAcceptedSender,
+        String requestAutoAcceptedTarget,
         String requestCancelledSender,
         String requestCancelledTarget,
         String requestDeniedSender,
@@ -249,6 +253,8 @@ public record TpaConfig(
         public static TpaMessages createDefault() {
             return new TpaMessages(
                 "<prefix><red>You already have an active pending teleport request with <yellow><target></yellow>!</red>",
+                "<prefix><gray>TPA Auto-Accept is now <red>DISABLED</red>.</gray>",
+                "<prefix><gray>TPA Auto-Accept is now <green>ENABLED</green>.</gray>",
                 "<prefix><gray>You have no blocked players.</gray>",
                 "<prefix><gray>Blocked Players: <yellow><players></yellow></gray>",
                 "<prefix><red>Please wait <gold><seconds>s</gold> before sending another TPA request!</red>",
@@ -262,6 +268,8 @@ public record TpaConfig(
                 "<prefix><red>You cannot send a teleport request to yourself!</red>",
                 "<prefix><yellow><target></yellow> <green>accepted your teleport request!</green>",
                 "<prefix><green>Accepted teleport request from <yellow><sender></yellow>.</green>",
+                "<prefix><yellow><target></yellow> <green>auto-accepted your teleport request!</green>",
+                "<prefix><gray>Auto-accepted teleport request from <yellow><sender></yellow>.</gray>",
                 "<prefix><gray>Cancelled your teleport request to <yellow><target></yellow>.</gray>",
                 "<prefix><yellow><sender></yellow> <gray>cancelled their teleport request.</gray>",
                 "<prefix><yellow><target></yellow> <red>denied your teleport request.</red>",

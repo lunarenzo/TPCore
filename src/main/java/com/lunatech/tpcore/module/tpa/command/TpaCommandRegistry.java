@@ -14,11 +14,15 @@ import io.papermc.paper.command.brigadier.argument.resolvers.selector.PlayerSele
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
+import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+import java.util.UUID;
 import java.util.function.Supplier;
 
 public final class TpaCommandRegistry {
@@ -232,6 +236,21 @@ public final class TpaCommandRegistry {
                 List.of("tptoggle")
             );
 
+            // /tpaautoaccept
+            commands.register(
+                Commands.literal("tpaautoaccept")
+                    .requires(src -> src.getSender().hasPermission(Permissions.TPA_AUTOACCEPT))
+                    .executes(ctx -> {
+                        if (ctx.getSource().getSender() instanceof Player player) {
+                            this.tpaService.toggleAutoAccept(player);
+                        }
+                        return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+                    })
+                    .build(),
+                "Toggle automatically accepting incoming TPA requests",
+                List.of("tpautoaccept", "tpaa")
+            );
+
             // /tpablock <player>
             commands.register(
                 Commands.literal("tpablock")
@@ -248,7 +267,7 @@ public final class TpaCommandRegistry {
                     )
                     .build(),
                 "Block a player from sending TPA requests",
-                List.of()
+                List.of("tpblock")
             );
 
             // /tpaunblock <player>
@@ -256,6 +275,22 @@ public final class TpaCommandRegistry {
                 Commands.literal("tpaunblock")
                     .requires(src -> src.getSender().hasPermission(Permissions.TPA_UNBLOCK))
                     .then(Commands.argument("player", StringArgumentType.word())
+                        .suggests((ctx, builder) -> {
+                            if (ctx.getSource().getSender() instanceof Player sender) {
+                                Set<UUID> blocked = this.tpaService.getBlockedPlayers(sender);
+                                if (blocked != null && !blocked.isEmpty()) {
+                                    String remaining = builder.getRemainingLowerCase();
+                                    for (UUID uuid : blocked) {
+                                        Player p = Bukkit.getPlayer(uuid);
+                                        String name = (p != null && p.isOnline()) ? p.getName() : Bukkit.getOfflinePlayer(uuid).getName();
+                                        if (name != null && name.toLowerCase(Locale.ROOT).startsWith(remaining)) {
+                                            builder.suggest(name);
+                                        }
+                                    }
+                                }
+                            }
+                            return builder.buildFuture();
+                        })
                         .executes(ctx -> {
                             CommandSourceStack src = ctx.getSource();
                             if (src.getSender() instanceof Player sender) {
@@ -267,7 +302,7 @@ public final class TpaCommandRegistry {
                     )
                     .build(),
                 "Unblock a player from sending TPA requests",
-                List.of()
+                List.of("tpunblock")
             );
 
             // /tpablocklist
@@ -283,7 +318,7 @@ public final class TpaCommandRegistry {
                     })
                     .build(),
                 "List all blocked players",
-                List.of()
+                List.of("tpblocklist")
             );
         });
     }
