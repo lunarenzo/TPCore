@@ -23,6 +23,7 @@ import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import java.nio.ByteBuffer;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -154,19 +155,29 @@ public final class DefaultTpaService implements TpaService {
         Byte toggledOffByte = pdc.get(this.keyToggledOff, PersistentDataType.BYTE);
         boolean toggledOff = toggledOffByte != null && toggledOffByte == (byte) 1;
 
-        String blockedStr = pdc.get(this.keyBlockList, PersistentDataType.STRING);
         Set<UUID> blockedSet = Collections.emptySet();
-        if (blockedStr != null && !blockedStr.isBlank()) {
-            blockedSet = new HashSet<>();
-            for (String raw : blockedStr.split(",")) {
-                try {
-                    if (!raw.isBlank()) {
-                        blockedSet.add(UUID.fromString(raw.trim()));
+        if (pdc.has(this.keyBlockList, PersistentDataType.BYTE_ARRAY)) {
+            byte[] bytes = pdc.get(this.keyBlockList, PersistentDataType.BYTE_ARRAY);
+            blockedSet = bytesToUuidSet(bytes);
+        } else if (pdc.has(this.keyBlockList, PersistentDataType.STRING)) {
+            String blockedStr = pdc.get(this.keyBlockList, PersistentDataType.STRING);
+            if (blockedStr != null && !blockedStr.isBlank()) {
+                blockedSet = new HashSet<>();
+                for (String raw : blockedStr.split(",")) {
+                    try {
+                        if (!raw.isBlank()) {
+                            blockedSet.add(UUID.fromString(raw.trim()));
+                        }
+                    } catch (Exception ignored) {
                     }
-                } catch (Exception ignored) {
                 }
+                blockedSet = Collections.unmodifiableSet(blockedSet);
             }
-            blockedSet = Collections.unmodifiableSet(blockedSet);
+            pdc.remove(this.keyBlockList);
+            byte[] bytes = uuidSetToBytes(blockedSet);
+            if (bytes.length > 0) {
+                pdc.set(this.keyBlockList, PersistentDataType.BYTE_ARRAY, bytes);
+            }
         }
 
         TpaUserSettings settings = new TpaUserSettings(toggledOff, blockedSet);
@@ -182,11 +193,39 @@ public final class DefaultTpaService implements TpaService {
         pdc.set(this.keyToggledOff, PersistentDataType.BYTE, settings.toggledOff() ? (byte) 1 : (byte) 0);
 
         if (settings.blockedPlayers() != null && !settings.blockedPlayers().isEmpty()) {
-            String joined = String.join(",", settings.blockedPlayers().stream().map(UUID::toString).toList());
-            pdc.set(this.keyBlockList, PersistentDataType.STRING, joined);
+            byte[] bytes = uuidSetToBytes(settings.blockedPlayers());
+            pdc.set(this.keyBlockList, PersistentDataType.BYTE_ARRAY, bytes);
         } else {
             pdc.remove(this.keyBlockList);
         }
+    }
+
+    private static byte[] uuidSetToBytes(Set<UUID> uuids) {
+        if (uuids == null || uuids.isEmpty()) {
+            return new byte[0];
+        }
+        byte[] bytes = new byte[uuids.size() * 16];
+        ByteBuffer buffer = ByteBuffer.wrap(bytes);
+        for (UUID uuid : uuids) {
+            buffer.putLong(uuid.getMostSignificantBits());
+            buffer.putLong(uuid.getLeastSignificantBits());
+        }
+        return bytes;
+    }
+
+    private static Set<UUID> bytesToUuidSet(byte[] bytes) {
+        if (bytes == null || bytes.length < 16) {
+            return Collections.emptySet();
+        }
+        int count = bytes.length / 16;
+        Set<UUID> set = new HashSet<>(count);
+        ByteBuffer buffer = ByteBuffer.wrap(bytes);
+        for (int i = 0; i < count; i++) {
+            long most = buffer.getLong();
+            long least = buffer.getLong();
+            set.add(new UUID(most, least));
+        }
+        return Collections.unmodifiableSet(set);
     }
 
     @Override
