@@ -363,6 +363,10 @@ public final class DefaultTpaService implements TpaService {
                     this.config().messages().requestDeniedSender(),
                     "target", target.getName()
                 );
+                if (this.config().enableSounds()) {
+                    TpaConfig cfg = this.config();
+                    playSound(sender, cfg.cancelSound(), (float) cfg.cancelSoundVolume(), (float) cfg.cancelSoundPitch());
+                }
             }
             this.closeConfirmationMenuIfOpen(target);
             this.sendMessage(
@@ -370,6 +374,10 @@ public final class DefaultTpaService implements TpaService {
                 this.config().messages().requestDeniedTarget(),
                 "sender", (sender != null) ? sender.getName() : "Player"
             );
+            if (this.config().enableSounds()) {
+                TpaConfig cfg = this.config();
+                playSound(target, cfg.cancelSound(), (float) cfg.cancelSoundVolume(), (float) cfg.cancelSoundPitch());
+            }
         } else {
             this.sendMessage(target, this.config().messages().noPendingRequests());
         }
@@ -406,6 +414,10 @@ public final class DefaultTpaService implements TpaService {
                     this.config().messages().requestCancelledTarget(),
                     "sender", sender.getName()
                 );
+                if (this.config().enableSounds()) {
+                    TpaConfig cfg = this.config();
+                    playSound(target, cfg.cancelSound(), (float) cfg.cancelSoundVolume(), (float) cfg.cancelSoundPitch());
+                }
             }
             this.closeConfirmationMenuIfOpen(sender);
             this.sendMessage(
@@ -413,6 +425,10 @@ public final class DefaultTpaService implements TpaService {
                 this.config().messages().requestCancelledSender(),
                 "target", (target != null) ? target.getName() : "Player"
             );
+            if (this.config().enableSounds()) {
+                TpaConfig cfg = this.config();
+                playSound(sender, cfg.cancelSound(), (float) cfg.cancelSoundVolume(), (float) cfg.cancelSoundPitch());
+            }
         } else {
             this.sendMessage(sender, this.config().messages().noPendingRequests());
         }
@@ -708,13 +724,34 @@ public final class DefaultTpaService implements TpaService {
             return;
         }
         try {
-            String cleanKey = soundKey.toLowerCase(Locale.ROOT).replace('_', '.');
-            if (!cleanKey.contains(":")) {
-                cleanKey = "minecraft:" + cleanKey;
+            Key key = resolveSoundKey(soundKey);
+            if (key != null) {
+                Sound sound = Sound.sound(key, Sound.Source.MASTER, volume, pitch);
+                player.playSound(sound);
             }
-            Sound sound = Sound.sound(Key.key(cleanKey), Sound.Source.MASTER, volume, pitch);
-            player.playSound(sound);
         } catch (Throwable ignored) {
+        }
+    }
+
+    private Key resolveSoundKey(String soundKey) {
+        if (soundKey == null || soundKey.isBlank()) {
+            return null;
+        }
+        String trimmed = soundKey.trim();
+        try {
+            org.bukkit.Sound bukkitSound = org.bukkit.Sound.valueOf(trimmed.toUpperCase(Locale.ROOT));
+            return Key.key(bukkitSound.getKey().getNamespace(), bukkitSound.getKey().getKey());
+        } catch (Throwable ignored) {
+        }
+
+        String cleanKey = trimmed.toLowerCase(Locale.ROOT);
+        if (!cleanKey.contains(":")) {
+            cleanKey = "minecraft:" + cleanKey;
+        }
+        try {
+            return Key.key(cleanKey);
+        } catch (Throwable ignored) {
+            return null;
         }
     }
 
