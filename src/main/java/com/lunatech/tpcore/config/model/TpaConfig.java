@@ -11,6 +11,9 @@ public record TpaConfig(
     @Comment("Timeout in seconds before an unaccepted TPA request automatically expires")
     int requestTimeoutSeconds,
 
+    @Comment("Cooldown in seconds between outgoing TPA requests")
+    int requestCooldownSeconds,
+
     @Comment("Warmup delay in seconds before teleporting")
     int warmupSeconds,
 
@@ -106,7 +109,7 @@ public record TpaConfig(
 ) {
     public static TpaConfig createDefault() {
         return new TpaConfig(
-            true, 30, 3, true, true, false, true,
+            true, 30, 10, 3, true, true, false, true,
             true,
             true,
             true,
@@ -137,9 +140,15 @@ public record TpaConfig(
     @ConfigSerializable
     public record TpaMessages(
         String alreadyHasPendingRequest,
+        String blockListEmpty,
+        String blockListHeader,
+        String cooldownActive,
         String multiplePendingRequests,
         String noPendingRequests,
+        String notBlocked,
+        String playerBlocked,
         String playerNotOnline,
+        String playerUnblocked,
         String prefix,
         String rejectSelfTpa,
         String requestAcceptedSender,
@@ -164,9 +173,15 @@ public record TpaConfig(
         public static TpaMessages createDefault() {
             return new TpaMessages(
                 "<prefix><red>You already have an active pending teleport request with <yellow><target></yellow>!</red>",
+                "<prefix><gray>You have no blocked players.</gray>",
+                "<prefix><gray>Blocked Players: <yellow><players></yellow></gray>",
+                "<prefix><red>Please wait <gold><seconds>s</gold> before sending another TPA request!</red>",
                 "<prefix><red>You have multiple requests! Specify the player name: <yellow>/tpaccept <player></yellow></red>",
                 "<prefix><red>You have no active pending teleport requests!</red>",
+                "<prefix><red>Player <yellow><player></yellow> is not in your block list!</red>",
+                "<prefix><gray>Blocked <yellow><player></yellow> from sending you teleport requests.</gray>",
                 "<prefix><red>Player <yellow><player></yellow> is not online!</red>",
+                "<prefix><green>Unblocked <yellow><player></yellow>.</green>",
                 "<gradient:#00D2FF:#3A7BD5><bold>TPCore</bold></gradient> <dark_gray>»</dark_gray> ",
                 "<prefix><red>You cannot send a teleport request to yourself!</red>",
                 "<prefix><yellow><target></yellow> <green>accepted your teleport request!</green>",

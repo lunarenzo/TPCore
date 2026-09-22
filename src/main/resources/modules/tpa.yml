@@ -6,6 +6,9 @@ enabled: true
 # Time in seconds before an unaccepted TPA request automatically expires
 request-timeout-seconds: 30
 
+# Cooldown in seconds between outgoing TPA requests per player
+request-cooldown-seconds: 10
+
 # Warmup delay in seconds before teleporting after request acceptance
 warmup-seconds: 3
 
@@ -67,9 +70,15 @@ dialog-deny-text: "<red><bold>DENY</bold></red>"
 # Module message strings (Alphabetically ordered for server admin convenience)
 messages:
   already-has-pending-request: "<prefix><red>You already have an active pending teleport request with <yellow><target></yellow>!</red>"
+  block-list-empty: "<prefix><gray>You have no blocked players.</gray>"
+  block-list-header: "<prefix><gray>Blocked Players: <yellow><players></yellow></gray>"
+  cooldown-active: "<prefix><red>Please wait <gold><seconds>s</gold> before sending another TPA request!</red>"
   multiple-pending-requests: "<prefix><red>You have multiple requests! Specify the player name: <yellow>/tpaccept <player></yellow></red>"
   no-pending-requests: "<prefix><red>You have no active pending teleport requests!</red>"
+  not-blocked: "<prefix><red>Player <yellow><player></yellow> is not in your block list!</red>"
+  player-blocked: "<prefix><gray>Blocked <yellow><player></yellow> from sending you teleport requests.</gray>"
   player-not-online: "<prefix><red>Player <yellow><player></yellow> is not online!</red>"
+  player-unblocked: "<prefix><green>Unblocked <yellow><player></yellow>.</green>"
   prefix: "<gradient:#00D2FF:#3A7BD5><bold>TPCore</bold></gradient> <dark_gray>»</dark_gray> "
   reject-self-tpa: "<prefix><red>You cannot send a teleport request to yourself!</red>"
   request-accepted-sender: "<prefix><yellow><target></yellow> <green>accepted your teleport request!</green>"

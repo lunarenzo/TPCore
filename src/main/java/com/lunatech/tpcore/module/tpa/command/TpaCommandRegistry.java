@@ -6,6 +6,7 @@ import com.lunatech.tpcore.module.tpa.gui.TpaConfirmationMenuService;
 import com.lunatech.tpcore.module.tpa.model.TpaRequest;
 import com.lunatech.tpcore.module.tpa.model.TpaType;
 import com.lunatech.tpcore.module.tpa.service.TpaService;
+import com.mojang.brigadier.arguments.StringArgumentType;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
 import io.papermc.paper.command.brigadier.Commands;
 import io.papermc.paper.command.brigadier.argument.ArgumentTypes;
@@ -229,6 +230,60 @@ public final class TpaCommandRegistry {
                     .build(),
                 "Toggle receiving teleport requests",
                 List.of("tptoggle")
+            );
+
+            // /tpablock <player>
+            commands.register(
+                Commands.literal("tpablock")
+                    .requires(src -> src.getSender().hasPermission(Permissions.TPA_BLOCK))
+                    .then(Commands.argument("player", StringArgumentType.word())
+                        .executes(ctx -> {
+                            CommandSourceStack src = ctx.getSource();
+                            if (src.getSender() instanceof Player sender) {
+                                String targetName = StringArgumentType.getString(ctx, "player");
+                                this.tpaService.blockPlayer(sender, targetName);
+                            }
+                            return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+                        })
+                    )
+                    .build(),
+                "Block a player from sending TPA requests",
+                List.of()
+            );
+
+            // /tpaunblock <player>
+            commands.register(
+                Commands.literal("tpaunblock")
+                    .requires(src -> src.getSender().hasPermission(Permissions.TPA_UNBLOCK))
+                    .then(Commands.argument("player", StringArgumentType.word())
+                        .executes(ctx -> {
+                            CommandSourceStack src = ctx.getSource();
+                            if (src.getSender() instanceof Player sender) {
+                                String targetName = StringArgumentType.getString(ctx, "player");
+                                this.tpaService.unblockPlayer(sender, targetName);
+                            }
+                            return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+                        })
+                    )
+                    .build(),
+                "Unblock a player from sending TPA requests",
+                List.of()
+            );
+
+            // /tpablocklist
+            commands.register(
+                Commands.literal("tpablocklist")
+                    .requires(src -> src.getSender().hasPermission(Permissions.TPA_BLOCKLIST))
+                    .executes(ctx -> {
+                        CommandSourceStack src = ctx.getSource();
+                        if (src.getSender() instanceof Player sender) {
+                            this.tpaService.listBlockedPlayers(sender);
+                        }
+                        return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+                    })
+                    .build(),
+                "List all blocked players",
+                List.of()
             );
         });
     }

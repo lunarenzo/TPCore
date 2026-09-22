@@ -8,6 +8,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerChangedWorldEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
@@ -18,6 +19,11 @@ public final class TpaEventListener implements Listener {
 
     public TpaEventListener(TpaService tpaService) {
         this.tpaService = tpaService;
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onPlayerJoin(PlayerJoinEvent event) {
+        this.tpaService.handlePlayerJoin(event.getPlayer());
     }
 
     @EventHandler(priority = EventPriority.MONITOR)

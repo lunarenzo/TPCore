@@ -4,6 +4,7 @@ import com.lunatech.tpcore.config.model.TpaConfig;
 import com.lunatech.tpcore.constant.Permissions;
 import com.lunatech.tpcore.module.tpa.model.TpaRequest;
 import com.lunatech.tpcore.module.tpa.model.TpaType;
+import com.lunatech.tpcore.module.tpa.model.TpaUserSettings;
 import com.lunatech.tpcore.module.tpa.repository.TpaRepository;
 import com.lunatech.tpcore.module.tpa.service.TpaService;
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
@@ -12,12 +13,20 @@ import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.NamespacedKey;
 import org.bukkit.entity.Player;
+import org.bukkit.persistence.PersistentDataContainer;
+import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
@@ -28,6 +37,8 @@ public final class DefaultTpaService implements TpaService {
     private final TpaRepository repository;
     private final AtomicReference<TpaConfig> configRef;
     private final MiniMessage miniMessage;
+    private final NamespacedKey keyToggledOff;
+    private final NamespacedKey keyBlockList;
 
     private final Map<UUID, ActiveWarmup> activeWarmups = new ConcurrentHashMap<>();
     private final ScheduledTask sweeperTask;
@@ -59,6 +70,8 @@ public final class DefaultTpaService implements TpaService {
         this.repository = repository;
         this.configRef = new AtomicReference<>(config);
         this.miniMessage = MiniMessage.miniMessage();
+        this.keyToggledOff = new NamespacedKey(plugin, "tpa_toggled_off");
+        this.keyBlockList = new NamespacedKey(plugin, "tpa_block_list");
         this.sweeperTask = this.startExpirationSweeper();
     }
 
@@ -123,19 +136,78 @@ public final class DefaultTpaService implements TpaService {
     }
 
     @Override
+    public void handlePlayerJoin(Player player) {
+        if (player == null || !player.isOnline()) {
+            return;
+        }
+        PersistentDataContainer pdc = player.getPersistentDataContainer();
+        Byte toggledOffByte = pdc.get(this.keyToggledOff, PersistentDataType.BYTE);
+        boolean toggledOff = toggledOffByte != null && toggledOffByte == (byte) 1;
+
+        String blockedStr = pdc.get(this.keyBlockList, PersistentDataType.STRING);
+        Set<UUID> blockedSet = Collections.emptySet();
+        if (blockedStr != null && !blockedStr.isBlank()) {
+            blockedSet = new HashSet<>();
+            for (String raw : blockedStr.split(",")) {
+                try {
+                    if (!raw.isBlank()) {
+                        blockedSet.add(UUID.fromString(raw.trim()));
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+            blockedSet = Collections.unmodifiableSet(blockedSet);
+        }
+
+        TpaUserSettings settings = new TpaUserSettings(toggledOff, blockedSet);
+        this.repository.setUserSettings(player.getUniqueId(), settings);
+    }
+
+    private void saveUserSettingsToPdc(Player player) {
+        if (player == null) {
+            return;
+        }
+        TpaUserSettings settings = this.repository.getUserSettings(player.getUniqueId());
+        PersistentDataContainer pdc = player.getPersistentDataContainer();
+        pdc.set(this.keyToggledOff, PersistentDataType.BYTE, settings.toggledOff() ? (byte) 1 : (byte) 0);
+
+        if (settings.blockedPlayers() != null && !settings.blockedPlayers().isEmpty()) {
+            String joined = String.join(",", settings.blockedPlayers().stream().map(UUID::toString).toList());
+            pdc.set(this.keyBlockList, PersistentDataType.STRING, joined);
+        } else {
+            pdc.remove(this.keyBlockList);
+        }
+    }
+
+    @Override
     public void sendRequest(Player sender, Player target, TpaType type) {
         if (!this.config().allowSelfTpa() && sender.getUniqueId().equals(target.getUniqueId())) {
             this.sendMessage(sender, this.config().messages().rejectSelfTpa());
             return;
         }
 
-        if (this.repository.isTpaToggledOff(target.getUniqueId())) {
+        if (this.repository.isTpaToggledOff(target.getUniqueId()) || this.repository.isPlayerBlocked(target.getUniqueId(), sender.getUniqueId())) {
             this.sendMessage(
                 sender,
                 this.config().messages().targetToggledOff(),
                 "target", target.getName()
             );
             return;
+        }
+
+        int cooldownSeconds = this.config().requestCooldownSeconds();
+        if (cooldownSeconds > 0 && !sender.hasPermission(Permissions.TPA_BYPASS_COOLDOWN)) {
+            long cooldownEnd = this.repository.getCooldownEnd(sender.getUniqueId());
+            long now = System.currentTimeMillis();
+            if (cooldownEnd > now) {
+                long remSeconds = (cooldownEnd - now + 999L) / 1000L;
+                this.sendMessage(
+                    sender,
+                    this.config().messages().cooldownActive(),
+                    "seconds", String.valueOf(remSeconds)
+                );
+                return;
+            }
         }
 
         Optional<TpaRequest> existing = this.repository.getRequest(target.getUniqueId(), sender.getUniqueId());
@@ -156,6 +228,10 @@ public final class DefaultTpaService implements TpaService {
         );
 
         this.repository.addRequest(request);
+
+        if (cooldownSeconds > 0 && !sender.hasPermission(Permissions.TPA_BYPASS_COOLDOWN)) {
+            this.repository.setCooldownEnd(sender.getUniqueId(), System.currentTimeMillis() + cooldownSeconds * 1000L);
+        }
 
         if (type == TpaType.TPA_TO) {
             this.sendMessage(
@@ -271,12 +347,14 @@ public final class DefaultTpaService implements TpaService {
             this.repository.removeRequest(targetRequest.targetId(), targetRequest.senderId());
             Player sender = Bukkit.getPlayer(targetRequest.senderId());
             if (sender != null && sender.isOnline()) {
+                this.closeConfirmationMenuIfOpen(sender);
                 this.sendMessage(
                     sender,
                     this.config().messages().requestDeniedSender(),
                     "target", target.getName()
                 );
             }
+            this.closeConfirmationMenuIfOpen(target);
             this.sendMessage(
                 target,
                 this.config().messages().requestDeniedTarget(),
@@ -312,12 +390,14 @@ public final class DefaultTpaService implements TpaService {
             this.repository.removeRequest(targetRequest.targetId(), targetRequest.senderId());
             Player target = Bukkit.getPlayer(targetRequest.targetId());
             if (target != null && target.isOnline()) {
+                this.closeConfirmationMenuIfOpen(target);
                 this.sendMessage(
                     target,
                     this.config().messages().requestCancelledTarget(),
                     "sender", sender.getName()
                 );
             }
+            this.closeConfirmationMenuIfOpen(sender);
             this.sendMessage(
                 sender,
                 this.config().messages().requestCancelledSender(),
@@ -333,6 +413,7 @@ public final class DefaultTpaService implements TpaService {
         boolean currentlyOff = this.repository.isTpaToggledOff(player.getUniqueId());
         boolean newStatus = !currentlyOff;
         this.repository.setTpaToggledOff(player.getUniqueId(), newStatus);
+        this.saveUserSettingsToPdc(player);
 
         if (newStatus) {
             this.sendMessage(player, this.config().messages().toggleOff());
@@ -340,6 +421,71 @@ public final class DefaultTpaService implements TpaService {
             this.sendMessage(player, this.config().messages().toggleOn());
         }
         return !newStatus;
+    }
+
+    @Override
+    public void blockPlayer(Player player, String targetName) {
+        if (player == null || targetName == null || targetName.isBlank()) {
+            return;
+        }
+        Player target = Bukkit.getPlayer(targetName);
+        UUID targetId = (target != null) ? target.getUniqueId() : Bukkit.getOfflinePlayer(targetName).getUniqueId();
+
+        if (player.getUniqueId().equals(targetId)) {
+            this.sendMessage(player, this.config().messages().rejectSelfTpa());
+            return;
+        }
+
+        this.repository.setPlayerBlocked(player.getUniqueId(), targetId, true);
+        this.saveUserSettingsToPdc(player);
+
+        String displayName = (target != null) ? target.getName() : targetName;
+        this.sendMessage(player, this.config().messages().playerBlocked(), "player", displayName);
+    }
+
+    @Override
+    public void unblockPlayer(Player player, String targetName) {
+        if (player == null || targetName == null || targetName.isBlank()) {
+            return;
+        }
+        Player target = Bukkit.getPlayer(targetName);
+        UUID targetId = (target != null) ? target.getUniqueId() : Bukkit.getOfflinePlayer(targetName).getUniqueId();
+
+        if (!this.repository.isPlayerBlocked(player.getUniqueId(), targetId)) {
+            this.sendMessage(player, this.config().messages().notBlocked(), "player", targetName);
+            return;
+        }
+
+        this.repository.setPlayerBlocked(player.getUniqueId(), targetId, false);
+        this.saveUserSettingsToPdc(player);
+
+        String displayName = (target != null) ? target.getName() : targetName;
+        this.sendMessage(player, this.config().messages().playerUnblocked(), "player", displayName);
+    }
+
+    @Override
+    public void listBlockedPlayers(Player player) {
+        if (player == null) {
+            return;
+        }
+        TpaUserSettings settings = this.repository.getUserSettings(player.getUniqueId());
+        if (settings.blockedPlayers() == null || settings.blockedPlayers().isEmpty()) {
+            this.sendMessage(player, this.config().messages().blockListEmpty());
+            return;
+        }
+
+        List<String> names = new ArrayList<>();
+        for (UUID uuid : settings.blockedPlayers()) {
+            Player p = Bukkit.getPlayer(uuid);
+            if (p != null && p.isOnline()) {
+                names.add(p.getName());
+            } else {
+                String name = Bukkit.getOfflinePlayer(uuid).getName();
+                names.add(name != null ? name : uuid.toString().substring(0, 8));
+            }
+        }
+        String joined = String.join(", ", names);
+        this.sendMessage(player, this.config().messages().blockListHeader(), "players", joined);
     }
 
     @Override
@@ -383,6 +529,10 @@ public final class DefaultTpaService implements TpaService {
 
     @Override
     public void handlePlayerQuit(UUID playerId) {
+        Player player = Bukkit.getPlayer(playerId);
+        if (player != null) {
+            this.saveUserSettingsToPdc(player);
+        }
         this.repository.removeAllRequestsForPlayer(playerId);
         this.cancelWarmup(playerId, null);
     }

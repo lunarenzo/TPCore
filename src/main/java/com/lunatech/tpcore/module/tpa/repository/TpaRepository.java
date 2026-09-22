@@ -1,6 +1,7 @@
 package com.lunatech.tpcore.module.tpa.repository;
 
 import com.lunatech.tpcore.module.tpa.model.TpaRequest;
+import com.lunatech.tpcore.module.tpa.model.TpaUserSettings;
 
 import java.util.Collection;
 import java.util.Optional;
@@ -25,6 +26,18 @@ public interface TpaRepository {
     boolean isTpaToggledOff(UUID playerId);
 
     void setTpaToggledOff(UUID playerId, boolean toggledOff);
+
+    TpaUserSettings getUserSettings(UUID playerId);
+
+    void setUserSettings(UUID playerId, TpaUserSettings settings);
+
+    boolean isPlayerBlocked(UUID targetId, UUID senderId);
+
+    void setPlayerBlocked(UUID playerId, UUID targetId, boolean blocked);
+
+    long getCooldownEnd(UUID senderId);
+
+    void setCooldownEnd(UUID senderId, long endTimestamp);
 
     void clear();
 }

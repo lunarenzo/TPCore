@@ -1,11 +1,13 @@
 package com.lunatech.tpcore.module.tpa.repository.impl;
 
 import com.lunatech.tpcore.module.tpa.model.TpaRequest;
+import com.lunatech.tpcore.module.tpa.model.TpaUserSettings;
 import com.lunatech.tpcore.module.tpa.repository.TpaRepository;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -18,6 +20,8 @@ public final class ConcurrentTpaRepository implements TpaRepository {
     private final Map<UUID, Map<UUID, TpaRequest>> incoming = new ConcurrentHashMap<>();
     private final Map<UUID, Map<UUID, TpaRequest>> outgoing = new ConcurrentHashMap<>();
     private final Set<UUID> toggledOffPlayers = ConcurrentHashMap.newKeySet();
+    private final Map<UUID, TpaUserSettings> userSettingsMap = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> cooldownsMap = new ConcurrentHashMap<>();
 
     @Override
     public void addRequest(TpaRequest request) {
@@ -82,6 +86,8 @@ public final class ConcurrentTpaRepository implements TpaRepository {
     @Override
     public void removeAllRequestsForPlayer(UUID playerId) {
         this.toggledOffPlayers.remove(playerId);
+        this.userSettingsMap.remove(playerId);
+        this.cooldownsMap.remove(playerId);
 
         Map<UUID, TpaRequest> inc = this.incoming.remove(playerId);
         if (inc != null) {
@@ -106,6 +112,10 @@ public final class ConcurrentTpaRepository implements TpaRepository {
 
     @Override
     public boolean isTpaToggledOff(UUID playerId) {
+        TpaUserSettings settings = this.userSettingsMap.get(playerId);
+        if (settings != null) {
+            return settings.toggledOff();
+        }
         return this.toggledOffPlayers.contains(playerId);
     }
 
@@ -116,6 +126,65 @@ public final class ConcurrentTpaRepository implements TpaRepository {
         } else {
             this.toggledOffPlayers.remove(playerId);
         }
+        this.userSettingsMap.compute(playerId, (id, current) -> {
+            Set<UUID> blocked = (current != null) ? current.blockedPlayers() : Collections.emptySet();
+            return new TpaUserSettings(toggledOff, blocked);
+        });
+    }
+
+    @Override
+    public TpaUserSettings getUserSettings(UUID playerId) {
+        return this.userSettingsMap.getOrDefault(playerId, TpaUserSettings.createDefault());
+    }
+
+    @Override
+    public void setUserSettings(UUID playerId, TpaUserSettings settings) {
+        if (settings == null) {
+            this.userSettingsMap.remove(playerId);
+            this.toggledOffPlayers.remove(playerId);
+            return;
+        }
+        this.userSettingsMap.put(playerId, settings);
+        if (settings.toggledOff()) {
+            this.toggledOffPlayers.add(playerId);
+        } else {
+            this.toggledOffPlayers.remove(playerId);
+        }
+    }
+
+    @Override
+    public boolean isPlayerBlocked(UUID targetId, UUID senderId) {
+        TpaUserSettings settings = this.userSettingsMap.get(targetId);
+        return settings != null && settings.isBlocked(senderId);
+    }
+
+    @Override
+    public void setPlayerBlocked(UUID playerId, UUID targetId, boolean blocked) {
+        this.userSettingsMap.compute(playerId, (id, current) -> {
+            boolean toggledOff = (current != null) && current.toggledOff();
+            Set<UUID> blockedSet = new HashSet<>((current != null && current.blockedPlayers() != null) ? current.blockedPlayers() : Collections.emptySet());
+            if (blocked) {
+                blockedSet.add(targetId);
+            } else {
+                blockedSet.remove(targetId);
+            }
+            return new TpaUserSettings(toggledOff, Collections.unmodifiableSet(blockedSet));
+        });
+    }
+
+    @Override
+    public long getCooldownEnd(UUID senderId) {
+        Long val = this.cooldownsMap.get(senderId);
+        return val != null ? val : 0L;
+    }
+
+    @Override
+    public void setCooldownEnd(UUID senderId, long endTimestamp) {
+        if (endTimestamp <= System.currentTimeMillis()) {
+            this.cooldownsMap.remove(senderId);
+        } else {
+            this.cooldownsMap.put(senderId, endTimestamp);
+        }
     }
 
     @Override
@@ -123,5 +192,7 @@ public final class ConcurrentTpaRepository implements TpaRepository {
         this.incoming.clear();
         this.outgoing.clear();
         this.toggledOffPlayers.clear();
+        this.userSettingsMap.clear();
+        this.cooldownsMap.clear();
     }
 }

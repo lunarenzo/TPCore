@@ -20,9 +20,17 @@ public interface TpaService {
 
     boolean toggleTpa(Player player);
 
+    void blockPlayer(Player player, String targetName);
+
+    void unblockPlayer(Player player, String targetName);
+
+    void listBlockedPlayers(Player player);
+
     Collection<TpaRequest> getPendingRequestsForTarget(Player target);
 
     TpaRequest findPendingRequest(Player target, String optionalSenderName);
+
+    void handlePlayerJoin(Player player);
 
     void handlePlayerQuit(UUID playerId);
 

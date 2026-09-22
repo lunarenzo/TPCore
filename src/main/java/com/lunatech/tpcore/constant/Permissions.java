@@ -12,6 +12,10 @@ public final class Permissions {
     public static final String TPA_ALL = "tpcore.tpa.all";
     public static final String TPA_ADMIN = "tpcore.tpa.admin";
     public static final String TPA_BYPASS_WARMUP = "tpcore.tpa.bypass.warmup";
+    public static final String TPA_BYPASS_COOLDOWN = "tpcore.tpa.bypass.cooldown";
+    public static final String TPA_BLOCK = "tpcore.tpa.block";
+    public static final String TPA_UNBLOCK = "tpcore.tpa.unblock";
+    public static final String TPA_BLOCKLIST = "tpcore.tpa.blocklist";
     public static final String SPAWN_USE = "tpcore.spawn.use";
     public static final String SPAWN_SET = "tpcore.spawn.set";
     public static final String SPAWN_DEL = "tpcore.spawn.del";
