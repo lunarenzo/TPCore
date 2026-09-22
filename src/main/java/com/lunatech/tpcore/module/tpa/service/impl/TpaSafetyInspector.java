@@ -48,9 +48,26 @@ public final class TpaSafetyInspector {
         int targetY = targetLocation.getBlockY();
         int targetZ = targetLocation.getBlockZ();
 
+        int lastChunkX = Integer.MIN_VALUE;
+        int lastChunkZ = Integer.MIN_VALUE;
+        boolean lastChunkLoaded = false;
+
         for (int i = 0; i < PROBE_DX.length; i++) {
             int checkX = targetX + PROBE_DX[i];
             int checkZ = targetZ + PROBE_DZ[i];
+
+            int chunkX = checkX >> 4;
+            int chunkZ = checkZ >> 4;
+
+            if (chunkX != lastChunkX || chunkZ != lastChunkZ) {
+                lastChunkX = chunkX;
+                lastChunkZ = chunkZ;
+                lastChunkLoaded = world.isChunkLoaded(chunkX, chunkZ);
+            }
+
+            if (!lastChunkLoaded) {
+                continue;
+            }
 
             for (int dy = 0; dy <= 2; dy++) {
                 int checkY = targetY + dy;
