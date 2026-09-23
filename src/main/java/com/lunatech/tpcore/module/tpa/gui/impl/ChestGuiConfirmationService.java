@@ -51,17 +51,26 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
 
         // Slot 13: Sender's Player Head
         Player senderPlayer = Bukkit.getPlayer(request.senderId());
+        String senderName = (senderPlayer != null) ? senderPlayer.getName() : "Player";
+        if (senderPlayer == null) {
+            OfflinePlayer offlineSender = Bukkit.getOfflinePlayer(request.senderId());
+            if (offlineSender.hasPlayedBefore() || offlineSender.isOnline()) {
+                String cachedName = offlineSender.getName();
+                if (cachedName != null) {
+                    senderName = cachedName;
+                }
+            }
+        }
+
         ItemStack headItem = new ItemStack(Material.PLAYER_HEAD);
         SkullMeta skullMeta = (SkullMeta) headItem.getItemMeta();
         if (skullMeta != null) {
             if (senderPlayer != null && senderPlayer.isOnline()) {
                 skullMeta.setPlayerProfile(senderPlayer.getPlayerProfile());
             } else {
-                OfflinePlayer offlineSender = Bukkit.getOfflinePlayer(request.senderId());
-                skullMeta.setOwningPlayer(offlineSender);
+                skullMeta.setPlayerProfile(Bukkit.createProfile(request.senderId(), senderName));
             }
 
-            String senderName = (senderPlayer != null) ? senderPlayer.getName() : "Player";
             skullMeta.displayName(formatComponent("<yellow><bold>" + senderName + "</bold></yellow>"));
 
             String reqTypeText = (request.type() == TpaType.TPA_HERE)

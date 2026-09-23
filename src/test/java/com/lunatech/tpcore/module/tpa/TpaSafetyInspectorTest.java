@@ -13,7 +13,7 @@ class TpaSafetyInspectorTest {
     @DisplayName("isHazardName identifies lethal material names correctly")
     void testIsHazardName() {
         assertTrue(TpaSafetyInspector.isHazardName("LAVA"));
-        assertTrue(TpaSafetyInspector.isHazardName("WATER"));
+        assertFalse(TpaSafetyInspector.isHazardName("WATER"));
         assertTrue(TpaSafetyInspector.isHazardName("FIRE"));
         assertTrue(TpaSafetyInspector.isHazardName("SOUL_FIRE"));
         assertTrue(TpaSafetyInspector.isHazardName("MAGMA_BLOCK"));

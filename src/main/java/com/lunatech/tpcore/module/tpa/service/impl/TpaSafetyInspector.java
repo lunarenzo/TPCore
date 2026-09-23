@@ -22,7 +22,6 @@ public final class TpaSafetyInspector {
         for (Material mat : Material.values()) {
             String name = mat.name();
             if (name.contains("LAVA") ||
-                name.contains("WATER") ||
                 name.contains("FIRE") ||
                 name.contains("MAGMA") ||
                 name.contains("CACTUS") ||
@@ -81,7 +80,7 @@ public final class TpaSafetyInspector {
                 Block head = world.getBlockAt(checkX, checkY + 1, checkZ);
 
                 if (isSolidGround(standOn) && isPassable(feet) && isPassable(head)) {
-                    return new Location(
+                    Location candidate = new Location(
                         world,
                         checkX + 0.5,
                         checkY,
@@ -89,6 +88,9 @@ public final class TpaSafetyInspector {
                         targetLocation.getYaw(),
                         targetLocation.getPitch()
                     );
+                    if (world.getWorldBorder().isInside(candidate)) {
+                        return candidate;
+                    }
                 }
             }
         }
@@ -129,7 +131,6 @@ public final class TpaSafetyInspector {
             return false;
         }
         return upper.contains("LAVA") ||
-               upper.contains("WATER") ||
                upper.contains("FIRE") ||
                upper.contains("MAGMA") ||
                upper.contains("CACTUS") ||

@@ -807,7 +807,8 @@ public final class DefaultTpaService implements TpaService {
             scheduledTask -> {
                 if (!player.isOnline() || !destinationPlayer.isOnline() || cancelled.get()) {
                     scheduledTask.cancel();
-                    this.cancelWarmup(player.getUniqueId(), null);
+                    String cancelMsg = (!destinationPlayer.isOnline() && player.isOnline()) ? this.config().messages().targetToggledOff() : null;
+                    this.cancelWarmup(player.getUniqueId(), cancelMsg);
                     return;
                 }
 
