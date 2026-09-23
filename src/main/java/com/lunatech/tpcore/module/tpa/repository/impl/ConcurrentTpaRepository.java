@@ -85,15 +85,15 @@ public final class ConcurrentTpaRepository implements TpaRepository {
 
     @Override
     public void removeRequest(UUID targetId, UUID senderId) {
-        this.incoming.computeIfPresent(targetId, (tId, targetMap) -> {
+        Map<UUID, TpaRequest> targetMap = this.incoming.get(targetId);
+        if (targetMap != null) {
             targetMap.remove(senderId);
-            return targetMap.isEmpty() ? null : targetMap;
-        });
+        }
 
-        this.outgoing.computeIfPresent(senderId, (sId, senderMap) -> {
+        Map<UUID, TpaRequest> senderMap = this.outgoing.get(senderId);
+        if (senderMap != null) {
             senderMap.remove(targetId);
-            return senderMap.isEmpty() ? null : senderMap;
-        });
+        }
     }
 
     @Override

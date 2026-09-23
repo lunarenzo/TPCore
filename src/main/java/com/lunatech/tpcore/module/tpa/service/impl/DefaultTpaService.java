@@ -729,10 +729,12 @@ public final class DefaultTpaService implements TpaService {
             if (sender != null && sender.getName().equalsIgnoreCase(trimmed)) {
                 return req;
             }
-            OfflinePlayer op = Bukkit.getOfflinePlayer(req.senderId());
-            String cachedName = (op.hasPlayedBefore() || op.isOnline()) ? op.getName() : null;
-            if (cachedName != null && cachedName.equalsIgnoreCase(trimmed)) {
-                return req;
+            if (sender == null) {
+                OfflinePlayer op = Bukkit.getOfflinePlayer(req.senderId());
+                String cachedName = (op.hasPlayedBefore() || op.isOnline()) ? op.getName() : null;
+                if (cachedName != null && cachedName.equalsIgnoreCase(trimmed)) {
+                    return req;
+                }
             }
         }
         return null;
@@ -752,10 +754,12 @@ public final class DefaultTpaService implements TpaService {
             if (target != null && target.getName().equalsIgnoreCase(trimmed)) {
                 return req;
             }
-            OfflinePlayer op = Bukkit.getOfflinePlayer(req.targetId());
-            String cachedName = (op.hasPlayedBefore() || op.isOnline()) ? op.getName() : null;
-            if (cachedName != null && cachedName.equalsIgnoreCase(trimmed)) {
-                return req;
+            if (target == null) {
+                OfflinePlayer op = Bukkit.getOfflinePlayer(req.targetId());
+                String cachedName = (op.hasPlayedBefore() || op.isOnline()) ? op.getName() : null;
+                if (cachedName != null && cachedName.equalsIgnoreCase(trimmed)) {
+                    return req;
+                }
             }
         }
         return null;
@@ -954,7 +958,7 @@ public final class DefaultTpaService implements TpaService {
             Title title = Title.title(
                 this.miniMessage.deserialize(processedTitle, combined),
                 this.miniMessage.deserialize(processedSubtitle, combined),
-                Title.Times.times(Duration.ZERO, Duration.ofMillis(1200), Duration.ofMillis(200))
+                Title.Times.times(Duration.ZERO, Duration.ofSeconds(1), Duration.ofMillis(200))
             );
             player.showTitle(title);
         }
