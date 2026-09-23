@@ -237,10 +237,16 @@ public final class DefaultTpaService implements TpaService {
             return new byte[0];
         }
         byte[] bytes = new byte[uuids.size() * 16];
-        ByteBuffer buffer = ByteBuffer.wrap(bytes);
+        int idx = 0;
         for (UUID uuid : uuids) {
-            buffer.putLong(uuid.getMostSignificantBits());
-            buffer.putLong(uuid.getLeastSignificantBits());
+            long most = uuid.getMostSignificantBits();
+            long least = uuid.getLeastSignificantBits();
+            for (int i = 7; i >= 0; i--) {
+                bytes[idx++] = (byte) (most >>> (i * 8));
+            }
+            for (int i = 7; i >= 0; i--) {
+                bytes[idx++] = (byte) (least >>> (i * 8));
+            }
         }
         return bytes;
     }
@@ -980,7 +986,8 @@ public final class DefaultTpaService implements TpaService {
 
         if (cfg.enableSounds()) {
             int elapsed = totalWarmupSeconds - remainingSeconds;
-            float pitch = cfg.tickSoundVolume() > 0 ? (float) (1.0 + (cfg.tickSoundPitchStep() * elapsed)) : 1.0f;
+            float rawPitch = (float) (1.0 + (cfg.tickSoundPitchStep() * elapsed));
+            float pitch = cfg.tickSoundVolume() > 0 ? (float) Math.min(2.0, Math.max(0.5, rawPitch)) : 1.0f;
             playSound(player, cfg.tickSound(), (float) cfg.tickSoundVolume(), pitch);
         }
     }
@@ -1074,7 +1081,7 @@ public final class DefaultTpaService implements TpaService {
                 player.getScheduler().run(
                     this.plugin,
                     playerTask -> {
-                        if (!player.isOnline()) {
+                        if (!player.isOnline() || !destinationPlayer.isOnline() || destination.getWorld() == null) {
                             return;
                         }
                         if (player.isInsideVehicle()) {
