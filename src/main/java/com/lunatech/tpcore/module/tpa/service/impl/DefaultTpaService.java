@@ -2,6 +2,7 @@ package com.lunatech.tpcore.module.tpa.service.impl;
 
 import com.lunatech.tpcore.config.model.TpaConfig;
 import com.lunatech.tpcore.constant.Permissions;
+import com.lunatech.tpcore.module.tpa.gui.TpaConfirmationHolder;
 import com.lunatech.tpcore.module.tpa.model.TpaRequest;
 import com.lunatech.tpcore.module.tpa.model.TpaType;
 import com.lunatech.tpcore.module.tpa.model.TpaUserSettings;
@@ -443,7 +444,10 @@ public final class DefaultTpaService implements TpaService {
             return;
         }
 
-        this.repository.removeRequest(targetRequest.targetId(), targetRequest.senderId());
+        if (!this.repository.removeRequest(targetRequest.targetId(), targetRequest.senderId())) {
+            this.sendMessage(target, this.config().messages().noPendingRequests());
+            return;
+        }
 
         Player sender = Bukkit.getPlayer(targetRequest.senderId());
         if (sender == null || !sender.isOnline()) {
@@ -488,7 +492,10 @@ public final class DefaultTpaService implements TpaService {
         }
 
         if (targetRequest != null) {
-            this.repository.removeRequest(targetRequest.targetId(), targetRequest.senderId());
+            if (!this.repository.removeRequest(targetRequest.targetId(), targetRequest.senderId())) {
+                this.sendMessage(target, this.config().messages().noPendingRequests());
+                return;
+            }
             Player sender = Bukkit.getPlayer(targetRequest.senderId());
             if (sender != null && sender.isOnline()) {
                 this.closeConfirmationMenuIfOpen(sender, targetRequest.targetId());
@@ -536,7 +543,10 @@ public final class DefaultTpaService implements TpaService {
         }
 
         if (targetRequest != null) {
-            this.repository.removeRequest(targetRequest.targetId(), targetRequest.senderId());
+            if (!this.repository.removeRequest(targetRequest.targetId(), targetRequest.senderId())) {
+                this.sendMessage(sender, this.config().messages().noPendingRequests());
+                return;
+            }
             Player target = Bukkit.getPlayer(targetRequest.targetId());
             if (target != null && target.isOnline()) {
                 this.closeConfirmationMenuIfOpen(target, targetRequest.senderId());
@@ -1134,12 +1144,12 @@ public final class DefaultTpaService implements TpaService {
             return;
         }
         try {
-            if (player.getOpenInventory() != null && player.getOpenInventory().getTopInventory().getHolder() instanceof com.lunatech.tpcore.module.tpa.gui.TpaConfirmationHolder holder) {
+            if (player.getOpenInventory() != null && player.getOpenInventory().getTopInventory() != null && player.getOpenInventory().getTopInventory().getHolder() instanceof TpaConfirmationHolder holder) {
                 boolean matches = (expectedOtherPlayerId == null);
                 if (expectedOtherPlayerId != null) {
-                    if (holder.getConfirmationType() == com.lunatech.tpcore.module.tpa.gui.TpaConfirmationHolder.ConfirmationType.ACCEPT_REQUEST && holder.getRequest() != null) {
+                    if (holder.getConfirmationType() == TpaConfirmationHolder.ConfirmationType.ACCEPT_REQUEST && holder.getRequest() != null) {
                         matches = expectedOtherPlayerId.equals(holder.getRequest().senderId());
-                    } else if (holder.getConfirmationType() == com.lunatech.tpcore.module.tpa.gui.TpaConfirmationHolder.ConfirmationType.SEND_REQUEST && holder.getTargetPlayer() != null) {
+                    } else if (holder.getConfirmationType() == TpaConfirmationHolder.ConfirmationType.SEND_REQUEST && holder.getTargetPlayer() != null) {
                         matches = expectedOtherPlayerId.equals(holder.getTargetPlayer().getUniqueId());
                     }
                 }

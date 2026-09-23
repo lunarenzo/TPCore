@@ -25,6 +25,7 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
     private final Supplier<TpaService> serviceSupplier;
     private final ChestGuiConfirmationService fallbackChestGui;
     private final Logger logger;
+    private final MiniMessage miniMessage = MiniMessage.miniMessage();
     private boolean loggedNotice = false;
 
     public PaperDialogConfirmationService(Supplier<TpaConfig> configSupplier, Logger logger) {
@@ -138,12 +139,12 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
         }
 
         try {
-            Component titleComp = MiniMessage.miniMessage().deserialize(titleText);
+            Component titleComp = this.miniMessage.deserialize(titleText);
             TagResolver senderRes = Placeholder.unparsed("sender", senderName != null ? senderName : "");
             TagResolver targetRes = Placeholder.unparsed("target", targetName != null ? targetName : "");
-            Component bodyComp = MiniMessage.miniMessage().deserialize(bodyText, TagResolver.resolver(senderRes, targetRes));
-            Component acceptComp = MiniMessage.miniMessage().deserialize(acceptText);
-            Component denyComp = MiniMessage.miniMessage().deserialize(denyText);
+            Component bodyComp = this.miniMessage.deserialize(bodyText, TagResolver.resolver(senderRes, targetRes));
+            Component acceptComp = this.miniMessage.deserialize(acceptText);
+            Component denyComp = this.miniMessage.deserialize(denyText);
 
             // DialogBase
             Object baseBuilder = DialogReflectionCache.DIALOG_BASE_BUILDER.invoke(null, titleComp);

@@ -22,7 +22,7 @@ public interface TpaRepository {
 
     void forEachRequest(Consumer<TpaRequest> action);
 
-    void removeRequest(UUID targetId, UUID senderId);
+    boolean removeRequest(UUID targetId, UUID senderId);
 
     void removeAllRequestsForPlayer(UUID playerId);
 
