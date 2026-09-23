@@ -2,9 +2,10 @@ package com.lunatech.tpcore.module.tpa.gui;
 
 import com.lunatech.tpcore.module.tpa.model.TpaRequest;
 import com.lunatech.tpcore.module.tpa.model.TpaType;
-import org.bukkit.entity.Player;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
+
+import java.util.UUID;
 
 public final class TpaConfirmationHolder implements InventoryHolder {
 
@@ -15,20 +16,20 @@ public final class TpaConfirmationHolder implements InventoryHolder {
 
     private final ConfirmationType confirmationType;
     private final TpaRequest request;
-    private final Player targetPlayer;
+    private final UUID targetPlayerId;
     private final TpaType tpaType;
 
     public TpaConfirmationHolder(TpaRequest request) {
         this.confirmationType = ConfirmationType.ACCEPT_REQUEST;
         this.request = request;
-        this.targetPlayer = null;
+        this.targetPlayerId = null;
         this.tpaType = (request != null) ? request.type() : TpaType.TPA_TO;
     }
 
-    public TpaConfirmationHolder(Player targetPlayer, TpaType tpaType) {
+    public TpaConfirmationHolder(UUID targetPlayerId, TpaType tpaType) {
         this.confirmationType = ConfirmationType.SEND_REQUEST;
         this.request = null;
-        this.targetPlayer = targetPlayer;
+        this.targetPlayerId = targetPlayerId;
         this.tpaType = tpaType;
     }
 
@@ -40,8 +41,8 @@ public final class TpaConfirmationHolder implements InventoryHolder {
         return this.request;
     }
 
-    public Player getTargetPlayer() {
-        return this.targetPlayer;
+    public UUID getTargetPlayerId() {
+        return this.targetPlayerId;
     }
 
     public TpaType getTpaType() {

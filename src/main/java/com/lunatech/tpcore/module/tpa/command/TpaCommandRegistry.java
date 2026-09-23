@@ -80,10 +80,13 @@ public final class TpaCommandRegistry {
                                     }
                                 } else {
                                     TpaConfig cfg = this.configSupplier.get();
+                                    String rawInput = ctx.getInput();
+                                    int spaceIdx = rawInput != null ? rawInput.lastIndexOf(' ') : -1;
+                                    String targetArg = (spaceIdx >= 0 && spaceIdx < rawInput.length() - 1) ? rawInput.substring(spaceIdx + 1).trim() : "Player";
                                     sender.sendMessage(this.miniMessage.deserialize(
                                         cfg.messages().playerNotOnline(),
                                         Placeholder.parsed("prefix", cfg.messages().prefix()),
-                                        Placeholder.unparsed("player", "Player")
+                                        Placeholder.unparsed("player", targetArg.isEmpty() ? "Player" : targetArg)
                                     ));
                                 }
                             }
@@ -124,10 +127,13 @@ public final class TpaCommandRegistry {
                                     }
                                 } else {
                                     TpaConfig cfg = this.configSupplier.get();
+                                    String rawInput = ctx.getInput();
+                                    int spaceIdx = rawInput != null ? rawInput.lastIndexOf(' ') : -1;
+                                    String targetArg = (spaceIdx >= 0 && spaceIdx < rawInput.length() - 1) ? rawInput.substring(spaceIdx + 1).trim() : "Player";
                                     sender.sendMessage(this.miniMessage.deserialize(
                                         cfg.messages().playerNotOnline(),
                                         Placeholder.parsed("prefix", cfg.messages().prefix()),
-                                        Placeholder.unparsed("player", "Player")
+                                        Placeholder.unparsed("player", targetArg.isEmpty() ? "Player" : targetArg)
                                     ));
                                 }
                             }

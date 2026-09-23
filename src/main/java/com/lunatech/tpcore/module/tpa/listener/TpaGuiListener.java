@@ -49,7 +49,7 @@ public final class TpaGuiListener implements Listener {
             }
 
             if (holder.getConfirmationType() == TpaConfirmationHolder.ConfirmationType.SEND_REQUEST) {
-                Player target = holder.getTargetPlayer();
+                Player target = (holder.getTargetPlayerId() != null) ? Bukkit.getPlayer(holder.getTargetPlayerId()) : null;
                 if (slot == acceptSlot) {
                     player.closeInventory();
                     if (target != null && target.isOnline()) {

@@ -129,7 +129,7 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
             : "<gradient:#00D2FF:#3A7BD5><bold>Send Teleport Request</bold></gradient>";
         Component title = formatComponent(titleStr);
 
-        Inventory inventory = Bukkit.createInventory(new TpaConfirmationHolder(target, type), 27, title);
+        Inventory inventory = Bukkit.createInventory(new TpaConfirmationHolder(target.getUniqueId(), type), 27, title);
 
         if (cfg.guiFillEmptySlots()) {
             Material fillMat = parseMaterial(cfg.guiFillItem(), Material.GRAY_STAINED_GLASS_PANE);

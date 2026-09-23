@@ -937,10 +937,14 @@ public final class DefaultTpaService implements TpaService {
         if (this.activeWarmups.isEmpty() || destinationId == null) {
             return;
         }
+        List<UUID> toCancel = new ArrayList<>();
         for (ActiveWarmup warmup : this.activeWarmups.values()) {
             if (warmup != null && destinationId.equals(warmup.destinationPlayerId())) {
-                this.cancelWarmup(warmup.teleportingPlayerId(), cancelMessage);
+                toCancel.add(warmup.teleportingPlayerId());
             }
+        }
+        for (UUID playerId : toCancel) {
+            this.cancelWarmup(playerId, cancelMessage);
         }
     }
 
@@ -1241,8 +1245,8 @@ public final class DefaultTpaService implements TpaService {
                 if (expectedOtherPlayerId != null) {
                     if (holder.getConfirmationType() == TpaConfirmationHolder.ConfirmationType.ACCEPT_REQUEST && holder.getRequest() != null) {
                         matches = expectedOtherPlayerId.equals(holder.getRequest().senderId());
-                    } else if (holder.getConfirmationType() == TpaConfirmationHolder.ConfirmationType.SEND_REQUEST && holder.getTargetPlayer() != null) {
-                        matches = expectedOtherPlayerId.equals(holder.getTargetPlayer().getUniqueId());
+                    } else if (holder.getConfirmationType() == TpaConfirmationHolder.ConfirmationType.SEND_REQUEST && holder.getTargetPlayerId() != null) {
+                        matches = expectedOtherPlayerId.equals(holder.getTargetPlayerId());
                     }
                 }
                 if (matches) {
