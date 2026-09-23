@@ -1,10 +1,12 @@
 package com.lunatech.tpcore.module.tpa.service.impl;
 
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Block;
 
+import java.lang.reflect.Method;
 import java.util.EnumSet;
 import java.util.Locale;
 import java.util.Set;
@@ -16,12 +18,12 @@ public final class TpaSafetyInspector {
     private static final int[] PROBE_DY = {0, -1, 1, -2, 2};
 
     private static final Set<Material> HAZARD_MATERIALS = EnumSet.noneOf(Material.class);
-    private static final java.lang.reflect.Method IS_OWNED_BY_CURRENT_REGION;
+    private static final Method IS_OWNED_BY_CURRENT_REGION;
 
     static {
-        java.lang.reflect.Method m = null;
+        Method m = null;
         try {
-            m = org.bukkit.Bukkit.class.getMethod("isOwnedByCurrentRegion", Location.class);
+            m = Bukkit.class.getMethod("isOwnedByCurrentRegion", Location.class);
         } catch (Throwable ignored) {
         }
         IS_OWNED_BY_CURRENT_REGION = m;

@@ -11,7 +11,7 @@ import com.lunatech.tpcore.module.tpa.service.TpaService;
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 import net.kyori.adventure.bossbar.BossBar;
 import net.kyori.adventure.key.Key;
-import net.kyori.adventure.sound.Sound;
+import net.kyori.adventure.sound.Sound.Source;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
@@ -20,10 +20,13 @@ import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.NamespacedKey;
 import org.bukkit.OfflinePlayer;
+import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
+
+import static net.kyori.adventure.sound.Sound.sound;
 
 import java.nio.ByteBuffer;
 import java.time.Duration;
@@ -1002,16 +1005,13 @@ public final class DefaultTpaService implements TpaService {
         TagResolver combined = TagResolver.resolver(prefixResolver, secResolver);
 
         if (cfg.enableActionBar()) {
-            String processed = cfg.actionBarFormat().replace("<seconds>", String.valueOf(remainingSeconds));
-            player.sendActionBar(this.miniMessage.deserialize(processed, combined));
+            player.sendActionBar(this.miniMessage.deserialize(cfg.actionBarFormat(), combined));
         }
 
         if (cfg.enableTitle()) {
-            String processedTitle = cfg.titleFormat().replace("<seconds>", String.valueOf(remainingSeconds));
-            String processedSubtitle = cfg.subtitleFormat().replace("<seconds>", String.valueOf(remainingSeconds));
             Title title = Title.title(
-                this.miniMessage.deserialize(processedTitle, combined),
-                this.miniMessage.deserialize(processedSubtitle, combined),
+                this.miniMessage.deserialize(cfg.titleFormat(), combined),
+                this.miniMessage.deserialize(cfg.subtitleFormat(), combined),
                 Title.Times.times(Duration.ZERO, Duration.ofSeconds(1), Duration.ofMillis(200))
             );
             player.showTitle(title);
@@ -1034,8 +1034,7 @@ public final class DefaultTpaService implements TpaService {
             if (key != null) {
                 float clampedVol = Math.max(0.0f, Math.min(1.0f, volume));
                 float clampedPitch = Math.max(0.5f, Math.min(2.0f, pitch));
-                Sound sound = Sound.sound(key, Sound.Source.MASTER, clampedVol, clampedPitch);
-                player.playSound(sound);
+                player.playSound(sound(key, Source.PLAYER, clampedVol, clampedPitch));
             }
         } catch (Throwable ignored) {
         }
@@ -1048,7 +1047,7 @@ public final class DefaultTpaService implements TpaService {
         return this.soundKeyCache.computeIfAbsent(soundKey, rawKey -> {
             String trimmed = rawKey.trim();
             try {
-                org.bukkit.Sound bukkitSound = org.bukkit.Sound.valueOf(trimmed.toUpperCase(Locale.ROOT));
+                Sound bukkitSound = Sound.valueOf(trimmed.toUpperCase(Locale.ROOT));
                 return Key.key(bukkitSound.getKey().getNamespace(), bukkitSound.getKey().getKey());
             } catch (Throwable ignored) {
             }

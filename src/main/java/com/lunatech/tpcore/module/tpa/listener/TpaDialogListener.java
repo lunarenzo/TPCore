@@ -8,6 +8,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.Event;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.player.PlayerEvent;
 import org.bukkit.plugin.EventExecutor;
 import org.bukkit.plugin.PluginManager;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -190,11 +191,7 @@ public final class TpaDialogListener implements Listener {
                 Class<?> eventClass = Class.forName("io.papermc.paper.event.player.PlayerCustomClickEvent");
                 getPlayerFromEv = findMethod(eventClass, "getPlayer");
                 if (getPlayerFromEv == null) {
-                    try {
-                        Class<?> playerEventClass = Class.forName("org.bukkit.event.player.PlayerEvent");
-                        getPlayerFromEv = findMethod(playerEventClass, "getPlayer");
-                    } catch (ClassNotFoundException ignored) {
-                    }
+                    getPlayerFromEv = findMethod(PlayerEvent.class, "getPlayer");
                 }
 
                 getIdent = findMethod(eventClass, "getIdentifier");
