@@ -55,19 +55,17 @@ public final class TpaGuiListener implements Listener {
 
                 if (slot == cfg.guiAcceptSlot()) {
                     player.closeInventory();
-                    Player sender = Bukkit.getPlayer(request.senderId());
-                    String senderName = (sender != null) ? sender.getName() : null;
-                    TpaRequest pending = this.tpaService.findPendingRequest(player, senderName);
+                    String senderIdStr = request.senderId().toString();
+                    TpaRequest pending = this.tpaService.findPendingRequest(player, senderIdStr);
                     if (pending != null && !pending.isExpired(cfg.requestTimeoutSeconds())) {
-                        this.tpaService.acceptRequest(player, senderName);
+                        this.tpaService.acceptRequest(player, senderIdStr);
                     }
                 } else if (slot == cfg.guiDenySlot()) {
                     player.closeInventory();
-                    Player sender = Bukkit.getPlayer(request.senderId());
-                    String senderName = (sender != null) ? sender.getName() : null;
-                    TpaRequest pending = this.tpaService.findPendingRequest(player, senderName);
+                    String senderIdStr = request.senderId().toString();
+                    TpaRequest pending = this.tpaService.findPendingRequest(player, senderIdStr);
                     if (pending != null && !pending.isExpired(cfg.requestTimeoutSeconds())) {
-                        this.tpaService.denyRequest(player, senderName);
+                        this.tpaService.denyRequest(player, senderIdStr);
                     }
                 }
             }

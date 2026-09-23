@@ -932,15 +932,11 @@ public final class DefaultTpaService implements TpaService {
             return;
         }
 
-        player.getScheduler().run(
+        destinationPlayer.getScheduler().run(
             this.plugin,
-            task -> {
+            destTask -> {
                 if (!player.isOnline() || !destinationPlayer.isOnline()) {
                     return;
-                }
-
-                if (player.isInsideVehicle()) {
-                    player.leaveVehicle();
                 }
 
                 Location rawTargetLoc = destinationPlayer.getLocation();
@@ -956,7 +952,20 @@ public final class DefaultTpaService implements TpaService {
                     finalTargetLoc = safeLoc;
                 }
 
-                player.teleportAsync(finalTargetLoc);
+                Location destination = finalTargetLoc;
+                player.getScheduler().run(
+                    this.plugin,
+                    playerTask -> {
+                        if (!player.isOnline()) {
+                            return;
+                        }
+                        if (player.isInsideVehicle()) {
+                            player.leaveVehicle();
+                        }
+                        player.teleportAsync(destination);
+                    },
+                    null
+                );
             },
             null
         );

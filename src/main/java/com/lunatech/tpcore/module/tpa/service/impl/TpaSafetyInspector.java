@@ -13,6 +13,7 @@ public final class TpaSafetyInspector {
 
     private static final int[] PROBE_DX = {0, 1, -1, 0, 0, 1, -1, 1, -1};
     private static final int[] PROBE_DZ = {0, 0, 0, 1, -1, 1, 1, -1, -1};
+    private static final int[] PROBE_DY = {0, -1, 1, -2, 2};
 
     private static final Set<Material> HAZARD_MATERIALS = EnumSet.noneOf(Material.class);
     private static final Set<Material> PASSABLE_MATERIALS = EnumSet.noneOf(Material.class);
@@ -69,9 +70,9 @@ public final class TpaSafetyInspector {
                 continue;
             }
 
-            for (int dy = 0; dy <= 2; dy++) {
+            for (int dy : PROBE_DY) {
                 int checkY = targetY + dy;
-                if (checkY < world.getMinHeight() || checkY >= world.getMaxHeight() - 2) {
+                if (checkY < world.getMinHeight() + 1 || checkY >= world.getMaxHeight() - 2) {
                     continue;
                 }
 
