@@ -115,7 +115,7 @@ public final class DefaultTpaService implements TpaService {
                             sender.getScheduler().run(
                                 this.plugin,
                                 t -> {
-                                    this.closeConfirmationMenuIfOpen(sender);
+                                    this.closeConfirmationMenuIfOpen(sender, request.targetId());
                                     this.sendMessage(
                                         sender,
                                         this.config().messages().requestExpired(),
@@ -132,7 +132,7 @@ public final class DefaultTpaService implements TpaService {
                             target.getScheduler().run(
                                 this.plugin,
                                 t -> {
-                                    this.closeConfirmationMenuIfOpen(target);
+                                    this.closeConfirmationMenuIfOpen(target, request.senderId());
                                     this.sendMessage(
                                         target,
                                         this.config().messages().requestExpired(),
@@ -413,7 +413,7 @@ public final class DefaultTpaService implements TpaService {
             this.repository.removeRequest(targetRequest.targetId(), targetRequest.senderId());
             Player sender = Bukkit.getPlayer(targetRequest.senderId());
             if (sender != null && sender.isOnline()) {
-                this.closeConfirmationMenuIfOpen(sender);
+                this.closeConfirmationMenuIfOpen(sender, targetRequest.targetId());
                 this.sendMessage(
                     sender,
                     this.config().messages().requestDeniedSender(),
@@ -424,7 +424,7 @@ public final class DefaultTpaService implements TpaService {
                     playSound(sender, cfg.cancelSound(), (float) cfg.cancelSoundVolume(), (float) cfg.cancelSoundPitch());
                 }
             }
-            this.closeConfirmationMenuIfOpen(target);
+            this.closeConfirmationMenuIfOpen(target, targetRequest.senderId());
             this.sendMessage(
                 target,
                 this.config().messages().requestDeniedTarget(),
@@ -464,7 +464,7 @@ public final class DefaultTpaService implements TpaService {
             this.repository.removeRequest(targetRequest.targetId(), targetRequest.senderId());
             Player target = Bukkit.getPlayer(targetRequest.targetId());
             if (target != null && target.isOnline()) {
-                this.closeConfirmationMenuIfOpen(target);
+                this.closeConfirmationMenuIfOpen(target, targetRequest.senderId());
                 this.sendMessage(
                     target,
                     this.config().messages().requestCancelledTarget(),
@@ -475,7 +475,7 @@ public final class DefaultTpaService implements TpaService {
                     playSound(target, cfg.cancelSound(), (float) cfg.cancelSoundVolume(), (float) cfg.cancelSoundPitch());
                 }
             }
-            this.closeConfirmationMenuIfOpen(sender);
+            this.closeConfirmationMenuIfOpen(sender, targetRequest.targetId());
             this.sendMessage(
                 sender,
                 this.config().messages().requestCancelledSender(),
@@ -924,12 +924,26 @@ public final class DefaultTpaService implements TpaService {
     }
 
     private void closeConfirmationMenuIfOpen(Player player) {
+        closeConfirmationMenuIfOpen(player, null);
+    }
+
+    private void closeConfirmationMenuIfOpen(Player player, UUID expectedOtherPlayerId) {
         if (player == null || !player.isOnline()) {
             return;
         }
         try {
-            if (player.getOpenInventory() != null && player.getOpenInventory().getTopInventory().getHolder() instanceof com.lunatech.tpcore.module.tpa.gui.TpaConfirmationHolder) {
-                player.closeInventory();
+            if (player.getOpenInventory() != null && player.getOpenInventory().getTopInventory().getHolder() instanceof com.lunatech.tpcore.module.tpa.gui.TpaConfirmationHolder holder) {
+                boolean matches = (expectedOtherPlayerId == null);
+                if (expectedOtherPlayerId != null) {
+                    if (holder.getConfirmationType() == com.lunatech.tpcore.module.tpa.gui.TpaConfirmationHolder.ConfirmationType.ACCEPT_REQUEST && holder.getRequest() != null) {
+                        matches = expectedOtherPlayerId.equals(holder.getRequest().senderId());
+                    } else if (holder.getConfirmationType() == com.lunatech.tpcore.module.tpa.gui.TpaConfirmationHolder.ConfirmationType.SEND_REQUEST && holder.getTargetPlayer() != null) {
+                        matches = expectedOtherPlayerId.equals(holder.getTargetPlayer().getUniqueId());
+                    }
+                }
+                if (matches) {
+                    player.closeInventory();
+                }
             }
         } catch (Throwable ignored) {
         }

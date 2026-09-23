@@ -48,7 +48,7 @@ public final class TpaGuiListener implements Listener {
                 }
             } else if (holder.getConfirmationType() == TpaConfirmationHolder.ConfirmationType.ACCEPT_REQUEST) {
                 TpaRequest request = holder.getRequest();
-                if (request == null) {
+                if (request == null || request.isExpired(cfg.requestTimeoutSeconds())) {
                     player.closeInventory();
                     return;
                 }
@@ -57,12 +57,18 @@ public final class TpaGuiListener implements Listener {
                     player.closeInventory();
                     Player sender = Bukkit.getPlayer(request.senderId());
                     String senderName = (sender != null) ? sender.getName() : null;
-                    this.tpaService.acceptRequest(player, senderName);
+                    TpaRequest pending = this.tpaService.findPendingRequest(player, senderName);
+                    if (pending != null && !pending.isExpired(cfg.requestTimeoutSeconds())) {
+                        this.tpaService.acceptRequest(player, senderName);
+                    }
                 } else if (slot == cfg.guiDenySlot()) {
                     player.closeInventory();
                     Player sender = Bukkit.getPlayer(request.senderId());
                     String senderName = (sender != null) ? sender.getName() : null;
-                    this.tpaService.denyRequest(player, senderName);
+                    TpaRequest pending = this.tpaService.findPendingRequest(player, senderName);
+                    if (pending != null && !pending.isExpired(cfg.requestTimeoutSeconds())) {
+                        this.tpaService.denyRequest(player, senderName);
+                    }
                 }
             }
         }
