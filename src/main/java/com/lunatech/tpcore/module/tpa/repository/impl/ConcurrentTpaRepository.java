@@ -206,7 +206,11 @@ public final class ConcurrentTpaRepository implements TpaRepository {
         this.userSettingsMap.compute(playerId, (id, current) -> {
             boolean toggledOff = (current != null) && current.toggledOff();
             boolean autoAccept = (current != null) && current.autoAccept();
-            Set<UUID> blockedSet = new HashSet<>((current != null && current.blockedPlayers() != null) ? current.blockedPlayers() : Collections.emptySet());
+            Set<UUID> currentBlocked = (current != null && current.blockedPlayers() != null) ? current.blockedPlayers() : Collections.emptySet();
+            if (currentBlocked.contains(targetId) == blocked) {
+                return current != null ? current : new TpaUserSettings(toggledOff, autoAccept, Collections.emptySet());
+            }
+            Set<UUID> blockedSet = new HashSet<>(currentBlocked);
             if (blocked) {
                 blockedSet.add(targetId);
             } else {

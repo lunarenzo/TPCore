@@ -116,7 +116,7 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
                 ? config.dialogSendCancelText()
                 : "<red><bold>CANCEL</bold></red>";
 
-            String acceptKey = "tpcore:tpa_send_confirm/" + target.getUniqueId().toString().toLowerCase(Locale.ROOT) + "/" + type.name().toLowerCase(Locale.ROOT);
+            String acceptKey = "tpcore:tpa_send_confirm/" + target.getUniqueId().toString() + "/" + type.name().toLowerCase(Locale.ROOT);
             String denyKey = null;
 
             String title = (config.dialogTitle() != null && !config.dialogTitle().isBlank())
@@ -242,18 +242,6 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
             }
         } catch (Throwable t) {
             this.logger.error("Failed to create DialogAction customClick for key {}", keyString, t);
-        }
-        return null;
-    }
-
-    private Method findMethod(Class<?> clazz, String name, Class<?>... paramTypes) {
-        for (Method m : clazz.getMethods()) {
-            if (m.getName().equals(name)) {
-                if (paramTypes.length == 0 || m.getParameterCount() == paramTypes.length) {
-                    m.setAccessible(true);
-                    return m;
-                }
-            }
         }
         return null;
     }

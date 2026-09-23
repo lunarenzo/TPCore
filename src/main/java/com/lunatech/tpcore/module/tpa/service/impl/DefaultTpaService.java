@@ -1144,7 +1144,11 @@ public final class DefaultTpaService implements TpaService {
                 if (this.config().requireSafeLocation()) {
                     Location safeLoc = TpaSafetyInspector.findSafeLocation(rawTargetLoc);
                     if (safeLoc == null) {
-                        this.sendMessage(player, this.config().messages().unsafeDestination());
+                        player.getScheduler().run(
+                            this.plugin,
+                            pTask -> this.sendMessage(player, this.config().messages().unsafeDestination()),
+                            null
+                        );
                         this.sendMessage(destinationPlayer, this.config().messages().unsafeDestination());
                         return;
                     }
