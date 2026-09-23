@@ -297,6 +297,9 @@ public final class DefaultTpaService implements TpaService {
         boolean sentAny = false;
         for (Player target : targets) {
             if (target != null && target.isOnline()) {
+                if (type == TpaType.TPA_TO && this.activeWarmups.containsKey(sender.getUniqueId())) {
+                    continue;
+                }
                 if (processSingleSendRequest(sender, target, type, false)) {
                     sentAny = true;
                 }
@@ -324,11 +327,14 @@ public final class DefaultTpaService implements TpaService {
         }
 
         if (this.repository.isAutoAcceptEnabled(target.getUniqueId())) {
+            if (type == TpaType.TPA_TO && this.activeWarmups.containsKey(sender.getUniqueId())) {
+                return false;
+            }
             TpaRequest req = new TpaRequest(sender.getUniqueId(), target.getUniqueId(), type, System.currentTimeMillis());
             this.repository.addRequest(req);
             this.sendMessage(sender, this.config().messages().requestAutoAcceptedSender(), "target", target.getName());
             this.sendMessage(target, this.config().messages().requestAutoAcceptedTarget(), "sender", sender.getName());
-            this.acceptRequest(target, sender.getName());
+            this.acceptRequestInternal(target, sender.getName(), false);
             return true;
         }
 
@@ -418,10 +424,16 @@ public final class DefaultTpaService implements TpaService {
 
     @Override
     public void acceptRequest(Player target, String optionalSenderName) {
+        acceptRequestInternal(target, optionalSenderName, true);
+    }
+
+    private void acceptRequestInternal(Player target, String optionalSenderName, boolean notifyMessages) {
         Collection<TpaRequest> incoming = this.repository.getIncomingRequests(target.getUniqueId());
 
         if (incoming.isEmpty()) {
-            this.sendMessage(target, this.config().messages().noPendingRequests());
+            if (notifyMessages) {
+                this.sendMessage(target, this.config().messages().noPendingRequests());
+            }
             return;
         }
 
@@ -432,12 +444,16 @@ public final class DefaultTpaService implements TpaService {
         } else if (incoming.size() == 1) {
             targetRequest = incoming.iterator().next();
         } else {
-            this.sendMessage(target, this.config().messages().multiplePendingRequests());
+            if (notifyMessages) {
+                this.sendMessage(target, this.config().messages().multiplePendingRequests());
+            }
             return;
         }
 
         if (targetRequest == null || targetRequest.isExpired(this.config().requestTimeoutSeconds())) {
-            this.sendMessage(target, this.config().messages().noPendingRequests());
+            if (notifyMessages) {
+                this.sendMessage(target, this.config().messages().noPendingRequests());
+            }
             if (targetRequest != null) {
                 this.repository.removeRequest(targetRequest.targetId(), targetRequest.senderId());
             }
@@ -445,27 +461,33 @@ public final class DefaultTpaService implements TpaService {
         }
 
         if (!this.repository.removeRequest(targetRequest.targetId(), targetRequest.senderId())) {
-            this.sendMessage(target, this.config().messages().noPendingRequests());
+            if (notifyMessages) {
+                this.sendMessage(target, this.config().messages().noPendingRequests());
+            }
             return;
         }
 
         Player sender = Bukkit.getPlayer(targetRequest.senderId());
         if (sender == null || !sender.isOnline()) {
-            this.sendMessage(target, this.config().messages().noPendingRequests());
+            if (notifyMessages) {
+                this.sendMessage(target, this.config().messages().noPendingRequests());
+            }
             return;
         }
 
-        this.sendMessage(
-            target,
-            this.config().messages().requestAcceptedTarget(),
-            "sender", sender.getName()
-        );
+        if (notifyMessages) {
+            this.sendMessage(
+                target,
+                this.config().messages().requestAcceptedTarget(),
+                "sender", sender.getName()
+            );
 
-        this.sendMessage(
-            sender,
-            this.config().messages().requestAcceptedSender(),
-            "target", target.getName()
-        );
+            this.sendMessage(
+                sender,
+                this.config().messages().requestAcceptedSender(),
+                "target", target.getName()
+            );
+        }
 
         Player teleportingPlayer = (targetRequest.type() == TpaType.TPA_TO) ? sender : target;
         Player destinationPlayer = (targetRequest.type() == TpaType.TPA_TO) ? target : sender;

@@ -16,9 +16,16 @@ public final class TpaSafetyInspector {
     private static final int[] PROBE_DY = {0, -1, 1, -2, 2};
 
     private static final Set<Material> HAZARD_MATERIALS = EnumSet.noneOf(Material.class);
-    private static final Set<Material> PASSABLE_MATERIALS = EnumSet.noneOf(Material.class);
+    private static final java.lang.reflect.Method IS_OWNED_BY_CURRENT_REGION;
 
     static {
+        java.lang.reflect.Method m = null;
+        try {
+            m = org.bukkit.Bukkit.class.getMethod("isOwnedByCurrentRegion", Location.class);
+        } catch (Throwable ignored) {
+        }
+        IS_OWNED_BY_CURRENT_REGION = m;
+
         for (Material mat : Material.values()) {
             String name = mat.name();
             if (name.contains("LAVA") ||
@@ -29,12 +36,10 @@ public final class TpaSafetyInspector {
                 name.contains("BERRY_BUSH") ||
                 name.contains("WITHER_ROSE") ||
                 name.contains("POWDER_SNOW") ||
-                name.contains("DRIPSTONE") ||
+                (name.contains("DRIPSTONE") && !name.contains("DRIPSTONE_BLOCK")) ||
                 name.contains("RESPAWN_ANCHOR") ||
                 name.contains("VOID")) {
                 HAZARD_MATERIALS.add(mat);
-            } else if (name.contains("AIR") || name.contains("LIGHT") || name.contains("GRASS") || name.contains("FLOWER")) {
-                PASSABLE_MATERIALS.add(mat);
             }
         }
     }
@@ -70,6 +75,17 @@ public final class TpaSafetyInspector {
 
             if (!lastChunkLoaded) {
                 continue;
+            }
+
+            if (IS_OWNED_BY_CURRENT_REGION != null) {
+                try {
+                    Location candidateLoc = new Location(world, checkX, targetY, checkZ);
+                    Boolean owned = (Boolean) IS_OWNED_BY_CURRENT_REGION.invoke(null, candidateLoc);
+                    if (owned != null && !owned) {
+                        continue;
+                    }
+                } catch (Throwable ignored) {
+                }
             }
 
             for (int dy : PROBE_DY) {
@@ -141,7 +157,7 @@ public final class TpaSafetyInspector {
                upper.contains("BERRY_BUSH") ||
                upper.contains("WITHER_ROSE") ||
                upper.contains("POWDER_SNOW") ||
-               upper.contains("DRIPSTONE") ||
+               (upper.contains("DRIPSTONE") && !upper.contains("DRIPSTONE_BLOCK")) ||
                upper.contains("RESPAWN_ANCHOR") ||
                upper.contains("VOID");
     }
