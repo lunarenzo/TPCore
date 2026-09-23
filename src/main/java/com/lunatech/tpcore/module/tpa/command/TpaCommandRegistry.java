@@ -394,7 +394,7 @@ public final class TpaCommandRegistry {
         if (!cfg.enableConfirmationMenu()) {
             return false;
         }
-        String mode = (cfg.confirmationMode() != null) ? cfg.confirmationMode().trim().toUpperCase() : "GUI";
+        String mode = (cfg.confirmationMode() != null) ? cfg.confirmationMode().trim().toUpperCase(Locale.ROOT) : "GUI";
         return !"CHAT".equals(mode);
     }
 

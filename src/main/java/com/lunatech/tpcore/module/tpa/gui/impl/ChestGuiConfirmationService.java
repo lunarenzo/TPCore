@@ -18,6 +18,7 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.function.Supplier;
 
 public final class ChestGuiConfirmationService implements TpaConfirmationMenuService {
@@ -219,7 +220,7 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
             return fallback;
         }
         try {
-            return Material.valueOf(name.toUpperCase());
+            return Material.valueOf(name.toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException e) {
             return fallback;
         }

@@ -17,6 +17,7 @@ import org.slf4j.Logger;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.util.List;
+import java.util.Locale;
 import java.util.function.Supplier;
 
 public final class PaperDialogConfirmationService implements TpaConfirmationMenuService {
@@ -113,7 +114,7 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
                 ? config.dialogSendCancelText()
                 : "<red><bold>CANCEL</bold></red>";
 
-            String acceptKey = "tpcore:tpa_send_confirm/" + target.getUniqueId().toString().toLowerCase() + "/" + type.name().toLowerCase();
+            String acceptKey = "tpcore:tpa_send_confirm/" + target.getUniqueId().toString().toLowerCase(Locale.ROOT) + "/" + type.name().toLowerCase(Locale.ROOT);
             String denyKey = null;
 
             String title = (config.dialogTitle() != null && !config.dialogTitle().isBlank())

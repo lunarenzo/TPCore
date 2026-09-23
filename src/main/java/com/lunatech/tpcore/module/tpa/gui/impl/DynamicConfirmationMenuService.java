@@ -8,6 +8,7 @@ import com.lunatech.tpcore.module.tpa.service.TpaService;
 import org.bukkit.entity.Player;
 import org.slf4j.Logger;
 
+import java.util.Locale;
 import java.util.function.Supplier;
 
 public final class DynamicConfirmationMenuService implements TpaConfirmationMenuService {
@@ -62,6 +63,6 @@ public final class DynamicConfirmationMenuService implements TpaConfirmationMenu
         if (config == null || config.confirmationMode() == null) {
             return "GUI";
         }
-        return config.confirmationMode().trim().toUpperCase();
+        return config.confirmationMode().trim().toUpperCase(Locale.ROOT);
     }
 }
