@@ -56,6 +56,7 @@ public final class DefaultTpaService implements TpaService {
 
     private record ActiveWarmup(
         UUID teleportingPlayerId,
+        UUID destinationPlayerId,
         String worldName,
         double startX,
         double startY,
@@ -670,6 +671,7 @@ public final class DefaultTpaService implements TpaService {
         }
         this.repository.removeAllRequestsForPlayer(playerId);
         this.cancelWarmup(playerId, null);
+        this.cancelWarmupsForDestination(playerId, null);
     }
 
     @Override
@@ -693,12 +695,25 @@ public final class DefaultTpaService implements TpaService {
     @Override
     public void handlePlayerTeleport(UUID playerId) {
         this.cancelWarmup(playerId, null);
+        this.cancelWarmupsForDestination(playerId, null);
     }
 
     @Override
     public void handlePlayerDeath(UUID playerId) {
         this.repository.removeAllRequestsForPlayer(playerId);
         this.cancelWarmup(playerId, null);
+        this.cancelWarmupsForDestination(playerId, null);
+    }
+
+    private void cancelWarmupsForDestination(UUID destinationId, String cancelMessage) {
+        if (this.activeWarmups.isEmpty() || destinationId == null) {
+            return;
+        }
+        for (ActiveWarmup warmup : this.activeWarmups.values()) {
+            if (warmup != null && destinationId.equals(warmup.destinationPlayerId())) {
+                this.cancelWarmup(warmup.teleportingPlayerId(), cancelMessage);
+            }
+        }
     }
 
     private void executeTeleportSequence(Player player, Player destinationPlayer) {
@@ -744,6 +759,7 @@ public final class DefaultTpaService implements TpaService {
 
         ActiveWarmup warmup = new ActiveWarmup(
             player.getUniqueId(),
+            destinationPlayer.getUniqueId(),
             currentLoc.getWorld().getName(),
             currentLoc.getX(),
             currentLoc.getY(),
