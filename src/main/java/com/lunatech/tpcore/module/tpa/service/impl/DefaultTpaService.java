@@ -52,6 +52,7 @@ public final class DefaultTpaService implements TpaService {
     private final NamespacedKey keyBlockList;
 
     private final Map<UUID, ActiveWarmup> activeWarmups = new ConcurrentHashMap<>();
+    private final Map<String, Key> soundKeyCache = new ConcurrentHashMap<>();
     private final ScheduledTask sweeperTask;
 
     private record ActiveWarmup(
@@ -107,8 +108,15 @@ public final class DefaultTpaService implements TpaService {
         return this.plugin.getServer().getGlobalRegionScheduler().runAtFixedRate(
             this.plugin,
             task -> {
+                List<TpaRequest> expired = new ArrayList<>();
                 this.repository.forEachRequest(request -> {
                     if (request.isExpired(this.config().requestTimeoutSeconds())) {
+                        expired.add(request);
+                    }
+                });
+
+                if (!expired.isEmpty()) {
+                    for (TpaRequest request : expired) {
                         this.repository.removeRequest(request.targetId(), request.senderId());
 
                         Player sender = Bukkit.getPlayer(request.senderId());
@@ -157,7 +165,7 @@ public final class DefaultTpaService implements TpaService {
                             );
                         }
                     }
-                });
+                }
             },
             100L,
             100L
@@ -927,22 +935,24 @@ public final class DefaultTpaService implements TpaService {
         if (soundKey == null || soundKey.isBlank()) {
             return null;
         }
-        String trimmed = soundKey.trim();
-        try {
-            org.bukkit.Sound bukkitSound = org.bukkit.Sound.valueOf(trimmed.toUpperCase(Locale.ROOT));
-            return Key.key(bukkitSound.getKey().getNamespace(), bukkitSound.getKey().getKey());
-        } catch (Throwable ignored) {
-        }
+        return this.soundKeyCache.computeIfAbsent(soundKey, rawKey -> {
+            String trimmed = rawKey.trim();
+            try {
+                org.bukkit.Sound bukkitSound = org.bukkit.Sound.valueOf(trimmed.toUpperCase(Locale.ROOT));
+                return Key.key(bukkitSound.getKey().getNamespace(), bukkitSound.getKey().getKey());
+            } catch (Throwable ignored) {
+            }
 
-        String cleanKey = trimmed.toLowerCase(Locale.ROOT);
-        if (!cleanKey.contains(":")) {
-            cleanKey = "minecraft:" + cleanKey;
-        }
-        try {
-            return Key.key(cleanKey);
-        } catch (Throwable ignored) {
-            return null;
-        }
+            String cleanKey = trimmed.toLowerCase(Locale.ROOT);
+            if (!cleanKey.contains(":")) {
+                cleanKey = "minecraft:" + cleanKey;
+            }
+            try {
+                return Key.key(cleanKey);
+            } catch (Throwable ignored) {
+                return null;
+            }
+        });
     }
 
     private BossBar.Color parseBossBarColor(String colorStr) {

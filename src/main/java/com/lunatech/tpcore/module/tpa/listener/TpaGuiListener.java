@@ -29,6 +29,10 @@ public final class TpaGuiListener implements Listener {
         if (event.getInventory().getHolder() instanceof TpaConfirmationHolder holder) {
             event.setCancelled(true);
 
+            if (event.getClickedInventory() != event.getInventory()) {
+                return;
+            }
+
             if (!(event.getWhoClicked() instanceof Player player)) {
                 return;
             }

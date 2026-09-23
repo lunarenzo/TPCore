@@ -55,9 +55,6 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
             if (body == null || body.isBlank()) {
                 body = config.dialogBodyText();
             }
-            if (body == null || body.isBlank()) {
-                body = "<yellow><sender></yellow> <gray>sent a teleport request.\nDo you accept?</gray>";
-            }
             body = body.replace("<sender>", senderName).replace("<target>", target.getName());
 
             String acceptText = (config.dialogAcceptText() != null && !config.dialogAcceptText().isBlank())
@@ -102,7 +99,7 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
                 ? config.dialogSendTpahereBodyText()
                 : config.dialogSendTpaBodyText();
             if (body == null || body.isBlank()) {
-                body = "<gray>Send a teleport request to </gray><yellow><target></yellow>?";
+                body = config.dialogBodyText();
             }
 
             String confirmText = (config.dialogSendConfirmText() != null && !config.dialogSendConfirmText().isBlank())
