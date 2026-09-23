@@ -24,24 +24,28 @@ public final class TpaEventListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerJoin(PlayerJoinEvent event) {
-        this.tpaService.handlePlayerJoin(event.getPlayer());
+        if (event != null && event.getPlayer() != null) {
+            this.tpaService.handlePlayerJoin(event.getPlayer());
+        }
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerQuit(PlayerQuitEvent event) {
-        this.tpaService.handlePlayerQuit(event.getPlayer().getUniqueId());
+        if (event != null && event.getPlayer() != null) {
+            this.tpaService.handlePlayerQuit(event.getPlayer().getUniqueId());
+        }
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onEntityDamage(EntityDamageEvent event) {
-        if (event.getEntity() instanceof Player player) {
+        if (event != null && event.getEntity() instanceof Player player) {
             this.tpaService.handlePlayerDamage(player.getUniqueId());
         }
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlayerMove(PlayerMoveEvent event) {
-        if (!event.hasChangedPosition()) {
+        if (event == null || event.getPlayer() == null || !event.hasChangedPosition()) {
             return;
         }
         this.tpaService.handlePlayerMove(event.getPlayer());
@@ -49,22 +53,28 @@ public final class TpaEventListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlayerTeleport(PlayerTeleportEvent event) {
-        this.tpaService.handlePlayerTeleport(event.getPlayer().getUniqueId());
+        if (event != null && event.getPlayer() != null) {
+            this.tpaService.handlePlayerTeleport(event.getPlayer().getUniqueId());
+        }
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerDeath(PlayerDeathEvent event) {
-        this.tpaService.handlePlayerDeath(event.getEntity().getUniqueId());
+        if (event != null && event.getEntity() != null) {
+            this.tpaService.handlePlayerDeath(event.getEntity().getUniqueId());
+        }
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlayerChangedWorld(PlayerChangedWorldEvent event) {
-        this.tpaService.handlePlayerTeleport(event.getPlayer().getUniqueId());
+        if (event != null && event.getPlayer() != null) {
+            this.tpaService.handlePlayerTeleport(event.getPlayer().getUniqueId());
+        }
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onVehicleEnter(VehicleEnterEvent event) {
-        if (event.getEntered() instanceof Player player) {
+        if (event != null && event.getEntered() instanceof Player player) {
             this.tpaService.handlePlayerMove(player);
         }
     }

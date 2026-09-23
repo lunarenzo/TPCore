@@ -56,7 +56,6 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
             if (body == null || body.isBlank()) {
                 body = config.dialogBodyText();
             }
-            body = body.replace("<sender>", senderName).replace("<target>", target.getName());
 
             String acceptText = (config.dialogAcceptText() != null && !config.dialogAcceptText().isBlank())
                 ? config.dialogAcceptText()
@@ -68,9 +67,13 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
             String acceptKey = "tpcore:tpa_accept/" + request.senderId().toString();
             String denyKey = "tpcore:tpa_deny/" + request.senderId().toString();
 
+            String title = (config.dialogTitle() != null && !config.dialogTitle().isBlank())
+                ? config.dialogTitle()
+                : "<gradient:#00D2FF:#3A7BD5><bold>Teleport Confirmation</bold></gradient>";
+
             boolean success = this.tryShowDialog(
                 target,
-                config.dialogTitle(),
+                title,
                 body,
                 acceptText,
                 denyText,
@@ -113,9 +116,13 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
             String acceptKey = "tpcore:tpa_send_confirm/" + target.getUniqueId().toString().toLowerCase() + "/" + type.name().toLowerCase();
             String denyKey = null;
 
+            String title = (config.dialogTitle() != null && !config.dialogTitle().isBlank())
+                ? config.dialogTitle()
+                : "<gradient:#00D2FF:#3A7BD5><bold>Send Teleport Request</bold></gradient>";
+
             boolean success = this.tryShowDialog(
                 sender,
-                config.dialogTitle(),
+                title,
                 body,
                 confirmText,
                 cancelText,

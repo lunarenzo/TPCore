@@ -37,7 +37,7 @@ public final class DynamicConfirmationMenuService implements TpaConfirmationMenu
 
         if ("DIALOG".equals(mode)) {
             this.paperDialogService.openAcceptConfirmation(target, request);
-        } else if ("GUI".equals(mode)) {
+        } else {
             this.chestGuiService.openAcceptConfirmation(target, request);
         }
     }
@@ -53,7 +53,7 @@ public final class DynamicConfirmationMenuService implements TpaConfirmationMenu
 
         if ("DIALOG".equals(mode)) {
             this.paperDialogService.openSendConfirmation(sender, target, type);
-        } else if ("GUI".equals(mode)) {
+        } else {
             this.chestGuiService.openSendConfirmation(sender, target, type);
         }
     }
