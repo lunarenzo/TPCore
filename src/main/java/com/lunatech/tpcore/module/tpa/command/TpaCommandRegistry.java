@@ -257,6 +257,15 @@ public final class TpaCommandRegistry {
                 Commands.literal("tpablock")
                     .requires(src -> src.getSender().hasPermission(Permissions.TPA_BLOCK))
                     .then(Commands.argument("player", StringArgumentType.word())
+                        .suggests((ctx, builder) -> {
+                            String remaining = builder.getRemainingLowerCase();
+                            for (Player p : Bukkit.getOnlinePlayers()) {
+                                if (p.getName().toLowerCase(Locale.ROOT).startsWith(remaining)) {
+                                    builder.suggest(p.getName());
+                                }
+                            }
+                            return builder.buildFuture();
+                        })
                         .executes(ctx -> {
                             CommandSourceStack src = ctx.getSource();
                             if (src.getSender() instanceof Player sender) {
@@ -281,14 +290,17 @@ public final class TpaCommandRegistry {
                                 Set<UUID> blocked = this.tpaService.getBlockedPlayers(sender);
                                 if (blocked != null && !blocked.isEmpty()) {
                                     String remaining = builder.getRemainingLowerCase();
-                                     for (UUID uuid : blocked) {
-                                         Player p = Bukkit.getPlayer(uuid);
-                                         OfflinePlayer op = Bukkit.getOfflinePlayer(uuid);
-                                         String name = (p != null && p.isOnline()) ? p.getName() : (op.hasPlayedBefore() ? op.getName() : null);
-                                         if (name != null && name.toLowerCase(Locale.ROOT).startsWith(remaining)) {
-                                             builder.suggest(name);
-                                         }
-                                     }
+                                    for (UUID uuid : blocked) {
+                                        Player p = Bukkit.getPlayer(uuid);
+                                        OfflinePlayer op = Bukkit.getOfflinePlayer(uuid);
+                                        String name = (p != null && p.isOnline()) ? p.getName() : (op.hasPlayedBefore() ? op.getName() : null);
+                                        if (name == null) {
+                                            name = uuid.toString().substring(0, 8);
+                                        }
+                                        if (name.toLowerCase(Locale.ROOT).startsWith(remaining)) {
+                                            builder.suggest(name);
+                                        }
+                                    }
                                 }
                             }
                             return builder.buildFuture();

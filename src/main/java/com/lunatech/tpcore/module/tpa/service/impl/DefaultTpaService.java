@@ -458,15 +458,12 @@ public final class DefaultTpaService implements TpaService {
 
         TpaRequest targetRequest = null;
         if (optionalTargetName != null && !optionalTargetName.isBlank()) {
-            Player target = Bukkit.getPlayer(optionalTargetName);
-            if (target != null) {
-                Optional<TpaRequest> opt = this.repository.getRequest(target.getUniqueId(), sender.getUniqueId());
-                if (opt.isPresent()) {
-                    targetRequest = opt.get();
-                }
-            }
-        } else {
+            targetRequest = resolveMatchingOutgoingRequest(outgoing, optionalTargetName);
+        } else if (outgoing.size() == 1) {
             targetRequest = outgoing.iterator().next();
+        } else {
+            this.sendMessage(sender, this.config().messages().multiplePendingRequests());
+            return;
         }
 
         if (targetRequest != null) {
@@ -655,6 +652,29 @@ public final class DefaultTpaService implements TpaService {
                 return req;
             }
             OfflinePlayer op = Bukkit.getOfflinePlayer(req.senderId());
+            String cachedName = (op.hasPlayedBefore() || op.isOnline()) ? op.getName() : null;
+            if (cachedName != null && cachedName.equalsIgnoreCase(trimmed)) {
+                return req;
+            }
+        }
+        return null;
+    }
+
+    private TpaRequest resolveMatchingOutgoingRequest(Collection<TpaRequest> outgoing, String targetIdentifier) {
+        if (outgoing == null || outgoing.isEmpty() || targetIdentifier == null || targetIdentifier.isBlank()) {
+            return null;
+        }
+
+        String trimmed = targetIdentifier.trim();
+        for (TpaRequest req : outgoing) {
+            if (req.targetId().toString().equalsIgnoreCase(trimmed)) {
+                return req;
+            }
+            Player target = Bukkit.getPlayer(req.targetId());
+            if (target != null && target.getName().equalsIgnoreCase(trimmed)) {
+                return req;
+            }
+            OfflinePlayer op = Bukkit.getOfflinePlayer(req.targetId());
             String cachedName = (op.hasPlayedBefore() || op.isOnline()) ? op.getName() : null;
             if (cachedName != null && cachedName.equalsIgnoreCase(trimmed)) {
                 return req;
