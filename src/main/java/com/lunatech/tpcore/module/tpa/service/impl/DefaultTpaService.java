@@ -240,7 +240,8 @@ public final class DefaultTpaService implements TpaService {
             return Collections.emptySet();
         }
         int count = bytes.length / 16;
-        Set<UUID> set = new HashSet<>(count);
+        int initialCapacity = (int) Math.ceil(count / 0.75f);
+        Set<UUID> set = new HashSet<>(initialCapacity);
         ByteBuffer buffer = ByteBuffer.wrap(bytes);
         for (int i = 0; i < count; i++) {
             long most = buffer.getLong();
@@ -709,6 +710,22 @@ public final class DefaultTpaService implements TpaService {
         if (player != null) {
             this.saveUserSettingsToPdc(player);
         }
+
+        Collection<TpaRequest> outgoing = this.repository.getOutgoingRequests(playerId);
+        if (outgoing != null && !outgoing.isEmpty()) {
+            for (TpaRequest req : outgoing) {
+                Player target = Bukkit.getPlayer(req.targetId());
+                if (target != null && target.isOnline()) {
+                    this.closeConfirmationMenuIfOpen(target, playerId);
+                    this.sendMessage(
+                        target,
+                        this.config().messages().requestCancelledTarget(),
+                        "sender", (player != null) ? player.getName() : "Player"
+                    );
+                }
+            }
+        }
+
         this.repository.removeAllRequestsForPlayer(playerId);
         this.cancelWarmup(playerId, null);
         this.cancelWarmupsForDestination(playerId, null);

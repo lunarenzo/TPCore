@@ -23,11 +23,13 @@ public final class TpaSafetyInspector {
             String name = mat.name();
             if (name.contains("LAVA") ||
                 name.contains("FIRE") ||
+                name.contains("CAMPFIRE") ||
                 name.contains("MAGMA") ||
                 name.contains("CACTUS") ||
                 name.contains("BERRY_BUSH") ||
                 name.contains("WITHER_ROSE") ||
                 name.contains("POWDER_SNOW") ||
+                name.contains("DRIPSTONE") ||
                 name.contains("VOID")) {
                 HAZARD_MATERIALS.add(mat);
             } else if (name.contains("AIR") || name.contains("LIGHT") || name.contains("GRASS") || name.contains("FLOWER")) {
@@ -132,11 +134,13 @@ public final class TpaSafetyInspector {
         }
         return upper.contains("LAVA") ||
                upper.contains("FIRE") ||
+               upper.contains("CAMPFIRE") ||
                upper.contains("MAGMA") ||
                upper.contains("CACTUS") ||
                upper.contains("BERRY_BUSH") ||
                upper.contains("WITHER_ROSE") ||
                upper.contains("POWDER_SNOW") ||
+               upper.contains("DRIPSTONE") ||
                upper.contains("VOID");
     }
 

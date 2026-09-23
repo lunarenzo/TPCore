@@ -340,7 +340,7 @@ public final class TpaCommandRegistry {
                                     for (UUID uuid : blocked) {
                                         Player p = Bukkit.getPlayer(uuid);
                                         OfflinePlayer op = Bukkit.getOfflinePlayer(uuid);
-                                        String name = (p != null && p.isOnline()) ? p.getName() : (op.hasPlayedBefore() ? op.getName() : null);
+                                        String name = (p != null && p.isOnline()) ? p.getName() : op.getName();
                                         if (name == null) {
                                             name = uuid.toString().substring(0, 8);
                                         }
