@@ -61,7 +61,7 @@ public final class TpaCommandRegistry {
                             if (src.getSender() instanceof Player sender) {
                                 PlayerSelectorArgumentResolver resolver = ctx.getArgument("player", PlayerSelectorArgumentResolver.class);
                                 List<Player> targets = resolver.resolve(src);
-                                if (targets.size() > 1 && !sender.hasPermission(Permissions.TPA_ALL) && !sender.hasPermission(Permissions.TPA_ADMIN)) {
+                                if (targets.size() > 1 && !hasBulkPermission(sender)) {
                                     TpaConfig cfg = this.configSupplier.get();
                                     sender.sendMessage(this.miniMessage.deserialize(
                                         cfg.messages().noBulkPermission(),
@@ -105,7 +105,7 @@ public final class TpaCommandRegistry {
                             if (src.getSender() instanceof Player sender) {
                                 PlayerSelectorArgumentResolver resolver = ctx.getArgument("player", PlayerSelectorArgumentResolver.class);
                                 List<Player> targets = resolver.resolve(src);
-                                if (targets.size() > 1 && !sender.hasPermission(Permissions.TPA_ALL) && !sender.hasPermission(Permissions.TPA_ADMIN)) {
+                                if (targets.size() > 1 && !hasBulkPermission(sender)) {
                                     TpaConfig cfg = this.configSupplier.get();
                                     sender.sendMessage(this.miniMessage.deserialize(
                                         cfg.messages().noBulkPermission(),
@@ -387,6 +387,10 @@ public final class TpaCommandRegistry {
                 List.of("tpblocklist")
             );
         });
+    }
+
+    private boolean hasBulkPermission(Player sender) {
+        return sender != null && (sender.hasPermission(Permissions.TPA_ALL) || sender.hasPermission(Permissions.TPA_ADMIN));
     }
 
     private boolean isConfirmationEnabled() {

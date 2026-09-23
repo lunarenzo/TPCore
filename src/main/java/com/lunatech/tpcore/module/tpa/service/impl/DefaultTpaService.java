@@ -201,13 +201,22 @@ public final class DefaultTpaService implements TpaService {
             String blockedStr = pdc.get(this.keyBlockList, PersistentDataType.STRING);
             if (blockedStr != null && !blockedStr.isBlank()) {
                 blockedSet = new HashSet<>();
-                for (String raw : blockedStr.split(",")) {
-                    try {
-                        if (!raw.isBlank()) {
-                            blockedSet.add(UUID.fromString(raw.trim()));
+                int start = 0;
+                int len = blockedStr.length();
+                while (start < len) {
+                    int comma = blockedStr.indexOf(',', start);
+                    int end = (comma == -1) ? len : comma;
+                    String part = blockedStr.substring(start, end).trim();
+                    if (!part.isEmpty()) {
+                        try {
+                            blockedSet.add(UUID.fromString(part));
+                        } catch (Exception ignored) {
                         }
-                    } catch (Exception ignored) {
                     }
+                    if (comma == -1) {
+                        break;
+                    }
+                    start = comma + 1;
                 }
                 blockedSet = Collections.unmodifiableSet(blockedSet);
             }
@@ -542,10 +551,15 @@ public final class DefaultTpaService implements TpaService {
                 }
             }
             this.closeConfirmationMenuIfOpen(target, targetRequest.senderId());
+            String senderDisplayName = (sender != null) ? sender.getName() : null;
+            if (senderDisplayName == null) {
+                OfflinePlayer op = Bukkit.getOfflinePlayer(targetRequest.senderId());
+                senderDisplayName = (op.hasPlayedBefore() || op.isOnline()) ? op.getName() : "Player";
+            }
             this.sendMessage(
                 target,
                 this.config().messages().requestDeniedTarget(),
-                "sender", (sender != null) ? sender.getName() : "Player"
+                "sender", (senderDisplayName != null) ? senderDisplayName : "Player"
             );
             if (this.config().enableSounds()) {
                 TpaConfig cfg = this.config();
@@ -593,10 +607,15 @@ public final class DefaultTpaService implements TpaService {
                 }
             }
             this.closeConfirmationMenuIfOpen(sender, targetRequest.targetId());
+            String targetDisplayName = (target != null) ? target.getName() : null;
+            if (targetDisplayName == null) {
+                OfflinePlayer op = Bukkit.getOfflinePlayer(targetRequest.targetId());
+                targetDisplayName = (op.hasPlayedBefore() || op.isOnline()) ? op.getName() : "Player";
+            }
             this.sendMessage(
                 sender,
                 this.config().messages().requestCancelledSender(),
-                "target", (target != null) ? target.getName() : "Player"
+                "target", (targetDisplayName != null) ? targetDisplayName : "Player"
             );
             if (this.config().enableSounds()) {
                 TpaConfig cfg = this.config();
