@@ -14,6 +14,9 @@ public record TpaConfig(
     @Comment("Cooldown in seconds between outgoing TPA requests")
     int requestCooldownSeconds,
 
+    @Comment("Maximum number of pending incoming TPA requests allowed per target player (DOS/spam guard)")
+    int maxPendingRequestsPerPlayer,
+
     @Comment("Warmup delay in seconds before teleporting")
     int warmupSeconds,
 
@@ -166,7 +169,7 @@ public record TpaConfig(
 ) {
     public static TpaConfig createDefault() {
         return new TpaConfig(
-            true, 30, 10, 3, true, true, false, true,
+            true, 30, 10, 5, 3, true, true, false, true,
             true,
             true,
             true,
@@ -221,6 +224,7 @@ public record TpaConfig(
         String blockListEmpty,
         String blockListHeader,
         String cooldownActive,
+        String maxPendingRequestsReached,
         String multiplePendingRequests,
         String noPendingRequests,
         String notBlocked,
@@ -258,6 +262,7 @@ public record TpaConfig(
                 "<prefix><gray>You have no blocked players.</gray>",
                 "<prefix><gray>Blocked Players: <yellow><players></yellow></gray>",
                 "<prefix><red>Please wait <gold><seconds>s</gold> before sending another TPA request!</red>",
+                "<prefix><red>Player <yellow><target></yellow> has reached the maximum allowed pending teleport requests!</red>",
                 "<prefix><red>You have multiple requests! Specify the player name: <yellow>/tpaccept <player></yellow></red>",
                 "<prefix><red>You have no active pending teleport requests!</red>",
                 "<prefix><red>Player <yellow><player></yellow> is not in your block list!</red>",

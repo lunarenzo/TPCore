@@ -14,6 +14,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 
 public final class ConcurrentTpaRepository implements TpaRepository {
 
@@ -68,6 +69,18 @@ public final class ConcurrentTpaRepository implements TpaRepository {
             all.addAll(map.values());
         }
         return Collections.unmodifiableCollection(all);
+    }
+
+    @Override
+    public void forEachRequest(Consumer<TpaRequest> action) {
+        if (action == null) {
+            return;
+        }
+        for (Map<UUID, TpaRequest> map : this.incoming.values()) {
+            for (TpaRequest request : map.values()) {
+                action.accept(request);
+            }
+        }
     }
 
     @Override

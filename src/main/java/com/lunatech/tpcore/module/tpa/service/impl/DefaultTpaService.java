@@ -18,6 +18,7 @@ import net.kyori.adventure.title.Title;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.NamespacedKey;
+import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
 import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
@@ -105,7 +106,7 @@ public final class DefaultTpaService implements TpaService {
         return this.plugin.getServer().getGlobalRegionScheduler().runAtFixedRate(
             this.plugin,
             task -> {
-                for (TpaRequest request : this.repository.getAllRequests()) {
+                this.repository.forEachRequest(request -> {
                     if (request.isExpired(this.config().requestTimeoutSeconds())) {
                         this.repository.removeRequest(request.targetId(), request.senderId());
 
@@ -143,7 +144,7 @@ public final class DefaultTpaService implements TpaService {
                             );
                         }
                     }
-                }
+                });
             },
             100L,
             100L
@@ -284,6 +285,22 @@ public final class DefaultTpaService implements TpaService {
                 "target", target.getName()
             );
             return;
+        }
+
+        int maxRequests = this.config().maxPendingRequestsPerPlayer();
+        if (maxRequests > 0) {
+            Collection<TpaRequest> incoming = this.repository.getIncomingRequests(target.getUniqueId());
+            long activeCount = incoming.stream()
+                .filter(req -> !req.isExpired(this.config().requestTimeoutSeconds()))
+                .count();
+            if (activeCount >= maxRequests) {
+                this.sendMessage(
+                    sender,
+                    this.config().messages().maxPendingRequestsReached(),
+                    "target", target.getName()
+                );
+                return;
+            }
         }
 
         TpaRequest request = new TpaRequest(
@@ -577,7 +594,8 @@ public final class DefaultTpaService implements TpaService {
             if (p != null && p.isOnline()) {
                 names.add(p.getName());
             } else {
-                String name = Bukkit.getOfflinePlayer(uuid).getName();
+                OfflinePlayer op = Bukkit.getOfflinePlayer(uuid);
+                String name = (op.hasPlayedBefore() || op.isOnline()) ? op.getName() : null;
                 names.add(name != null ? name : uuid.toString().substring(0, 8));
             }
         }

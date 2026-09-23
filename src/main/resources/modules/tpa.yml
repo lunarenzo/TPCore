@@ -9,6 +9,9 @@ request-timeout-seconds: 30
 # Cooldown in seconds between outgoing TPA requests per player
 request-cooldown-seconds: 10
 
+# Maximum number of pending incoming TPA requests allowed per target player (DOS/spam guard)
+max-pending-requests-per-player: 5
+
 # Warmup delay in seconds before teleporting after request acceptance
 warmup-seconds: 3
 
@@ -99,6 +102,7 @@ messages:
   block-list-empty: "<prefix><gray>You have no blocked players.</gray>"
   block-list-header: "<prefix><gray>Blocked Players: <yellow><players></yellow></gray>"
   cooldown-active: "<prefix><red>Please wait <gold><seconds>s</gold> before sending another TPA request!</red>"
+  max-pending-requests-reached: "<prefix><red>Player <yellow><target></yellow> has reached the maximum allowed pending teleport requests!</red>"
   multiple-pending-requests: "<prefix><red>You have multiple requests! Specify the player name: <yellow>/tpaccept <player></yellow></red>"
   no-pending-requests: "<prefix><red>You have no active pending teleport requests!</red>"
   not-blocked: "<prefix><red>Player <yellow><player></yellow> is not in your block list!</red>"

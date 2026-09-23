@@ -6,6 +6,7 @@ import com.lunatech.tpcore.module.tpa.model.TpaUserSettings;
 import java.util.Collection;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 public interface TpaRepository {
 
@@ -18,6 +19,8 @@ public interface TpaRepository {
     Collection<TpaRequest> getOutgoingRequests(UUID senderId);
 
     Collection<TpaRequest> getAllRequests();
+
+    void forEachRequest(Consumer<TpaRequest> action);
 
     void removeRequest(UUID targetId, UUID senderId);
 

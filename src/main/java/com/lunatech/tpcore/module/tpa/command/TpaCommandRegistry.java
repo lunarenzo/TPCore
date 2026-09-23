@@ -15,6 +15,7 @@ import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import org.bukkit.Bukkit;
+import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -280,13 +281,14 @@ public final class TpaCommandRegistry {
                                 Set<UUID> blocked = this.tpaService.getBlockedPlayers(sender);
                                 if (blocked != null && !blocked.isEmpty()) {
                                     String remaining = builder.getRemainingLowerCase();
-                                    for (UUID uuid : blocked) {
-                                        Player p = Bukkit.getPlayer(uuid);
-                                        String name = (p != null && p.isOnline()) ? p.getName() : Bukkit.getOfflinePlayer(uuid).getName();
-                                        if (name != null && name.toLowerCase(Locale.ROOT).startsWith(remaining)) {
-                                            builder.suggest(name);
-                                        }
-                                    }
+                                     for (UUID uuid : blocked) {
+                                         Player p = Bukkit.getPlayer(uuid);
+                                         OfflinePlayer op = Bukkit.getOfflinePlayer(uuid);
+                                         String name = (p != null && p.isOnline()) ? p.getName() : (op.hasPlayedBefore() ? op.getName() : null);
+                                         if (name != null && name.toLowerCase(Locale.ROOT).startsWith(remaining)) {
+                                             builder.suggest(name);
+                                         }
+                                     }
                                 }
                             }
                             return builder.buildFuture();
