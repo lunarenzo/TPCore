@@ -46,7 +46,7 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
             Material fillMat = parseMaterial(cfg.guiFillItem(), Material.GRAY_STAINED_GLASS_PANE);
             ItemStack fillItem = createItem(fillMat, "<gray> </gray>");
             for (int i = 0; i < inventory.getSize(); i++) {
-                inventory.setItem(i, fillItem.clone());
+                inventory.setItem(i, fillItem);
             }
         }
 
@@ -55,11 +55,9 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
         String senderName = (senderPlayer != null) ? senderPlayer.getName() : "Player";
         if (senderPlayer == null) {
             OfflinePlayer offlineSender = Bukkit.getOfflinePlayer(request.senderId());
-            if (offlineSender.hasPlayedBefore() || offlineSender.isOnline()) {
-                String cachedName = offlineSender.getName();
-                if (cachedName != null) {
-                    senderName = cachedName;
-                }
+            String cachedName = offlineSender.getName();
+            if (cachedName != null) {
+                senderName = cachedName;
             }
         }
 
@@ -137,7 +135,7 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
             Material fillMat = parseMaterial(cfg.guiFillItem(), Material.GRAY_STAINED_GLASS_PANE);
             ItemStack fillItem = createItem(fillMat, "<gray> </gray>");
             for (int i = 0; i < inventory.getSize(); i++) {
-                inventory.setItem(i, fillItem.clone());
+                inventory.setItem(i, fillItem);
             }
         }
 

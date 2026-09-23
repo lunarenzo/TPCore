@@ -155,12 +155,12 @@ public final class TpaCommandRegistry {
                                 Collection<TpaRequest> requests = this.tpaService.getPendingRequestsForTarget(target);
                                 if (requests != null && !requests.isEmpty()) {
                                     String remaining = builder.getRemainingLowerCase();
-                                    for (TpaRequest req : requests) {
+                                     for (TpaRequest req : requests) {
                                         Player p = Bukkit.getPlayer(req.senderId());
                                         String name = (p != null && p.isOnline()) ? p.getName() : null;
                                         if (name == null) {
                                             OfflinePlayer op = Bukkit.getOfflinePlayer(req.senderId());
-                                            name = (op.hasPlayedBefore() || op.isOnline()) ? op.getName() : req.senderId().toString();
+                                            name = op.getName() != null ? op.getName() : req.senderId().toString();
                                         }
                                         if (name != null && (remaining.isBlank() || name.regionMatches(true, 0, remaining, 0, remaining.length()))) {
                                             builder.suggest(name);
@@ -205,7 +205,7 @@ public final class TpaCommandRegistry {
                                         String name = (p != null && p.isOnline()) ? p.getName() : null;
                                         if (name == null) {
                                             OfflinePlayer op = Bukkit.getOfflinePlayer(req.senderId());
-                                            name = (op.hasPlayedBefore() || op.isOnline()) ? op.getName() : req.senderId().toString();
+                                            name = op.getName() != null ? op.getName() : req.senderId().toString();
                                         }
                                         if (name != null && (remaining.isBlank() || name.regionMatches(true, 0, remaining, 0, remaining.length()))) {
                                             builder.suggest(name);
@@ -250,7 +250,7 @@ public final class TpaCommandRegistry {
                                         String name = (p != null && p.isOnline()) ? p.getName() : null;
                                         if (name == null) {
                                             OfflinePlayer op = Bukkit.getOfflinePlayer(req.targetId());
-                                            name = (op.hasPlayedBefore() || op.isOnline()) ? op.getName() : req.targetId().toString();
+                                            name = op.getName() != null ? op.getName() : req.targetId().toString();
                                         }
                                         if (name != null && (remaining.isBlank() || name.regionMatches(true, 0, remaining, 0, remaining.length()))) {
                                             builder.suggest(name);
@@ -347,7 +347,7 @@ public final class TpaCommandRegistry {
                                         String name = (p != null && p.isOnline()) ? p.getName() : null;
                                         if (name == null) {
                                             OfflinePlayer op = Bukkit.getOfflinePlayer(uuid);
-                                            name = (op.hasPlayedBefore() || op.isOnline()) ? op.getName() : uuid.toString().substring(0, 8);
+                                            name = op.getName() != null ? op.getName() : uuid.toString().substring(0, 8);
                                         }
                                         if (name != null && (remaining.isBlank() || name.regionMatches(true, 0, remaining, 0, remaining.length()))) {
                                             builder.suggest(name);

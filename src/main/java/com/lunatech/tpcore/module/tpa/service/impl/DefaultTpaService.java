@@ -135,7 +135,7 @@ public final class DefaultTpaService implements TpaService {
                             String targetName = (target != null && target.isOnline()) ? target.getName() : null;
                             if (targetName == null) {
                                 OfflinePlayer op = Bukkit.getOfflinePlayer(request.targetId());
-                                targetName = (op.hasPlayedBefore() || op.isOnline()) ? op.getName() : null;
+                                targetName = op.getName();
                             }
                             String finalTargetName = (targetName != null) ? targetName : "Player";
                             sender.getScheduler().run(
@@ -158,7 +158,7 @@ public final class DefaultTpaService implements TpaService {
                             String senderName = (senderPlayer != null && senderPlayer.isOnline()) ? senderPlayer.getName() : null;
                             if (senderName == null) {
                                 OfflinePlayer op = Bukkit.getOfflinePlayer(request.senderId());
-                                senderName = (op.hasPlayedBefore() || op.isOnline()) ? op.getName() : null;
+                                senderName = op.getName();
                             }
                             String finalSenderName = (senderName != null) ? senderName : "Player";
                             target.getScheduler().run(
@@ -555,7 +555,7 @@ public final class DefaultTpaService implements TpaService {
             String senderDisplayName = (sender != null) ? sender.getName() : null;
             if (senderDisplayName == null) {
                 OfflinePlayer op = Bukkit.getOfflinePlayer(targetRequest.senderId());
-                senderDisplayName = (op.hasPlayedBefore() || op.isOnline()) ? op.getName() : "Player";
+                senderDisplayName = op.getName() != null ? op.getName() : "Player";
             }
             this.sendMessage(
                 target,
@@ -611,7 +611,7 @@ public final class DefaultTpaService implements TpaService {
             String targetDisplayName = (target != null) ? target.getName() : null;
             if (targetDisplayName == null) {
                 OfflinePlayer op = Bukkit.getOfflinePlayer(targetRequest.targetId());
-                targetDisplayName = (op.hasPlayedBefore() || op.isOnline()) ? op.getName() : "Player";
+                targetDisplayName = op.getName() != null ? op.getName() : "Player";
             }
             this.sendMessage(
                 sender,
@@ -657,15 +657,26 @@ public final class DefaultTpaService implements TpaService {
         return newStatus;
     }
 
+    private static OfflinePlayer resolveOfflinePlayerIfCached(String name) {
+        try {
+            return Bukkit.getOfflinePlayerIfCached(name);
+        } catch (Throwable ignored) {
+            return Bukkit.getOfflinePlayer(name);
+        }
+    }
+
     @Override
     public void blockPlayer(Player player, String targetName) {
         if (player == null || targetName == null || targetName.isBlank()) {
             return;
         }
-        Player target = Bukkit.getPlayer(targetName);
-        OfflinePlayer offlineTarget = (target == null) ? Bukkit.getOfflinePlayer(targetName) : null;
+        Player target = Bukkit.getPlayerExact(targetName);
+        if (target == null) {
+            target = Bukkit.getPlayer(targetName);
+        }
+        OfflinePlayer offlineTarget = (target == null) ? resolveOfflinePlayerIfCached(targetName) : null;
 
-        if (target == null && (offlineTarget == null || (!offlineTarget.hasPlayedBefore() && !offlineTarget.isOnline()))) {
+        if (target == null && (offlineTarget == null || offlineTarget.getName() == null)) {
             this.sendMessage(player, this.config().messages().playerNotOnline(), "player", targetName);
             return;
         }
@@ -688,8 +699,11 @@ public final class DefaultTpaService implements TpaService {
         if (player == null || targetName == null || targetName.isBlank()) {
             return;
         }
-        Player target = Bukkit.getPlayer(targetName);
-        OfflinePlayer offlineTarget = (target == null) ? Bukkit.getOfflinePlayer(targetName) : null;
+        Player target = Bukkit.getPlayerExact(targetName);
+        if (target == null) {
+            target = Bukkit.getPlayer(targetName);
+        }
+        OfflinePlayer offlineTarget = (target == null) ? resolveOfflinePlayerIfCached(targetName) : null;
         UUID targetId = (target != null) ? target.getUniqueId() : (offlineTarget != null ? offlineTarget.getUniqueId() : null);
 
         if (targetId == null || !this.repository.isPlayerBlocked(player.getUniqueId(), targetId)) {
@@ -722,7 +736,7 @@ public final class DefaultTpaService implements TpaService {
                 names.add(p.getName());
             } else {
                 OfflinePlayer op = Bukkit.getOfflinePlayer(uuid);
-                String name = (op.hasPlayedBefore() || op.isOnline()) ? op.getName() : null;
+                String name = op.getName();
                 names.add(name != null ? name : uuid.toString().substring(0, 8));
             }
         }
@@ -799,7 +813,7 @@ public final class DefaultTpaService implements TpaService {
             }
             if (sender == null) {
                 OfflinePlayer op = Bukkit.getOfflinePlayer(req.senderId());
-                String cachedName = (op.hasPlayedBefore() || op.isOnline()) ? op.getName() : null;
+                String cachedName = op.getName();
                 if (cachedName != null && cachedName.equalsIgnoreCase(trimmed)) {
                     return req;
                 }
@@ -824,7 +838,7 @@ public final class DefaultTpaService implements TpaService {
             }
             if (target == null) {
                 OfflinePlayer op = Bukkit.getOfflinePlayer(req.targetId());
-                String cachedName = (op.hasPlayedBefore() || op.isOnline()) ? op.getName() : null;
+                String cachedName = op.getName();
                 if (cachedName != null && cachedName.equalsIgnoreCase(trimmed)) {
                     return req;
                 }
