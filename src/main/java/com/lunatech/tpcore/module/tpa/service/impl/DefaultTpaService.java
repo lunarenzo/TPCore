@@ -102,6 +102,7 @@ public final class DefaultTpaService implements TpaService {
     public void updateConfig(TpaConfig newConfig) {
         if (newConfig != null) {
             this.configRef.set(newConfig);
+            this.soundKeyCache.clear();
         }
     }
 

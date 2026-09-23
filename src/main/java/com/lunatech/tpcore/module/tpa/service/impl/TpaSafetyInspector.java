@@ -60,6 +60,8 @@ public final class TpaSafetyInspector {
         int lastChunkZ = Integer.MIN_VALUE;
         boolean lastChunkLoaded = false;
 
+        Location probeLoc = (IS_OWNED_BY_CURRENT_REGION != null) ? targetLocation.clone() : null;
+
         for (int i = 0; i < PROBE_DX.length; i++) {
             int checkX = targetX + PROBE_DX[i];
             int checkZ = targetZ + PROBE_DZ[i];
@@ -77,10 +79,12 @@ public final class TpaSafetyInspector {
                 continue;
             }
 
-            if (IS_OWNED_BY_CURRENT_REGION != null) {
+            if (probeLoc != null) {
                 try {
-                    Location candidateLoc = new Location(world, checkX, targetY, checkZ);
-                    Boolean owned = (Boolean) IS_OWNED_BY_CURRENT_REGION.invoke(null, candidateLoc);
+                    probeLoc.setX(checkX);
+                    probeLoc.setY(targetY);
+                    probeLoc.setZ(checkZ);
+                    Boolean owned = (Boolean) IS_OWNED_BY_CURRENT_REGION.invoke(null, probeLoc);
                     if (owned != null && !owned) {
                         continue;
                     }
