@@ -1031,7 +1031,9 @@ public final class DefaultTpaService implements TpaService {
         try {
             Key key = resolveSoundKey(soundKey);
             if (key != null) {
-                Sound sound = Sound.sound(key, Sound.Source.MASTER, volume, pitch);
+                float clampedVol = Math.max(0.0f, Math.min(1.0f, volume));
+                float clampedPitch = Math.max(0.5f, Math.min(2.0f, pitch));
+                Sound sound = Sound.sound(key, Sound.Source.MASTER, clampedVol, clampedPitch);
                 player.playSound(sound);
             }
         } catch (Throwable ignored) {

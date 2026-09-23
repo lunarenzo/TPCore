@@ -85,24 +85,31 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
             headItem.setItemMeta(skullMeta);
         }
         int headSlot = clampSlot(cfg.guiHeadSlot(), 13);
+        int acceptSlot = clampSlot(cfg.guiAcceptSlot(), 15);
+        int denySlot = clampSlot(cfg.guiDenySlot(), 11);
+
+        if (headSlot == acceptSlot || headSlot == denySlot || acceptSlot == denySlot) {
+            headSlot = 13;
+            acceptSlot = 15;
+            denySlot = 11;
+        }
+
         inventory.setItem(headSlot, headItem);
 
-        // Slot 15: Accept Button
+        // Accept Button
         Material acceptMat = parseMaterial(cfg.guiAcceptItem(), Material.LIME_STAINED_GLASS_PANE);
         String acceptName = (cfg.guiAcceptName() != null && !cfg.guiAcceptName().isBlank())
             ? cfg.guiAcceptName()
             : "<green><bold>ACCEPT REQUEST</bold></green>";
         ItemStack acceptItem = createItem(acceptMat, acceptName);
-        int acceptSlot = clampSlot(cfg.guiAcceptSlot(), 15);
         inventory.setItem(acceptSlot, acceptItem);
 
-        // Slot 11: Deny Button
+        // Deny Button
         Material denyMat = parseMaterial(cfg.guiDenyItem(), Material.RED_STAINED_GLASS_PANE);
         String denyName = (cfg.guiDenyName() != null && !cfg.guiDenyName().isBlank())
             ? cfg.guiDenyName()
             : "<red><bold>DENY REQUEST</bold></red>";
         ItemStack denyItem = createItem(denyMat, denyName);
-        int denySlot = clampSlot(cfg.guiDenySlot(), 11);
         inventory.setItem(denySlot, denyItem);
 
         target.openInventory(inventory);
@@ -115,7 +122,10 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
         }
 
         TpaConfig cfg = this.configSupplier.get();
-        Component title = formatComponent("<gradient:#00D2FF:#3A7BD5><bold>Send Teleport Request</bold></gradient>");
+        String titleStr = (cfg.dialogTitle() != null && !cfg.dialogTitle().isBlank())
+            ? cfg.dialogTitle()
+            : "<gradient:#00D2FF:#3A7BD5><bold>Send Teleport Request</bold></gradient>";
+        Component title = formatComponent(titleStr);
 
         Inventory inventory = Bukkit.createInventory(new TpaConfirmationHolder(target, type), 27, title);
 
@@ -127,7 +137,17 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
             }
         }
 
-        // Slot 13: Target's Player Head
+        int headSlot = clampSlot(cfg.guiHeadSlot(), 13);
+        int acceptSlot = clampSlot(cfg.guiAcceptSlot(), 15);
+        int denySlot = clampSlot(cfg.guiDenySlot(), 11);
+
+        if (headSlot == acceptSlot || headSlot == denySlot || acceptSlot == denySlot) {
+            headSlot = 13;
+            acceptSlot = 15;
+            denySlot = 11;
+        }
+
+        // Target's Player Head
         ItemStack headItem = new ItemStack(Material.PLAYER_HEAD);
         SkullMeta skullMeta = (SkullMeta) headItem.getItemMeta();
         if (skullMeta != null) {
@@ -150,19 +170,22 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
 
             headItem.setItemMeta(skullMeta);
         }
-        int headSlot = clampSlot(cfg.guiHeadSlot(), 13);
         inventory.setItem(headSlot, headItem);
 
-        // Slot 15: Confirm Send Button
+        // Confirm Send Button
         Material acceptMat = parseMaterial(cfg.guiAcceptItem(), Material.LIME_STAINED_GLASS_PANE);
-        ItemStack acceptItem = createItem(acceptMat, "<green><bold>CONFIRM & SEND</bold></green>");
-        int acceptSlot = clampSlot(cfg.guiAcceptSlot(), 15);
+        String sendConfirmName = (cfg.dialogSendConfirmText() != null && !cfg.dialogSendConfirmText().isBlank())
+            ? cfg.dialogSendConfirmText()
+            : "<green><bold>CONFIRM & SEND</bold></green>";
+        ItemStack acceptItem = createItem(acceptMat, sendConfirmName);
         inventory.setItem(acceptSlot, acceptItem);
 
-        // Slot 11: Cancel Button
+        // Cancel Button
         Material denyMat = parseMaterial(cfg.guiDenyItem(), Material.RED_STAINED_GLASS_PANE);
-        ItemStack denyItem = createItem(denyMat, "<red><bold>CANCEL</bold></red>");
-        int denySlot = clampSlot(cfg.guiDenySlot(), 11);
+        String sendCancelName = (cfg.dialogSendCancelText() != null && !cfg.dialogSendCancelText().isBlank())
+            ? cfg.dialogSendCancelText()
+            : "<red><bold>CANCEL</bold></red>";
+        ItemStack denyItem = createItem(denyMat, sendCancelName);
         inventory.setItem(denySlot, denyItem);
 
         sender.openInventory(inventory);
