@@ -115,6 +115,8 @@ public final class DefaultTpaService implements TpaService {
                     }
                 });
 
+                this.repository.clearExpiredCooldowns();
+
                 if (!expired.isEmpty()) {
                     for (TpaRequest request : expired) {
                         this.repository.removeRequest(request.targetId(), request.senderId());
@@ -593,7 +595,13 @@ public final class DefaultTpaService implements TpaService {
             return;
         }
         Player target = Bukkit.getPlayer(targetName);
-        UUID targetId = (target != null) ? target.getUniqueId() : Bukkit.getOfflinePlayer(targetName).getUniqueId();
+        OfflinePlayer offlineTarget = (target == null) ? Bukkit.getOfflinePlayer(targetName) : null;
+
+        if (target == null && (offlineTarget == null || (!offlineTarget.hasPlayedBefore() && !offlineTarget.isOnline()))) {
+            this.sendMessage(player, this.config().messages().playerNotOnline(), "player", targetName);
+            return;
+        }
+        UUID targetId = (target != null) ? target.getUniqueId() : offlineTarget.getUniqueId();
 
         if (player.getUniqueId().equals(targetId)) {
             this.sendMessage(player, this.config().messages().rejectSelfTpa());
@@ -603,7 +611,7 @@ public final class DefaultTpaService implements TpaService {
         this.repository.setPlayerBlocked(player.getUniqueId(), targetId, true);
         this.saveUserSettingsToPdc(player);
 
-        String displayName = (target != null) ? target.getName() : targetName;
+        String displayName = (target != null) ? target.getName() : ((offlineTarget != null && offlineTarget.getName() != null) ? offlineTarget.getName() : targetName);
         this.sendMessage(player, this.config().messages().playerBlocked(), "player", displayName);
     }
 
@@ -613,9 +621,10 @@ public final class DefaultTpaService implements TpaService {
             return;
         }
         Player target = Bukkit.getPlayer(targetName);
-        UUID targetId = (target != null) ? target.getUniqueId() : Bukkit.getOfflinePlayer(targetName).getUniqueId();
+        OfflinePlayer offlineTarget = (target == null) ? Bukkit.getOfflinePlayer(targetName) : null;
+        UUID targetId = (target != null) ? target.getUniqueId() : (offlineTarget != null ? offlineTarget.getUniqueId() : null);
 
-        if (!this.repository.isPlayerBlocked(player.getUniqueId(), targetId)) {
+        if (targetId == null || !this.repository.isPlayerBlocked(player.getUniqueId(), targetId)) {
             this.sendMessage(player, this.config().messages().notBlocked(), "player", targetName);
             return;
         }
@@ -623,7 +632,7 @@ public final class DefaultTpaService implements TpaService {
         this.repository.setPlayerBlocked(player.getUniqueId(), targetId, false);
         this.saveUserSettingsToPdc(player);
 
-        String displayName = (target != null) ? target.getName() : targetName;
+        String displayName = (target != null) ? target.getName() : ((offlineTarget != null && offlineTarget.getName() != null) ? offlineTarget.getName() : targetName);
         this.sendMessage(player, this.config().messages().playerUnblocked(), "player", displayName);
     }
 
@@ -1050,6 +1059,9 @@ public final class DefaultTpaService implements TpaService {
                             return;
                         }
                         if (player.isInsideVehicle()) {
+                            if (player.getVehicle() != null) {
+                                player.getVehicle().removePassenger(player);
+                            }
                             player.leaveVehicle();
                         }
                         player.teleportAsync(destination);

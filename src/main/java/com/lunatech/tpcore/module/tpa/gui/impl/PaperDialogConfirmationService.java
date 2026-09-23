@@ -190,16 +190,15 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
             Object consumerProxy = Proxy.newProxyInstance(player.getClass().getClassLoader(), new Class<?>[]{ DialogReflectionCache.CONSUMER_CLASS }, (proxy, method, args) -> {
                 if ("accept".equals(method.getName()) && args.length == 1) {
                     Object builder = args[0];
-                    Method emptyMethod = findMethod(builder.getClass(), "empty");
-                    Object emptyBuilder = (emptyMethod != null) ? emptyMethod.invoke(builder) : builder;
+                    Object emptyBuilder = (DialogReflectionCache.DIALOG_BUILDER_EMPTY != null)
+                        ? DialogReflectionCache.DIALOG_BUILDER_EMPTY.invoke(builder)
+                        : builder;
 
-                    Method baseMethod = findMethod(emptyBuilder.getClass(), "base", dialogBase.getClass());
-                    if (baseMethod != null) {
-                        baseMethod.invoke(emptyBuilder, dialogBase);
+                    if (DialogReflectionCache.DIALOG_BUILDER_BASE != null) {
+                        DialogReflectionCache.DIALOG_BUILDER_BASE.invoke(emptyBuilder, dialogBase);
                     }
-                    Method typeMethod = findMethod(emptyBuilder.getClass(), "type", dialogType.getClass());
-                    if (typeMethod != null) {
-                        typeMethod.invoke(emptyBuilder, dialogType);
+                    if (DialogReflectionCache.DIALOG_BUILDER_TYPE != null) {
+                        DialogReflectionCache.DIALOG_BUILDER_TYPE.invoke(emptyBuilder, dialogType);
                     }
                 }
                 return null;
@@ -273,6 +272,10 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
         private static final Method CUSTOM_CLICK_2;
         private static final Method KEY_FACTORY;
 
+        private static final Method DIALOG_BUILDER_EMPTY;
+        private static final Method DIALOG_BUILDER_BASE;
+        private static final Method DIALOG_BUILDER_TYPE;
+
         static {
             boolean supp = false;
             Class<?> consumerCls = null;
@@ -290,6 +293,9 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
             Method cClick1 = null;
             Method cClick2 = null;
             Method kFactory = null;
+            Method dBuilderEmpty = null;
+            Method dBuilderBase = null;
+            Method dBuilderType = null;
 
             try {
                 consumerCls = Class.forName("java.util.function.Consumer");
@@ -324,6 +330,14 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
                 dCreate = findMethodWithParam(dClass, "create", consumerCls);
 
                 sDialog = findMethodWithParam(Player.class, "showDialog", dClass);
+
+                try {
+                    Class<?> builderClass = Class.forName("io.papermc.paper.dialog.Dialog$Builder");
+                    dBuilderEmpty = findMethodByName(builderClass, "empty");
+                    dBuilderBase = findMethodWithParam(builderClass, "base", dbClass);
+                    dBuilderType = findMethodWithParam(builderClass, "type", dtClass);
+                } catch (Throwable ignored) {
+                }
 
                 Class<?> daClass = Class.forName("io.papermc.paper.registry.data.dialog.action.DialogAction");
                 for (Method m : daClass.getMethods()) {
@@ -361,6 +375,9 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
             CUSTOM_CLICK_1 = cClick1;
             CUSTOM_CLICK_2 = cClick2;
             KEY_FACTORY = kFactory;
+            DIALOG_BUILDER_EMPTY = dBuilderEmpty;
+            DIALOG_BUILDER_BASE = dBuilderBase;
+            DIALOG_BUILDER_TYPE = dBuilderType;
         }
 
         private static Method findMethodByName(Class<?> clazz, String name) {

@@ -225,6 +225,14 @@ public final class ConcurrentTpaRepository implements TpaRepository {
     }
 
     @Override
+    public void clearExpiredCooldowns() {
+        if (!this.cooldownsMap.isEmpty()) {
+            long now = System.currentTimeMillis();
+            this.cooldownsMap.entrySet().removeIf(entry -> entry.getValue() <= now);
+        }
+    }
+
+    @Override
     public void clear() {
         this.incoming.clear();
         this.outgoing.clear();

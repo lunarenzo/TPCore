@@ -46,5 +46,7 @@ public interface TpaRepository {
 
     void setCooldownEnd(UUID senderId, long endTimestamp);
 
+    void clearExpiredCooldowns();
+
     void clear();
 }
