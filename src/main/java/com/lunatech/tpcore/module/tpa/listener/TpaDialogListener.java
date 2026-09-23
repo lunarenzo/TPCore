@@ -54,23 +54,20 @@ public final class TpaDialogListener implements Listener {
 
     private void handleCustomClick(Event event) {
         try {
-            Method getIdentifierMethod = findPublicMethod(event.getClass(), "getIdentifier");
-            if (getIdentifierMethod == null) {
-                getIdentifierMethod = findPublicMethod(event.getClass(), "getKey");
-            }
-            if (getIdentifierMethod == null) {
-                this.logger.warn("Could not find getIdentifier or getKey on PlayerCustomClickEvent: {}", event.getClass().getName());
-                return;
-            }
-            getIdentifierMethod.setAccessible(true);
-
-            Object keyObj = getIdentifierMethod.invoke(event);
-            if (keyObj == null) {
-                return;
+            String keyString = null;
+            if (DialogListenerReflectionCache.GET_IDENTIFIER != null) {
+                Object keyObj = DialogListenerReflectionCache.GET_IDENTIFIER.invoke(event);
+                if (keyObj != null) {
+                    keyString = (keyObj instanceof Key adventureKey) ? adventureKey.asString() : keyObj.toString();
+                }
+            } else if (DialogListenerReflectionCache.GET_KEY != null) {
+                Object keyObj = DialogListenerReflectionCache.GET_KEY.invoke(event);
+                if (keyObj != null) {
+                    keyString = (keyObj instanceof Key adventureKey) ? adventureKey.asString() : keyObj.toString();
+                }
             }
 
-            String keyString = (keyObj instanceof Key adventureKey) ? adventureKey.asString() : keyObj.toString();
-            if (!keyString.startsWith("tpcore:tpa_")) {
+            if (keyString == null || !keyString.startsWith("tpcore:tpa_")) {
                 return;
             }
 
@@ -85,7 +82,13 @@ public final class TpaDialogListener implements Listener {
                 return;
             }
 
-            if ("tpcore:tpa_accept".equals(keyString)) {
+            if (keyString.startsWith("tpcore:tpa_accept/")) {
+                String senderIdStr = keyString.substring("tpcore:tpa_accept/".length());
+                service.acceptRequest(player, senderIdStr);
+            } else if (keyString.startsWith("tpcore:tpa_deny/")) {
+                String senderIdStr = keyString.substring("tpcore:tpa_deny/".length());
+                service.denyRequest(player, senderIdStr);
+            } else if ("tpcore:tpa_accept".equals(keyString)) {
                 service.acceptRequest(player, null);
             } else if ("tpcore:tpa_deny".equals(keyString)) {
                 service.denyRequest(player, null);
@@ -114,10 +117,8 @@ public final class TpaDialogListener implements Listener {
 
     private void closePlayerDialog(Player player) {
         try {
-            Method closeDialogMethod = findPublicMethod(player.getClass(), "closeDialog");
-            if (closeDialogMethod != null) {
-                closeDialogMethod.setAccessible(true);
-                closeDialogMethod.invoke(player);
+            if (DialogListenerReflectionCache.CLOSE_DIALOG != null) {
+                DialogListenerReflectionCache.CLOSE_DIALOG.invoke(player);
                 return;
             }
         } catch (Exception ignored) {
@@ -127,38 +128,27 @@ public final class TpaDialogListener implements Listener {
 
     private Player resolvePlayerFromEvent(Event event) {
         try {
-            Method getCommonConnectionMethod = findPublicMethod(event.getClass(), "getCommonConnection");
-            if (getCommonConnectionMethod == null) {
-                return null;
-            }
-            getCommonConnectionMethod.setAccessible(true);
-            Object connection = getCommonConnectionMethod.invoke(event);
-            if (connection == null) {
-                return null;
-            }
-
-            if (connection instanceof Player player) {
-                return player;
-            }
-
-            Method getPlayerMethod = findPublicMethod(connection.getClass(), "getPlayer");
-            if (getPlayerMethod != null) {
-                getPlayerMethod.setAccessible(true);
-                Object playerObj = getPlayerMethod.invoke(connection);
-                if (playerObj instanceof Player p) {
-                    return p;
+            if (DialogListenerReflectionCache.GET_COMMON_CONNECTION != null) {
+                Object connection = DialogListenerReflectionCache.GET_COMMON_CONNECTION.invoke(event);
+                if (connection == null) {
+                    return null;
                 }
-            }
 
-            Method getProfileMethod = findPublicMethod(connection.getClass(), "getProfile");
-            if (getProfileMethod != null) {
-                getProfileMethod.setAccessible(true);
-                Object profile = getProfileMethod.invoke(connection);
-                if (profile != null) {
-                    Method getIdMethod = findPublicMethod(profile.getClass(), "getId");
-                    if (getIdMethod != null) {
-                        getIdMethod.setAccessible(true);
-                        Object uuidObj = getIdMethod.invoke(profile);
+                if (connection instanceof Player player) {
+                    return player;
+                }
+
+                if (DialogListenerReflectionCache.GET_PLAYER != null) {
+                    Object playerObj = DialogListenerReflectionCache.GET_PLAYER.invoke(connection);
+                    if (playerObj instanceof Player p) {
+                        return p;
+                    }
+                }
+
+                if (DialogListenerReflectionCache.GET_PROFILE != null && DialogListenerReflectionCache.GET_ID != null) {
+                    Object profile = DialogListenerReflectionCache.GET_PROFILE.invoke(connection);
+                    if (profile != null) {
+                        Object uuidObj = DialogListenerReflectionCache.GET_ID.invoke(profile);
                         if (uuidObj instanceof UUID uuid) {
                             return Bukkit.getPlayer(uuid);
                         }
@@ -171,21 +161,73 @@ public final class TpaDialogListener implements Listener {
         return null;
     }
 
-    private Method findPublicMethod(Class<?> clazz, String name) {
-        for (Class<?> c = clazz; c != null; c = c.getSuperclass()) {
-            for (Method m : c.getDeclaredMethods()) {
-                if (m.getName().equals(name)) {
-                    return m;
+    private static final class DialogListenerReflectionCache {
+        private static final Method GET_IDENTIFIER;
+        private static final Method GET_KEY;
+        private static final Method GET_COMMON_CONNECTION;
+        private static final Method GET_PLAYER;
+        private static final Method GET_PROFILE;
+        private static final Method GET_ID;
+        private static final Method CLOSE_DIALOG;
+
+        static {
+            Method getIdent = null;
+            Method getKey = null;
+            Method getConn = null;
+            Method getPlayer = null;
+            Method getProf = null;
+            Method getId = null;
+            Method closeDiag = null;
+
+            try {
+                Class<?> eventClass = Class.forName("io.papermc.paper.event.player.PlayerCustomClickEvent");
+                getIdent = findMethod(eventClass, "getIdentifier");
+                getKey = findMethod(eventClass, "getKey");
+                getConn = findMethod(eventClass, "getCommonConnection");
+
+                Class<?> connClass = Class.forName("io.papermc.paper.network.PlayerCommonConnection");
+                getPlayer = findMethod(connClass, "getPlayer");
+                getProf = findMethod(connClass, "getProfile");
+
+                try {
+                    Class<?> profClass = Class.forName("com.mojang.authlib.GameProfile");
+                    getId = findMethod(profClass, "getId");
+                } catch (ClassNotFoundException ignored) {
                 }
+
+                closeDiag = findMethod(Player.class, "closeDialog");
+            } catch (Throwable ignored) {
             }
-            for (Class<?> itf : c.getInterfaces()) {
-                for (Method m : itf.getDeclaredMethods()) {
+
+            GET_IDENTIFIER = getIdent;
+            GET_KEY = getKey;
+            GET_COMMON_CONNECTION = getConn;
+            GET_PLAYER = getPlayer;
+            GET_PROFILE = getProf;
+            GET_ID = getId;
+            CLOSE_DIALOG = closeDiag;
+        }
+
+        private static Method findMethod(Class<?> clazz, String name) {
+            if (clazz == null) {
+                return null;
+            }
+            try {
+                for (Method m : clazz.getMethods()) {
                     if (m.getName().equals(name)) {
+                        m.setAccessible(true);
                         return m;
                     }
                 }
+                for (Method m : clazz.getDeclaredMethods()) {
+                    if (m.getName().equals(name)) {
+                        m.setAccessible(true);
+                        return m;
+                    }
+                }
+            } catch (Throwable ignored) {
             }
+            return null;
         }
-        return null;
     }
 }

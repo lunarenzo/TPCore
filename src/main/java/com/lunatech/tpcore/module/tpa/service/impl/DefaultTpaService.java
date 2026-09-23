@@ -357,13 +357,7 @@ public final class DefaultTpaService implements TpaService {
         TpaRequest targetRequest = null;
 
         if (optionalSenderName != null && !optionalSenderName.isBlank()) {
-            Player sender = Bukkit.getPlayer(optionalSenderName);
-            if (sender != null) {
-                Optional<TpaRequest> opt = this.repository.getRequest(target.getUniqueId(), sender.getUniqueId());
-                if (opt.isPresent()) {
-                    targetRequest = opt.get();
-                }
-            }
+            targetRequest = resolveMatchingRequest(incoming, optionalSenderName);
         } else if (incoming.size() == 1) {
             targetRequest = incoming.iterator().next();
         } else {
@@ -415,15 +409,12 @@ public final class DefaultTpaService implements TpaService {
 
         TpaRequest targetRequest = null;
         if (optionalSenderName != null && !optionalSenderName.isBlank()) {
-            Player sender = Bukkit.getPlayer(optionalSenderName);
-            if (sender != null) {
-                Optional<TpaRequest> opt = this.repository.getRequest(target.getUniqueId(), sender.getUniqueId());
-                if (opt.isPresent()) {
-                    targetRequest = opt.get();
-                }
-            }
-        } else {
+            targetRequest = resolveMatchingRequest(incoming, optionalSenderName);
+        } else if (incoming.size() == 1) {
             targetRequest = incoming.iterator().next();
+        } else {
+            this.sendMessage(target, this.config().messages().multiplePendingRequests());
+            return;
         }
 
         if (targetRequest != null) {
@@ -631,12 +622,9 @@ public final class DefaultTpaService implements TpaService {
         }
 
         if (optionalSenderName != null && !optionalSenderName.isBlank()) {
-            Player sender = Bukkit.getPlayer(optionalSenderName);
-            if (sender != null) {
-                Optional<TpaRequest> opt = this.repository.getRequest(target.getUniqueId(), sender.getUniqueId());
-                if (opt.isPresent() && !opt.get().isExpired(this.config().requestTimeoutSeconds())) {
-                    return opt.get();
-                }
+            TpaRequest matched = resolveMatchingRequest(incoming, optionalSenderName);
+            if (matched != null && !matched.isExpired(this.config().requestTimeoutSeconds())) {
+                return matched;
             }
             return null;
         }
@@ -648,6 +636,29 @@ public final class DefaultTpaService implements TpaService {
             }
         }
 
+        return null;
+    }
+
+    private TpaRequest resolveMatchingRequest(Collection<TpaRequest> incoming, String senderIdentifier) {
+        if (incoming == null || incoming.isEmpty() || senderIdentifier == null || senderIdentifier.isBlank()) {
+            return null;
+        }
+
+        String trimmed = senderIdentifier.trim();
+        for (TpaRequest req : incoming) {
+            if (req.senderId().toString().equalsIgnoreCase(trimmed)) {
+                return req;
+            }
+            Player sender = Bukkit.getPlayer(req.senderId());
+            if (sender != null && sender.getName().equalsIgnoreCase(trimmed)) {
+                return req;
+            }
+            OfflinePlayer op = Bukkit.getOfflinePlayer(req.senderId());
+            String cachedName = (op.hasPlayedBefore() || op.isOnline()) ? op.getName() : null;
+            if (cachedName != null && cachedName.equalsIgnoreCase(trimmed)) {
+                return req;
+            }
+        }
         return null;
     }
 

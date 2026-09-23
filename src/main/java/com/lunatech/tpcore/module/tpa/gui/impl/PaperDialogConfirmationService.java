@@ -65,14 +65,17 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
                 ? config.dialogDenyText()
                 : "<red><bold>DENY</bold></red>";
 
+            String acceptKey = "tpcore:tpa_accept/" + request.senderId().toString();
+            String denyKey = "tpcore:tpa_deny/" + request.senderId().toString();
+
             boolean success = this.tryShowDialog(
                 target,
                 config.dialogTitle(),
                 body,
                 acceptText,
                 denyText,
-                "tpcore:tpa_accept",
-                "tpcore:tpa_deny"
+                acceptKey,
+                denyKey
             );
             if (success) {
                 return;
