@@ -261,26 +261,12 @@ public final class DefaultTpaService implements TpaService {
 
     @Override
     public void sendRequest(Player sender, Player target, TpaType type) {
-        if (!this.config().allowSelfTpa() && sender.getUniqueId().equals(target.getUniqueId())) {
-            this.sendMessage(sender, this.config().messages().rejectSelfTpa());
-            return;
-        }
+        processSingleSendRequest(sender, target, type, true);
+    }
 
-        if (this.repository.isTpaToggledOff(target.getUniqueId()) || this.repository.isPlayerBlocked(target.getUniqueId(), sender.getUniqueId())) {
-            this.sendMessage(
-                sender,
-                this.config().messages().targetToggledOff(),
-                "target", target.getName()
-            );
-            return;
-        }
-
-        if (this.repository.isAutoAcceptEnabled(target.getUniqueId())) {
-            TpaRequest req = new TpaRequest(sender.getUniqueId(), target.getUniqueId(), type, System.currentTimeMillis());
-            this.repository.addRequest(req);
-            this.sendMessage(sender, this.config().messages().requestAutoAcceptedSender(), "target", target.getName());
-            this.sendMessage(target, this.config().messages().requestAutoAcceptedTarget(), "sender", sender.getName());
-            this.acceptRequest(target, sender.getName());
+    @Override
+    public void sendBulkRequests(Player sender, List<Player> targets, TpaType type) {
+        if (sender == null || targets == null || targets.isEmpty()) {
             return;
         }
 
@@ -299,6 +285,59 @@ public final class DefaultTpaService implements TpaService {
             }
         }
 
+        boolean sentAny = false;
+        for (Player target : targets) {
+            if (target != null && target.isOnline()) {
+                if (processSingleSendRequest(sender, target, type, false)) {
+                    sentAny = true;
+                }
+            }
+        }
+
+        if (sentAny && cooldownSeconds > 0 && !sender.hasPermission(Permissions.TPA_BYPASS_COOLDOWN)) {
+            this.repository.setCooldownEnd(sender.getUniqueId(), System.currentTimeMillis() + cooldownSeconds * 1000L);
+        }
+    }
+
+    private boolean processSingleSendRequest(Player sender, Player target, TpaType type, boolean applyCooldown) {
+        if (!this.config().allowSelfTpa() && sender.getUniqueId().equals(target.getUniqueId())) {
+            this.sendMessage(sender, this.config().messages().rejectSelfTpa());
+            return false;
+        }
+
+        if (this.repository.isTpaToggledOff(target.getUniqueId()) || this.repository.isPlayerBlocked(target.getUniqueId(), sender.getUniqueId())) {
+            this.sendMessage(
+                sender,
+                this.config().messages().targetToggledOff(),
+                "target", target.getName()
+            );
+            return false;
+        }
+
+        if (this.repository.isAutoAcceptEnabled(target.getUniqueId())) {
+            TpaRequest req = new TpaRequest(sender.getUniqueId(), target.getUniqueId(), type, System.currentTimeMillis());
+            this.repository.addRequest(req);
+            this.sendMessage(sender, this.config().messages().requestAutoAcceptedSender(), "target", target.getName());
+            this.sendMessage(target, this.config().messages().requestAutoAcceptedTarget(), "sender", sender.getName());
+            this.acceptRequest(target, sender.getName());
+            return true;
+        }
+
+        int cooldownSeconds = this.config().requestCooldownSeconds();
+        if (applyCooldown && cooldownSeconds > 0 && !sender.hasPermission(Permissions.TPA_BYPASS_COOLDOWN)) {
+            long cooldownEnd = this.repository.getCooldownEnd(sender.getUniqueId());
+            long now = System.currentTimeMillis();
+            if (cooldownEnd > now) {
+                long remSeconds = (cooldownEnd - now + 999L) / 1000L;
+                this.sendMessage(
+                    sender,
+                    this.config().messages().cooldownActive(),
+                    "seconds", String.valueOf(remSeconds)
+                );
+                return false;
+            }
+        }
+
         Optional<TpaRequest> existing = this.repository.getRequest(target.getUniqueId(), sender.getUniqueId());
         if (existing.isPresent() && !existing.get().isExpired(this.config().requestTimeoutSeconds())) {
             this.sendMessage(
@@ -306,7 +345,7 @@ public final class DefaultTpaService implements TpaService {
                 this.config().messages().alreadyHasPendingRequest(),
                 "target", target.getName()
             );
-            return;
+            return false;
         }
 
         int maxRequests = this.config().maxPendingRequestsPerPlayer();
@@ -321,7 +360,7 @@ public final class DefaultTpaService implements TpaService {
                     this.config().messages().maxPendingRequestsReached(),
                     "target", target.getName()
                 );
-                return;
+                return false;
             }
         }
 
@@ -334,7 +373,7 @@ public final class DefaultTpaService implements TpaService {
 
         this.repository.addRequest(request);
 
-        if (cooldownSeconds > 0 && !sender.hasPermission(Permissions.TPA_BYPASS_COOLDOWN)) {
+        if (applyCooldown && cooldownSeconds > 0 && !sender.hasPermission(Permissions.TPA_BYPASS_COOLDOWN)) {
             this.repository.setCooldownEnd(sender.getUniqueId(), System.currentTimeMillis() + cooldownSeconds * 1000L);
         }
 
@@ -365,6 +404,7 @@ public final class DefaultTpaService implements TpaService {
                 "sender", sender.getName()
             );
         }
+        return true;
     }
 
     @Override

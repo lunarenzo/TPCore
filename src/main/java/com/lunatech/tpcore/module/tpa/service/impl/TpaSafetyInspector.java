@@ -30,6 +30,7 @@ public final class TpaSafetyInspector {
                 name.contains("WITHER_ROSE") ||
                 name.contains("POWDER_SNOW") ||
                 name.contains("DRIPSTONE") ||
+                name.contains("RESPAWN_ANCHOR") ||
                 name.contains("VOID")) {
                 HAZARD_MATERIALS.add(mat);
             } else if (name.contains("AIR") || name.contains("LIGHT") || name.contains("GRASS") || name.contains("FLOWER")) {
@@ -141,6 +142,7 @@ public final class TpaSafetyInspector {
                upper.contains("WITHER_ROSE") ||
                upper.contains("POWDER_SNOW") ||
                upper.contains("DRIPSTONE") ||
+               upper.contains("RESPAWN_ANCHOR") ||
                upper.contains("VOID");
     }
 

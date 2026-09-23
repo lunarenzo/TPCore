@@ -134,7 +134,7 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
             if (target.isOnline()) {
                 skullMeta.setPlayerProfile(target.getPlayerProfile());
             } else {
-                skullMeta.setOwningPlayer(target);
+                skullMeta.setPlayerProfile(Bukkit.createProfile(target.getUniqueId(), target.getName()));
             }
 
             skullMeta.displayName(formatComponent("<yellow><bold>" + target.getName() + "</bold></yellow>"));

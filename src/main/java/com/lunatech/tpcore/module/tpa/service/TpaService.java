@@ -6,12 +6,15 @@ import com.lunatech.tpcore.module.tpa.model.TpaType;
 import org.bukkit.entity.Player;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
 public interface TpaService {
 
     void sendRequest(Player sender, Player target, TpaType type);
+
+    void sendBulkRequests(Player sender, List<Player> targets, TpaType type);
 
     void acceptRequest(Player target, String optionalSenderName);
 

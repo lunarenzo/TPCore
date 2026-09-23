@@ -69,14 +69,12 @@ public final class TpaCommandRegistry {
                                     return com.mojang.brigadier.Command.SINGLE_SUCCESS;
                                 }
                                 if (!targets.isEmpty()) {
-                                    boolean isBulk = targets.size() > 1;
-                                    for (Player target : targets) {
+                                    if (targets.size() > 1) {
+                                        this.tpaService.sendBulkRequests(sender, targets, TpaType.TPA_TO);
+                                    } else {
+                                        Player target = targets.get(0);
                                         if (target != null && target.isOnline()) {
-                                            if (isBulk) {
-                                                this.tpaService.sendRequest(sender, target, TpaType.TPA_TO);
-                                            } else {
-                                                handleSendOrMenu(sender, target, TpaType.TPA_TO);
-                                            }
+                                            handleSendOrMenu(sender, target, TpaType.TPA_TO);
                                         }
                                     }
                                 } else {
@@ -115,14 +113,12 @@ public final class TpaCommandRegistry {
                                     return com.mojang.brigadier.Command.SINGLE_SUCCESS;
                                 }
                                 if (!targets.isEmpty()) {
-                                    boolean isBulk = targets.size() > 1;
-                                    for (Player target : targets) {
+                                    if (targets.size() > 1) {
+                                        this.tpaService.sendBulkRequests(sender, targets, TpaType.TPA_HERE);
+                                    } else {
+                                        Player target = targets.get(0);
                                         if (target != null && target.isOnline()) {
-                                            if (isBulk) {
-                                                this.tpaService.sendRequest(sender, target, TpaType.TPA_HERE);
-                                            } else {
-                                                handleSendOrMenu(sender, target, TpaType.TPA_HERE);
-                                            }
+                                            handleSendOrMenu(sender, target, TpaType.TPA_HERE);
                                         }
                                     }
                                 } else {

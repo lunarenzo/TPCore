@@ -128,29 +128,34 @@ public final class TpaDialogListener implements Listener {
 
     private Player resolvePlayerFromEvent(Event event) {
         try {
+            if (DialogListenerReflectionCache.GET_PLAYER_FROM_EVENT != null) {
+                Object playerObj = DialogListenerReflectionCache.GET_PLAYER_FROM_EVENT.invoke(event);
+                if (playerObj instanceof Player p) {
+                    return p;
+                }
+            }
+
             if (DialogListenerReflectionCache.GET_COMMON_CONNECTION != null) {
                 Object connection = DialogListenerReflectionCache.GET_COMMON_CONNECTION.invoke(event);
-                if (connection == null) {
-                    return null;
-                }
-
-                if (connection instanceof Player player) {
-                    return player;
-                }
-
-                if (DialogListenerReflectionCache.GET_PLAYER != null) {
-                    Object playerObj = DialogListenerReflectionCache.GET_PLAYER.invoke(connection);
-                    if (playerObj instanceof Player p) {
-                        return p;
+                if (connection != null) {
+                    if (connection instanceof Player player) {
+                        return player;
                     }
-                }
 
-                if (DialogListenerReflectionCache.GET_PROFILE != null && DialogListenerReflectionCache.GET_ID != null) {
-                    Object profile = DialogListenerReflectionCache.GET_PROFILE.invoke(connection);
-                    if (profile != null) {
-                        Object uuidObj = DialogListenerReflectionCache.GET_ID.invoke(profile);
-                        if (uuidObj instanceof UUID uuid) {
-                            return Bukkit.getPlayer(uuid);
+                    if (DialogListenerReflectionCache.GET_PLAYER != null) {
+                        Object playerObj = DialogListenerReflectionCache.GET_PLAYER.invoke(connection);
+                        if (playerObj instanceof Player p) {
+                            return p;
+                        }
+                    }
+
+                    if (DialogListenerReflectionCache.GET_PROFILE != null && DialogListenerReflectionCache.GET_ID != null) {
+                        Object profile = DialogListenerReflectionCache.GET_PROFILE.invoke(connection);
+                        if (profile != null) {
+                            Object uuidObj = DialogListenerReflectionCache.GET_ID.invoke(profile);
+                            if (uuidObj instanceof UUID uuid) {
+                                return Bukkit.getPlayer(uuid);
+                            }
                         }
                     }
                 }
@@ -162,6 +167,7 @@ public final class TpaDialogListener implements Listener {
     }
 
     private static final class DialogListenerReflectionCache {
+        private static final Method GET_PLAYER_FROM_EVENT;
         private static final Method GET_IDENTIFIER;
         private static final Method GET_KEY;
         private static final Method GET_COMMON_CONNECTION;
@@ -171,6 +177,7 @@ public final class TpaDialogListener implements Listener {
         private static final Method CLOSE_DIALOG;
 
         static {
+            Method getPlayerFromEv = null;
             Method getIdent = null;
             Method getKey = null;
             Method getConn = null;
@@ -181,6 +188,15 @@ public final class TpaDialogListener implements Listener {
 
             try {
                 Class<?> eventClass = Class.forName("io.papermc.paper.event.player.PlayerCustomClickEvent");
+                getPlayerFromEv = findMethod(eventClass, "getPlayer");
+                if (getPlayerFromEv == null) {
+                    try {
+                        Class<?> playerEventClass = Class.forName("org.bukkit.event.player.PlayerEvent");
+                        getPlayerFromEv = findMethod(playerEventClass, "getPlayer");
+                    } catch (ClassNotFoundException ignored) {
+                    }
+                }
+
                 getIdent = findMethod(eventClass, "getIdentifier");
                 getKey = findMethod(eventClass, "getKey");
                 getConn = findMethod(eventClass, "getCommonConnection");
@@ -199,6 +215,7 @@ public final class TpaDialogListener implements Listener {
             } catch (Throwable ignored) {
             }
 
+            GET_PLAYER_FROM_EVENT = getPlayerFromEv;
             GET_IDENTIFIER = getIdent;
             GET_KEY = getKey;
             GET_COMMON_CONNECTION = getConn;
