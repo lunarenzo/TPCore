@@ -38,8 +38,8 @@ public final class TpaSafetyInspector {
                 name.contains("BERRY_BUSH") ||
                 name.contains("WITHER_ROSE") ||
                 name.contains("POWDER_SNOW") ||
-                (name.contains("DRIPSTONE") && !name.contains("DRIPSTONE_BLOCK")) ||
-                name.contains("RESPAWN_ANCHOR") ||
+                name.startsWith("POINTED_DRIPSTONE") ||
+                name.equals("RESPAWN_ANCHOR") ||
                 name.contains("VOID")) {
                 HAZARD_MATERIALS.add(mat);
             }

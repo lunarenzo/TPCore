@@ -22,6 +22,8 @@ import org.bukkit.NamespacedKey;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.Sound;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.InventoryView;
 import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -1158,6 +1160,16 @@ public final class DefaultTpaService implements TpaService {
                         TpaConfig cfg = this.config();
                         playSound(player, cfg.cancelSound(), (float) cfg.cancelSoundVolume(), (float) cfg.cancelSoundPitch());
                     }
+                    if (warmup.destinationPlayerId() != null) {
+                        Player dest = Bukkit.getPlayer(warmup.destinationPlayerId());
+                        if (dest != null && dest.isOnline()) {
+                            this.sendMessage(
+                                dest,
+                                this.config().messages().requestCancelledTarget(),
+                                "sender", (player != null) ? player.getName() : "Player"
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -1172,7 +1184,9 @@ public final class DefaultTpaService implements TpaService {
             return;
         }
         try {
-            if (player.getOpenInventory() != null && player.getOpenInventory().getTopInventory() != null && player.getOpenInventory().getTopInventory().getHolder() instanceof TpaConfirmationHolder holder) {
+            InventoryView view = player.getOpenInventory();
+            Inventory top = (view != null) ? view.getTopInventory() : null;
+            if (top != null && top.getHolder() instanceof TpaConfirmationHolder holder) {
                 boolean matches = (expectedOtherPlayerId == null);
                 if (expectedOtherPlayerId != null) {
                     if (holder.getConfirmationType() == TpaConfirmationHolder.ConfirmationType.ACCEPT_REQUEST && holder.getRequest() != null) {

@@ -39,15 +39,23 @@ public final class TpaGuiListener implements Listener {
 
             TpaConfig cfg = this.configSupplier.get();
             int slot = event.getRawSlot();
+            int headSlot = clampSlot(cfg.guiHeadSlot(), 13);
+            int acceptSlot = clampSlot(cfg.guiAcceptSlot(), 15);
+            int denySlot = clampSlot(cfg.guiDenySlot(), 11);
+
+            if (headSlot == acceptSlot || headSlot == denySlot || acceptSlot == denySlot) {
+                acceptSlot = 15;
+                denySlot = 11;
+            }
 
             if (holder.getConfirmationType() == TpaConfirmationHolder.ConfirmationType.SEND_REQUEST) {
                 Player target = holder.getTargetPlayer();
-                if (slot == cfg.guiAcceptSlot()) {
+                if (slot == acceptSlot) {
                     player.closeInventory();
                     if (target != null && target.isOnline()) {
                         this.tpaService.sendRequest(player, target, holder.getTpaType());
                     }
-                } else if (slot == cfg.guiDenySlot()) {
+                } else if (slot == denySlot) {
                     player.closeInventory();
                 }
             } else if (holder.getConfirmationType() == TpaConfirmationHolder.ConfirmationType.ACCEPT_REQUEST) {
@@ -57,14 +65,14 @@ public final class TpaGuiListener implements Listener {
                     return;
                 }
 
-                if (slot == cfg.guiAcceptSlot()) {
+                if (slot == acceptSlot) {
                     player.closeInventory();
                     String senderIdStr = request.senderId().toString();
                     TpaRequest pending = this.tpaService.findPendingRequest(player, senderIdStr);
                     if (pending != null && !pending.isExpired(cfg.requestTimeoutSeconds())) {
                         this.tpaService.acceptRequest(player, senderIdStr);
                     }
-                } else if (slot == cfg.guiDenySlot()) {
+                } else if (slot == denySlot) {
                     player.closeInventory();
                     String senderIdStr = request.senderId().toString();
                     TpaRequest pending = this.tpaService.findPendingRequest(player, senderIdStr);
@@ -74,6 +82,13 @@ public final class TpaGuiListener implements Listener {
                 }
             }
         }
+    }
+
+    private static int clampSlot(int rawSlot, int defaultSlot) {
+        if (rawSlot < 0 || rawSlot > 26) {
+            return defaultSlot;
+        }
+        return rawSlot;
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
