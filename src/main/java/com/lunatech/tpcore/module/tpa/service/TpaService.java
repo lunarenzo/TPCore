@@ -33,6 +33,8 @@ public interface TpaService {
 
     Collection<TpaRequest> getPendingRequestsForTarget(Player target);
 
+    Collection<TpaRequest> getOutgoingRequestsForSender(Player sender);
+
     TpaRequest findPendingRequest(Player target, String optionalSenderName);
 
     void handlePlayerJoin(Player player);

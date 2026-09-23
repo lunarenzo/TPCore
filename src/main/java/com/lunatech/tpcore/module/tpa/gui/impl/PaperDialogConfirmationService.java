@@ -8,6 +8,8 @@ import com.lunatech.tpcore.module.tpa.service.TpaService;
 import com.lunatech.tpcore.platform.ServerVersion;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
+import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
+import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.slf4j.Logger;
@@ -75,7 +77,9 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
                 acceptText,
                 denyText,
                 acceptKey,
-                denyKey
+                denyKey,
+                senderName,
+                target.getName()
             );
             if (success) {
                 return;
@@ -100,7 +104,6 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
             if (body == null || body.isBlank()) {
                 body = "<gray>Send a teleport request to </gray><yellow><target></yellow>?";
             }
-            body = body.replace("<sender>", sender.getName()).replace("<target>", target.getName());
 
             String confirmText = (config.dialogSendConfirmText() != null && !config.dialogSendConfirmText().isBlank())
                 ? config.dialogSendConfirmText()
@@ -119,7 +122,9 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
                 confirmText,
                 cancelText,
                 acceptKey,
-                denyKey
+                denyKey,
+                sender.getName(),
+                target.getName()
             );
             if (success) {
                 return;
@@ -130,14 +135,16 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
         this.fallbackChestGui.openSendConfirmation(sender, target, type);
     }
 
-    private boolean tryShowDialog(Player player, String titleText, String bodyText, String acceptText, String denyText, String acceptKey, String denyKey) {
+    private boolean tryShowDialog(Player player, String titleText, String bodyText, String acceptText, String denyText, String acceptKey, String denyKey, String senderName, String targetName) {
         if (!DialogReflectionCache.SUPPORTED) {
             return false;
         }
 
         try {
             Component titleComp = MiniMessage.miniMessage().deserialize(titleText);
-            Component bodyComp = MiniMessage.miniMessage().deserialize(bodyText);
+            TagResolver senderRes = Placeholder.unparsed("sender", senderName != null ? senderName : "");
+            TagResolver targetRes = Placeholder.unparsed("target", targetName != null ? targetName : "");
+            Component bodyComp = MiniMessage.miniMessage().deserialize(bodyText, TagResolver.resolver(senderRes, targetRes));
             Component acceptComp = MiniMessage.miniMessage().deserialize(acceptText);
             Component denyComp = MiniMessage.miniMessage().deserialize(denyText);
 

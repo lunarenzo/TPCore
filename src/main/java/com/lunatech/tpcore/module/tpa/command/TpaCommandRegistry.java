@@ -153,13 +153,28 @@ public final class TpaCommandRegistry {
                         }
                         return com.mojang.brigadier.Command.SINGLE_SUCCESS;
                     })
-                    .then(Commands.argument("player", ArgumentTypes.player())
+                    .then(Commands.argument("player", StringArgumentType.word())
+                        .suggests((ctx, builder) -> {
+                            if (ctx.getSource().getSender() instanceof Player target) {
+                                Collection<TpaRequest> requests = this.tpaService.getPendingRequestsForTarget(target);
+                                if (requests != null && !requests.isEmpty()) {
+                                    String remaining = builder.getRemainingLowerCase();
+                                    for (TpaRequest req : requests) {
+                                        Player p = Bukkit.getPlayer(req.senderId());
+                                        OfflinePlayer op = Bukkit.getOfflinePlayer(req.senderId());
+                                        String name = (p != null && p.isOnline()) ? p.getName() : (op.hasPlayedBefore() ? op.getName() : req.senderId().toString());
+                                        if (name != null && name.toLowerCase(Locale.ROOT).startsWith(remaining)) {
+                                            builder.suggest(name);
+                                        }
+                                    }
+                                }
+                            }
+                            return builder.buildFuture();
+                        })
                         .executes(ctx -> {
                             CommandSourceStack src = ctx.getSource();
                             if (src.getSender() instanceof Player target) {
-                                PlayerSelectorArgumentResolver resolver = ctx.getArgument("player", PlayerSelectorArgumentResolver.class);
-                                Player sender = resolver.resolve(src).stream().findFirst().orElse(null);
-                                String senderName = (sender != null) ? sender.getName() : null;
+                                String senderName = StringArgumentType.getString(ctx, "player");
                                 handleAcceptOrMenu(target, senderName);
                             }
                             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
@@ -180,13 +195,29 @@ public final class TpaCommandRegistry {
                         }
                         return com.mojang.brigadier.Command.SINGLE_SUCCESS;
                     })
-                    .then(Commands.argument("player", ArgumentTypes.player())
+                    .then(Commands.argument("player", StringArgumentType.word())
+                        .suggests((ctx, builder) -> {
+                            if (ctx.getSource().getSender() instanceof Player target) {
+                                Collection<TpaRequest> requests = this.tpaService.getPendingRequestsForTarget(target);
+                                if (requests != null && !requests.isEmpty()) {
+                                    String remaining = builder.getRemainingLowerCase();
+                                    for (TpaRequest req : requests) {
+                                        Player p = Bukkit.getPlayer(req.senderId());
+                                        OfflinePlayer op = Bukkit.getOfflinePlayer(req.senderId());
+                                        String name = (p != null && p.isOnline()) ? p.getName() : (op.hasPlayedBefore() ? op.getName() : req.senderId().toString());
+                                        if (name != null && name.toLowerCase(Locale.ROOT).startsWith(remaining)) {
+                                            builder.suggest(name);
+                                        }
+                                    }
+                                }
+                            }
+                            return builder.buildFuture();
+                        })
                         .executes(ctx -> {
                             CommandSourceStack src = ctx.getSource();
                             if (src.getSender() instanceof Player target) {
-                                PlayerSelectorArgumentResolver resolver = ctx.getArgument("player", PlayerSelectorArgumentResolver.class);
-                                Player sender = resolver.resolve(src).stream().findFirst().orElse(null);
-                                this.tpaService.denyRequest(target, (sender != null) ? sender.getName() : null);
+                                String senderName = StringArgumentType.getString(ctx, "player");
+                                this.tpaService.denyRequest(target, senderName);
                             }
                             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
                         })
@@ -206,13 +237,29 @@ public final class TpaCommandRegistry {
                         }
                         return com.mojang.brigadier.Command.SINGLE_SUCCESS;
                     })
-                    .then(Commands.argument("player", ArgumentTypes.player())
+                    .then(Commands.argument("player", StringArgumentType.word())
+                        .suggests((ctx, builder) -> {
+                            if (ctx.getSource().getSender() instanceof Player sender) {
+                                Collection<TpaRequest> requests = this.tpaService.getOutgoingRequestsForSender(sender);
+                                if (requests != null && !requests.isEmpty()) {
+                                    String remaining = builder.getRemainingLowerCase();
+                                    for (TpaRequest req : requests) {
+                                        Player p = Bukkit.getPlayer(req.targetId());
+                                        OfflinePlayer op = Bukkit.getOfflinePlayer(req.targetId());
+                                        String name = (p != null && p.isOnline()) ? p.getName() : (op.hasPlayedBefore() ? op.getName() : req.targetId().toString());
+                                        if (name != null && name.toLowerCase(Locale.ROOT).startsWith(remaining)) {
+                                            builder.suggest(name);
+                                        }
+                                    }
+                                }
+                            }
+                            return builder.buildFuture();
+                        })
                         .executes(ctx -> {
                             CommandSourceStack src = ctx.getSource();
                             if (src.getSender() instanceof Player sender) {
-                                PlayerSelectorArgumentResolver resolver = ctx.getArgument("player", PlayerSelectorArgumentResolver.class);
-                                Player target = resolver.resolve(src).stream().findFirst().orElse(null);
-                                this.tpaService.cancelRequest(sender, (target != null) ? target.getName() : null);
+                                String targetName = StringArgumentType.getString(ctx, "player");
+                                this.tpaService.cancelRequest(sender, targetName);
                             }
                             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
                         })

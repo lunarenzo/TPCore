@@ -604,9 +604,17 @@ public final class DefaultTpaService implements TpaService {
     @Override
     public Collection<TpaRequest> getPendingRequestsForTarget(Player target) {
         if (target == null) {
-            return java.util.Collections.emptyList();
+            return Collections.emptyList();
         }
         return this.repository.getIncomingRequests(target.getUniqueId());
+    }
+
+    @Override
+    public Collection<TpaRequest> getOutgoingRequestsForSender(Player sender) {
+        if (sender == null) {
+            return Collections.emptyList();
+        }
+        return this.repository.getOutgoingRequests(sender.getUniqueId());
     }
 
     @Override
@@ -798,6 +806,7 @@ public final class DefaultTpaService implements TpaService {
             this.plugin,
             scheduledTask -> {
                 if (!player.isOnline() || !destinationPlayer.isOnline() || cancelled.get()) {
+                    scheduledTask.cancel();
                     this.cancelWarmup(player.getUniqueId(), null);
                     return;
                 }
@@ -805,6 +814,7 @@ public final class DefaultTpaService implements TpaService {
                 int rem = remaining.decrementAndGet();
                 if (rem > 0) {
                     if (cancelled.get()) {
+                        scheduledTask.cancel();
                         return;
                     }
                     updateWarmupFeedback(player, rem, warmupSeconds);
@@ -813,7 +823,7 @@ public final class DefaultTpaService implements TpaService {
                         finalBossBar.progress(progress);
                         TagResolver prefixResolver = Placeholder.parsed("prefix", cfg.messages().prefix());
                         TagResolver secResolver = Placeholder.unparsed("seconds", String.valueOf(rem));
-                        finalBossBar.name(this.miniMessage.deserialize(cfg.bossbarFormat().replace("<seconds>", String.valueOf(rem)), TagResolver.resolver(prefixResolver, secResolver)));
+                        finalBossBar.name(this.miniMessage.deserialize(cfg.bossbarFormat(), TagResolver.resolver(prefixResolver, secResolver)));
                     }
                 } else {
                     scheduledTask.cancel();
@@ -1042,11 +1052,10 @@ public final class DefaultTpaService implements TpaService {
             return;
         }
         String safeValue = value != null ? value : "";
-        String processed = template.replace("<" + key + ">", safeValue);
         TagResolver prefixResolver = Placeholder.parsed("prefix", this.config().messages().prefix());
         TagResolver valueResolver = Placeholder.unparsed(key, safeValue);
         TagResolver combined = TagResolver.resolver(prefixResolver, valueResolver);
-        player.sendMessage(this.miniMessage.deserialize(processed, combined));
+        player.sendMessage(this.miniMessage.deserialize(template, combined));
     }
 
     private void sendMessage(Player player, String template, String key1, String value1, String key2, String value2) {
@@ -1055,14 +1064,13 @@ public final class DefaultTpaService implements TpaService {
         }
         String safe1 = value1 != null ? value1 : "";
         String safe2 = value2 != null ? value2 : "";
-        String processed = template.replace("<" + key1 + ">", safe1).replace("<" + key2 + ">", safe2);
         TagResolver prefixResolver = Placeholder.parsed("prefix", this.config().messages().prefix());
         TagResolver combined = TagResolver.resolver(
             prefixResolver,
             Placeholder.unparsed(key1, safe1),
             Placeholder.unparsed(key2, safe2)
         );
-        player.sendMessage(this.miniMessage.deserialize(processed, combined));
+        player.sendMessage(this.miniMessage.deserialize(template, combined));
     }
 
     @Override
