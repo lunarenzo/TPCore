@@ -254,16 +254,10 @@ public final class DefaultTpaService implements TpaService {
             return new byte[0];
         }
         byte[] bytes = new byte[uuids.size() * 16];
-        int idx = 0;
+        ByteBuffer buffer = ByteBuffer.wrap(bytes);
         for (UUID uuid : uuids) {
-            long most = uuid.getMostSignificantBits();
-            long least = uuid.getLeastSignificantBits();
-            for (int i = 7; i >= 0; i--) {
-                bytes[idx++] = (byte) (most >>> (i * 8));
-            }
-            for (int i = 7; i >= 0; i--) {
-                bytes[idx++] = (byte) (least >>> (i * 8));
-            }
+            buffer.putLong(uuid.getMostSignificantBits());
+            buffer.putLong(uuid.getLeastSignificantBits());
         }
         return bytes;
     }

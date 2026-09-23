@@ -9,6 +9,9 @@ public record TpaRequest(
     long createdAtEpochMs
 ) {
     public boolean isExpired(int timeoutSeconds) {
+        if (timeoutSeconds <= 0) {
+            return false;
+        }
         return (System.currentTimeMillis() - this.createdAtEpochMs) > (timeoutSeconds * 1000L);
     }
 }

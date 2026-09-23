@@ -44,6 +44,7 @@ public final class TpaGuiListener implements Listener {
             int denySlot = clampSlot(cfg.guiDenySlot(), 11);
 
             if (headSlot == acceptSlot || headSlot == denySlot || acceptSlot == denySlot) {
+                headSlot = 13;
                 acceptSlot = 15;
                 denySlot = 11;
             }
