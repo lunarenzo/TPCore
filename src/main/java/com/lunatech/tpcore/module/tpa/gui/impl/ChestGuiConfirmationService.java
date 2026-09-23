@@ -73,9 +73,12 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
 
             skullMeta.displayName(formatComponent("<yellow><bold>" + senderName + "</bold></yellow>"));
 
-            String reqTypeText = (request.type() == TpaType.TPA_HERE)
-                ? "<gray>Request Type: <gold>TPA Here (Teleport to them)</gold></gray>"
-                : "<gray>Request Type: <gold>TPA (Teleport to you)</gold></gray>";
+            String reqTypeConfig = (request.type() == TpaType.TPA_HERE) ? cfg.dialogAcceptTpahereBodyText() : cfg.dialogAcceptTpaBodyText();
+            String reqTypeText = (reqTypeConfig != null && !reqTypeConfig.isBlank())
+                ? reqTypeConfig
+                : ((request.type() == TpaType.TPA_HERE)
+                    ? "<gray>Request Type: <gold>TPA Here (Teleport to them)</gold></gray>"
+                    : "<gray>Request Type: <gold>TPA (Teleport to you)</gold></gray>");
 
             skullMeta.lore(List.of(
                 formatComponent(reqTypeText),
@@ -159,9 +162,12 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
 
             skullMeta.displayName(formatComponent("<yellow><bold>" + target.getName() + "</bold></yellow>"));
 
-            String reqTypeText = (type == TpaType.TPA_HERE)
-                ? "<gray>Request Type: <gold>TPA Here (Ask them to teleport to you)</gold></gray>"
-                : "<gray>Request Type: <gold>TPA (Teleport to their location)</gold></gray>";
+            String reqTypeConfig = (type == TpaType.TPA_HERE) ? cfg.dialogSendTpahereBodyText() : cfg.dialogSendTpaBodyText();
+            String reqTypeText = (reqTypeConfig != null && !reqTypeConfig.isBlank())
+                ? reqTypeConfig
+                : ((type == TpaType.TPA_HERE)
+                    ? "<gray>Request Type: <gold>TPA Here (Ask them to teleport to you)</gold></gray>"
+                    : "<gray>Request Type: <gold>TPA (Teleport to their location)</gold></gray>");
 
             skullMeta.lore(List.of(
                 formatComponent(reqTypeText),

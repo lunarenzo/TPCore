@@ -918,7 +918,7 @@ public final class DefaultTpaService implements TpaService {
             TagResolver prefixResolver = Placeholder.parsed("prefix", cfg.messages().prefix());
             TagResolver secResolver = Placeholder.unparsed("seconds", String.valueOf(warmupSeconds));
             bossBar = BossBar.bossBar(
-                this.miniMessage.deserialize(cfg.bossbarFormat().replace("<seconds>", String.valueOf(warmupSeconds)), TagResolver.resolver(prefixResolver, secResolver)),
+                this.miniMessage.deserialize(cfg.bossbarFormat(), TagResolver.resolver(prefixResolver, secResolver)),
                 1.0f,
                 color,
                 overlay

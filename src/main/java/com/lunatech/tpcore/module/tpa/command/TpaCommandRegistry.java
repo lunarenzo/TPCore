@@ -80,9 +80,8 @@ public final class TpaCommandRegistry {
                                     }
                                 } else {
                                     TpaConfig cfg = this.configSupplier.get();
-                                    String msg = cfg.messages().playerNotOnline().replace("<player>", "Player");
                                     sender.sendMessage(this.miniMessage.deserialize(
-                                        msg,
+                                        cfg.messages().playerNotOnline(),
                                         Placeholder.parsed("prefix", cfg.messages().prefix()),
                                         Placeholder.unparsed("player", "Player")
                                     ));
@@ -125,9 +124,8 @@ public final class TpaCommandRegistry {
                                     }
                                 } else {
                                     TpaConfig cfg = this.configSupplier.get();
-                                    String msg = cfg.messages().playerNotOnline().replace("<player>", "Player");
                                     sender.sendMessage(this.miniMessage.deserialize(
-                                        msg,
+                                        cfg.messages().playerNotOnline(),
                                         Placeholder.parsed("prefix", cfg.messages().prefix()),
                                         Placeholder.unparsed("player", "Player")
                                     ));

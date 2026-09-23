@@ -113,20 +113,26 @@ public final class ConcurrentTpaRepository implements TpaRepository {
         Map<UUID, TpaRequest> inc = this.incoming.remove(playerId);
         if (inc != null) {
             for (UUID senderId : inc.keySet()) {
-                this.outgoing.computeIfPresent(senderId, (sId, senderMap) -> {
+                Map<UUID, TpaRequest> senderMap = this.outgoing.get(senderId);
+                if (senderMap != null) {
                     senderMap.remove(playerId);
-                    return senderMap.isEmpty() ? null : senderMap;
-                });
+                    if (senderMap.isEmpty()) {
+                        this.outgoing.remove(senderId, senderMap);
+                    }
+                }
             }
         }
 
         Map<UUID, TpaRequest> out = this.outgoing.remove(playerId);
         if (out != null) {
             for (UUID targetId : out.keySet()) {
-                this.incoming.computeIfPresent(targetId, (tId, inMap) -> {
+                Map<UUID, TpaRequest> inMap = this.incoming.get(targetId);
+                if (inMap != null) {
                     inMap.remove(playerId);
-                    return inMap.isEmpty() ? null : inMap;
-                });
+                    if (inMap.isEmpty()) {
+                        this.incoming.remove(targetId, inMap);
+                    }
+                }
             }
         }
     }
