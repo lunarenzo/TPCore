@@ -109,7 +109,7 @@ public final class TpaDialogListener implements Listener {
                             service.sendRequest(player, target, type);
                         }
                     } catch (Exception e) {
-                        this.logger.error("Failed to parse send confirmation data from dialog key: {}", keyString, e);
+                        this.logger.warn("Failed to parse send confirmation data from dialog key: {}", keyString);
                     }
                 }
             }

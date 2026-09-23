@@ -85,19 +85,26 @@ public final class TpaModule implements ReloadableModule {
         this.configManager.unregisterModule("tpa");
         if (this.listener != null) {
             HandlerList.unregisterAll(this.listener);
+            this.listener = null;
         }
         if (this.guiListener != null) {
             HandlerList.unregisterAll(this.guiListener);
+            this.guiListener = null;
         }
         if (this.dialogListener != null) {
             HandlerList.unregisterAll(this.dialogListener);
+            this.dialogListener = null;
         }
         if (this.service != null) {
             this.service.shutdown();
+            this.service = null;
         }
         if (this.repository != null) {
             this.repository.clear();
+            this.repository = null;
         }
+        this.confirmationMenuService = null;
+        this.commandRegistry = null;
         this.plugin.getSLF4JLogger().info("TPA Module disabled.");
     }
 

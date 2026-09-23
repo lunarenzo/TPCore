@@ -657,12 +657,25 @@ public final class DefaultTpaService implements TpaService {
         return newStatus;
     }
 
-    private static OfflinePlayer resolveOfflinePlayerIfCached(String name) {
+    private static final Method GET_OFFLINE_PLAYER_IF_CACHED;
+    static {
+        Method m = null;
         try {
-            return Bukkit.getOfflinePlayerIfCached(name);
+            m = Bukkit.class.getMethod("getOfflinePlayerIfCached", String.class);
+            m.setAccessible(true);
         } catch (Throwable ignored) {
-            return Bukkit.getOfflinePlayer(name);
         }
+        GET_OFFLINE_PLAYER_IF_CACHED = m;
+    }
+
+    private static OfflinePlayer resolveOfflinePlayerIfCached(String name) {
+        if (GET_OFFLINE_PLAYER_IF_CACHED != null) {
+            try {
+                return (OfflinePlayer) GET_OFFLINE_PLAYER_IF_CACHED.invoke(null, name);
+            } catch (Throwable ignored) {
+            }
+        }
+        return null;
     }
 
     @Override
@@ -1060,8 +1073,7 @@ public final class DefaultTpaService implements TpaService {
         if (cfg.enableSounds()) {
             int elapsed = totalWarmupSeconds - remainingSeconds;
             float rawPitch = (float) (1.0 + (cfg.tickSoundPitchStep() * elapsed));
-            float pitch = cfg.tickSoundVolume() > 0 ? (float) Math.min(2.0, Math.max(0.5, rawPitch)) : 1.0f;
-            playSound(player, cfg.tickSound(), (float) cfg.tickSoundVolume(), pitch);
+            playSound(player, cfg.tickSound(), (float) cfg.tickSoundVolume(), rawPitch);
         }
     }
 
