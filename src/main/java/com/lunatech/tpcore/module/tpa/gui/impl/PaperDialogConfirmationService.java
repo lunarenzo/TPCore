@@ -235,7 +235,7 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
             if (DialogReflectionCache.CUSTOM_CLICK_1 != null) {
                 return DialogReflectionCache.CUSTOM_CLICK_1.invoke(null, key);
             } else if (DialogReflectionCache.CUSTOM_CLICK_2 != null) {
-                return DialogReflectionCache.CUSTOM_CLICK_2.invoke(null, new Object[]{ key, null });
+                return DialogReflectionCache.CUSTOM_CLICK_2.invoke(null, key, null);
             }
         } catch (Throwable t) {
             this.logger.error("Failed to create DialogAction customClick for key {}", keyString, t);

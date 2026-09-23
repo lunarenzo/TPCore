@@ -261,7 +261,7 @@ public final class DefaultTpaService implements TpaService {
             return Collections.emptySet();
         }
         int count = bytes.length / 16;
-        int initialCapacity = (int) Math.ceil(count / 0.75f);
+        int initialCapacity = (count * 4 + 2) / 3;
         Set<UUID> set = new HashSet<>(initialCapacity);
         ByteBuffer buffer = ByteBuffer.wrap(bytes);
         for (int i = 0; i < count; i++) {
@@ -370,9 +370,13 @@ public final class DefaultTpaService implements TpaService {
         int maxRequests = this.config().maxPendingRequestsPerPlayer();
         if (maxRequests > 0) {
             Collection<TpaRequest> incoming = this.repository.getIncomingRequests(target.getUniqueId());
-            long activeCount = incoming.stream()
-                .filter(req -> !req.isExpired(this.config().requestTimeoutSeconds()))
-                .count();
+            int activeCount = 0;
+            int timeoutSeconds = this.config().requestTimeoutSeconds();
+            for (TpaRequest req : incoming) {
+                if (!req.isExpired(timeoutSeconds)) {
+                    activeCount++;
+                }
+            }
             if (activeCount >= maxRequests) {
                 this.sendMessage(
                     sender,

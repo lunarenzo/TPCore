@@ -162,7 +162,7 @@ public final class TpaCommandRegistry {
                                             OfflinePlayer op = Bukkit.getOfflinePlayer(req.senderId());
                                             name = (op.hasPlayedBefore() || op.isOnline()) ? op.getName() : req.senderId().toString();
                                         }
-                                        if (name != null && name.toLowerCase(Locale.ROOT).startsWith(remaining)) {
+                                        if (name != null && (remaining.isBlank() || name.regionMatches(true, 0, remaining, 0, remaining.length()))) {
                                             builder.suggest(name);
                                         }
                                     }
@@ -207,7 +207,7 @@ public final class TpaCommandRegistry {
                                             OfflinePlayer op = Bukkit.getOfflinePlayer(req.senderId());
                                             name = (op.hasPlayedBefore() || op.isOnline()) ? op.getName() : req.senderId().toString();
                                         }
-                                        if (name != null && name.toLowerCase(Locale.ROOT).startsWith(remaining)) {
+                                        if (name != null && (remaining.isBlank() || name.regionMatches(true, 0, remaining, 0, remaining.length()))) {
                                             builder.suggest(name);
                                         }
                                     }
@@ -252,7 +252,7 @@ public final class TpaCommandRegistry {
                                             OfflinePlayer op = Bukkit.getOfflinePlayer(req.targetId());
                                             name = (op.hasPlayedBefore() || op.isOnline()) ? op.getName() : req.targetId().toString();
                                         }
-                                        if (name != null && name.toLowerCase(Locale.ROOT).startsWith(remaining)) {
+                                        if (name != null && (remaining.isBlank() || name.regionMatches(true, 0, remaining, 0, remaining.length()))) {
                                             builder.suggest(name);
                                         }
                                     }
@@ -349,7 +349,7 @@ public final class TpaCommandRegistry {
                                             OfflinePlayer op = Bukkit.getOfflinePlayer(uuid);
                                             name = (op.hasPlayedBefore() || op.isOnline()) ? op.getName() : uuid.toString().substring(0, 8);
                                         }
-                                        if (name != null && name.toLowerCase(Locale.ROOT).startsWith(remaining)) {
+                                        if (name != null && (remaining.isBlank() || name.regionMatches(true, 0, remaining, 0, remaining.length()))) {
                                             builder.suggest(name);
                                         }
                                     }
