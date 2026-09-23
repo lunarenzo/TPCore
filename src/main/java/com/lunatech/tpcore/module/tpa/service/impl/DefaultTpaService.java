@@ -1009,7 +1009,7 @@ public final class DefaultTpaService implements TpaService {
             return BossBar.Color.YELLOW;
         }
         try {
-            return BossBar.Color.valueOf(colorStr.toUpperCase(Locale.ROOT));
+            return BossBar.Color.valueOf(colorStr.trim().toUpperCase(Locale.ROOT));
         } catch (Throwable ignored) {
             return BossBar.Color.YELLOW;
         }
@@ -1020,7 +1020,7 @@ public final class DefaultTpaService implements TpaService {
             return BossBar.Overlay.PROGRESS;
         }
         try {
-            return BossBar.Overlay.valueOf(overlayStr.toUpperCase(Locale.ROOT));
+            return BossBar.Overlay.valueOf(overlayStr.trim().toUpperCase(Locale.ROOT));
         } catch (Throwable ignored) {
             return BossBar.Overlay.PROGRESS;
         }
