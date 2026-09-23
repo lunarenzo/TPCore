@@ -79,7 +79,7 @@ public final class TpaSafetyInspector {
                 Block feet = world.getBlockAt(checkX, checkY, checkZ);
                 Block head = world.getBlockAt(checkX, checkY + 1, checkZ);
 
-                if (isSolidGround(standOn.getType()) && isPassable(feet.getType()) && isPassable(head.getType())) {
+                if (isSolidGround(standOn) && isPassable(feet) && isPassable(head)) {
                     return new Location(
                         world,
                         checkX + 0.5,
@@ -94,15 +94,22 @@ public final class TpaSafetyInspector {
         return null;
     }
 
-    public static boolean isSolidGround(Material material) {
-        if (material == null || material == Material.BEDROCK || HAZARD_MATERIALS.contains(material)) {
+    public static boolean isSolidGround(Block block) {
+        if (block == null) {
             return false;
         }
-        return !PASSABLE_MATERIALS.contains(material);
+        return isSolidGround(block.getType());
+    }
+
+    public static boolean isSolidGround(Material material) {
+        if (material == null || HAZARD_MATERIALS.contains(material)) {
+            return false;
+        }
+        return material == Material.BEDROCK || material.isSolid();
     }
 
     public static boolean isSolidGroundName(String name) {
-        if (name == null || name.isBlank() || isHazardName(name) || name.contains("AIR") || name.equalsIgnoreCase("BEDROCK")) {
+        if (name == null || name.isBlank() || isHazardName(name) || name.contains("AIR")) {
             return false;
         }
         return true;
@@ -131,8 +138,24 @@ public final class TpaSafetyInspector {
                upper.contains("VOID");
     }
 
+    public static boolean isPassable(Block block) {
+        if (block == null) {
+            return true;
+        }
+        if (isHazard(block.getType())) {
+            return false;
+        }
+        return block.isPassable();
+    }
+
     public static boolean isPassable(Material material) {
-        return material == null || (!HAZARD_MATERIALS.contains(material) && PASSABLE_MATERIALS.contains(material));
+        if (material == null) {
+            return true;
+        }
+        if (HAZARD_MATERIALS.contains(material)) {
+            return false;
+        }
+        return !material.isSolid();
     }
 
     public static boolean isPassableName(String name) {

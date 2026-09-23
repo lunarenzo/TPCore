@@ -36,6 +36,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -60,6 +61,7 @@ public final class DefaultTpaService implements TpaService {
         double startZ,
         int totalWarmupSeconds,
         AtomicInteger remainingSeconds,
+        AtomicBoolean cancelled,
         BossBar bossBar,
         AtomicReference<ScheduledTask> taskRef
     ) {
@@ -707,6 +709,7 @@ public final class DefaultTpaService implements TpaService {
 
         Location currentLoc = player.getLocation();
         AtomicInteger remaining = new AtomicInteger(warmupSeconds);
+        AtomicBoolean cancelled = new AtomicBoolean(false);
         AtomicReference<ScheduledTask> taskRef = new AtomicReference<>();
         BossBar finalBossBar = bossBar;
 
@@ -718,6 +721,7 @@ public final class DefaultTpaService implements TpaService {
             currentLoc.getZ(),
             warmupSeconds,
             remaining,
+            cancelled,
             finalBossBar,
             taskRef
         );
@@ -728,13 +732,16 @@ public final class DefaultTpaService implements TpaService {
         ScheduledTask task = player.getScheduler().runAtFixedRate(
             this.plugin,
             scheduledTask -> {
-                if (!player.isOnline() || !destinationPlayer.isOnline()) {
+                if (!player.isOnline() || !destinationPlayer.isOnline() || cancelled.get()) {
                     this.cancelWarmup(player.getUniqueId(), null);
                     return;
                 }
 
                 int rem = remaining.decrementAndGet();
                 if (rem > 0) {
+                    if (cancelled.get()) {
+                        return;
+                    }
                     updateWarmupFeedback(player, rem, warmupSeconds);
                     if (finalBossBar != null) {
                         float progress = Math.max(0.0f, Math.min(1.0f, (float) rem / (float) warmupSeconds));
@@ -746,7 +753,7 @@ public final class DefaultTpaService implements TpaService {
                 } else {
                     scheduledTask.cancel();
                     ActiveWarmup removed = this.activeWarmups.remove(player.getUniqueId());
-                    if (removed != null) {
+                    if (removed != null && !cancelled.getAndSet(true)) {
                         if (finalBossBar != null) {
                             player.hideBossBar(finalBossBar);
                         }
@@ -860,7 +867,7 @@ public final class DefaultTpaService implements TpaService {
             return;
         }
 
-        destinationPlayer.getScheduler().run(
+        player.getScheduler().run(
             this.plugin,
             task -> {
                 if (!player.isOnline() || !destinationPlayer.isOnline()) {
@@ -893,6 +900,7 @@ public final class DefaultTpaService implements TpaService {
     private void cancelWarmup(UUID playerId, String cancelMessageTemplate) {
         ActiveWarmup warmup = this.activeWarmups.remove(playerId);
         if (warmup != null) {
+            warmup.cancelled().set(true);
             if (warmup.taskRef() != null && warmup.taskRef().get() != null) {
                 warmup.taskRef().get().cancel();
             }

@@ -32,7 +32,7 @@ class TpaSafetyInspectorTest {
 
         assertFalse(TpaSafetyInspector.isSolidGroundName("AIR"));
         assertFalse(TpaSafetyInspector.isSolidGroundName("LAVA"));
-        assertFalse(TpaSafetyInspector.isSolidGroundName("BEDROCK"));
+        assertTrue(TpaSafetyInspector.isSolidGroundName("BEDROCK"));
     }
 
     @Test
