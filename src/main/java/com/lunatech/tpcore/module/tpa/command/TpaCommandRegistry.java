@@ -312,7 +312,7 @@ public final class TpaCommandRegistry {
                         .suggests((ctx, builder) -> {
                             String remaining = builder.getRemainingLowerCase();
                             for (Player p : Bukkit.getOnlinePlayers()) {
-                                if (p.getName().toLowerCase(Locale.ROOT).startsWith(remaining)) {
+                                if (remaining.isBlank() || p.getName().regionMatches(true, 0, remaining, 0, remaining.length())) {
                                     builder.suggest(p.getName());
                                 }
                             }

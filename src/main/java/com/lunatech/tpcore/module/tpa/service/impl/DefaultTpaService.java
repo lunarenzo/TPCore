@@ -30,6 +30,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 import static net.kyori.adventure.sound.Sound.sound;
 
+import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -1229,9 +1230,9 @@ public final class DefaultTpaService implements TpaService {
     }
 
     private static final class DialogCloseReflectionCache {
-        private static final java.lang.reflect.Method CLOSE_DIALOG;
+        private static final Method CLOSE_DIALOG;
         static {
-            java.lang.reflect.Method m = null;
+            Method m = null;
             try {
                 m = Player.class.getMethod("closeDialog");
                 m.setAccessible(true);
@@ -1256,8 +1257,7 @@ public final class DefaultTpaService implements TpaService {
         String safeValue = value != null ? value : "";
         TagResolver prefixResolver = Placeholder.parsed("prefix", this.config().messages().prefix());
         TagResolver valueResolver = Placeholder.unparsed(key, safeValue);
-        TagResolver combined = TagResolver.resolver(prefixResolver, valueResolver);
-        player.sendMessage(this.miniMessage.deserialize(template, combined));
+        player.sendMessage(this.miniMessage.deserialize(template, TagResolver.resolver(prefixResolver, valueResolver)));
     }
 
     private void sendMessage(Player player, String template, String key1, String value1, String key2, String value2) {
@@ -1267,12 +1267,14 @@ public final class DefaultTpaService implements TpaService {
         String safe1 = value1 != null ? value1 : "";
         String safe2 = value2 != null ? value2 : "";
         TagResolver prefixResolver = Placeholder.parsed("prefix", this.config().messages().prefix());
-        TagResolver combined = TagResolver.resolver(
-            prefixResolver,
-            Placeholder.unparsed(key1, safe1),
-            Placeholder.unparsed(key2, safe2)
-        );
-        player.sendMessage(this.miniMessage.deserialize(template, combined));
+        player.sendMessage(this.miniMessage.deserialize(
+            template,
+            TagResolver.resolver(
+                prefixResolver,
+                Placeholder.unparsed(key1, safe1),
+                Placeholder.unparsed(key2, safe2)
+            )
+        ));
     }
 
     @Override

@@ -6,6 +6,7 @@ import com.lunatech.tpcore.module.tpa.model.TpaRequest;
 import com.lunatech.tpcore.module.tpa.model.TpaType;
 import com.lunatech.tpcore.module.tpa.service.TpaService;
 import com.lunatech.tpcore.platform.ServerVersion;
+import net.kyori.adventure.key.Key;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
@@ -18,6 +19,7 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.util.List;
 import java.util.Locale;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 public final class PaperDialogConfirmationService implements TpaConfirmationMenuService {
@@ -307,10 +309,9 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
             Method dBuilderType = null;
 
             try {
-                consumerCls = Class.forName("java.util.function.Consumer");
+                consumerCls = Consumer.class;
                 Class<?> dClass = Class.forName("io.papermc.paper.dialog.Dialog");
-                Class<?> kClass = Class.forName("net.kyori.adventure.key.Key");
-                kFactory = kClass.getMethod("key", String.class);
+                kFactory = Key.class.getMethod("key", String.class);
                 kFactory.setAccessible(true);
 
                 Class<?> dbClass = Class.forName("io.papermc.paper.registry.data.dialog.DialogBase");
@@ -352,10 +353,10 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
                 for (Method m : daClass.getMethods()) {
                     if (m.getName().equals("customClick")) {
                         Class<?>[] pTypes = m.getParameterTypes();
-                        if (pTypes.length == 1 && pTypes[0].isAssignableFrom(kClass)) {
+                        if (pTypes.length == 1 && pTypes[0].isAssignableFrom(Key.class)) {
                             cClick1 = m;
                             cClick1.setAccessible(true);
-                        } else if (pTypes.length == 2 && pTypes[0].isAssignableFrom(kClass)) {
+                        } else if (pTypes.length == 2 && pTypes[0].isAssignableFrom(Key.class)) {
                             cClick2 = m;
                             cClick2.setAccessible(true);
                         }
