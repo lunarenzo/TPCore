@@ -205,7 +205,14 @@ public final class ConcurrentTpaRepository implements TpaRepository {
     @Override
     public long getCooldownEnd(UUID senderId) {
         Long val = this.cooldownsMap.get(senderId);
-        return val != null ? val : 0L;
+        if (val != null) {
+            if (val <= System.currentTimeMillis()) {
+                this.cooldownsMap.remove(senderId);
+                return 0L;
+            }
+            return val;
+        }
+        return 0L;
     }
 
     @Override

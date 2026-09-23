@@ -114,6 +114,12 @@ public final class DefaultTpaService implements TpaService {
                         Player sender = Bukkit.getPlayer(request.senderId());
                         if (sender != null && sender.isOnline()) {
                             Player target = Bukkit.getPlayer(request.targetId());
+                            String targetName = (target != null && target.isOnline()) ? target.getName() : null;
+                            if (targetName == null) {
+                                OfflinePlayer op = Bukkit.getOfflinePlayer(request.targetId());
+                                targetName = (op.hasPlayedBefore() || op.isOnline()) ? op.getName() : null;
+                            }
+                            String finalTargetName = (targetName != null) ? targetName : "Player";
                             sender.getScheduler().run(
                                 this.plugin,
                                 t -> {
@@ -121,7 +127,7 @@ public final class DefaultTpaService implements TpaService {
                                     this.sendMessage(
                                         sender,
                                         this.config().messages().requestExpired(),
-                                        "player", (target != null) ? target.getName() : "Player"
+                                        "player", finalTargetName
                                     );
                                 },
                                 null
@@ -131,6 +137,12 @@ public final class DefaultTpaService implements TpaService {
                         Player target = Bukkit.getPlayer(request.targetId());
                         if (target != null && target.isOnline()) {
                             Player senderPlayer = Bukkit.getPlayer(request.senderId());
+                            String senderName = (senderPlayer != null && senderPlayer.isOnline()) ? senderPlayer.getName() : null;
+                            if (senderName == null) {
+                                OfflinePlayer op = Bukkit.getOfflinePlayer(request.senderId());
+                                senderName = (op.hasPlayedBefore() || op.isOnline()) ? op.getName() : null;
+                            }
+                            String finalSenderName = (senderName != null) ? senderName : "Player";
                             target.getScheduler().run(
                                 this.plugin,
                                 t -> {
@@ -138,7 +150,7 @@ public final class DefaultTpaService implements TpaService {
                                     this.sendMessage(
                                         target,
                                         this.config().messages().requestExpired(),
-                                        "player", (senderPlayer != null) ? senderPlayer.getName() : "Player"
+                                        "player", finalSenderName
                                     );
                                 },
                                 null
@@ -1032,11 +1044,24 @@ public final class DefaultTpaService implements TpaService {
             }
         } catch (Throwable ignored) {
         }
-        try {
-            java.lang.reflect.Method closeDialogMethod = player.getClass().getMethod("closeDialog");
-            closeDialogMethod.setAccessible(true);
-            closeDialogMethod.invoke(player);
-        } catch (Throwable ignored) {
+        if (DialogCloseReflectionCache.CLOSE_DIALOG != null) {
+            try {
+                DialogCloseReflectionCache.CLOSE_DIALOG.invoke(player);
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    private static final class DialogCloseReflectionCache {
+        private static final java.lang.reflect.Method CLOSE_DIALOG;
+        static {
+            java.lang.reflect.Method m = null;
+            try {
+                m = Player.class.getMethod("closeDialog");
+                m.setAccessible(true);
+            } catch (Throwable ignored) {
+            }
+            CLOSE_DIALOG = m;
         }
     }
 

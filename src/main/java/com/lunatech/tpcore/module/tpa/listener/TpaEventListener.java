@@ -44,9 +44,7 @@ public final class TpaEventListener implements Listener {
         if (!event.hasChangedPosition()) {
             return;
         }
-        if (event.hasChangedBlock()) {
-            this.tpaService.handlePlayerMove(event.getPlayer());
-        }
+        this.tpaService.handlePlayerMove(event.getPlayer());
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
