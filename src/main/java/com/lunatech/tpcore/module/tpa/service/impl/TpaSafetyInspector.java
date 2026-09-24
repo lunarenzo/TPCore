@@ -201,7 +201,7 @@ public final class TpaSafetyInspector {
             return true;
         }
         Material type = block.getType();
-        if (type == Material.WATER || isHazard(type)) {
+        if (type == Material.WATER || isHazard(type) || isTriggerHazard(type)) {
             return false;
         }
         if (block.getBlockData() instanceof Waterlogged waterlogged && waterlogged.isWaterlogged()) {
@@ -211,6 +211,17 @@ public final class TpaSafetyInspector {
             return false;
         }
         return block.isPassable();
+    }
+
+    private static boolean isTriggerHazard(Material material) {
+        if (material == null) {
+            return false;
+        }
+        String name = material.name();
+        return name.contains("PRESSURE_PLATE") ||
+               name.contains("TRIPWIRE") ||
+               name.contains("SCULK_SENSOR") ||
+               name.contains("SCULK_SHRIEKER");
     }
 
     public static boolean isPassable(Material material) {

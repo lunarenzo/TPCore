@@ -396,7 +396,9 @@ public final class DefaultTpaService implements TpaService {
             return false;
         }
 
-        if (this.repository.isTpaToggledOff(target.getUniqueId()) || this.repository.isPlayerBlocked(target.getUniqueId(), sender.getUniqueId())) {
+        if (this.repository.isTpaToggledOff(target.getUniqueId())
+            || this.repository.isPlayerBlocked(target.getUniqueId(), sender.getUniqueId())
+            || this.repository.isPlayerBlocked(sender.getUniqueId(), target.getUniqueId())) {
             if (!isBulk) {
                 this.sendMessage(
                     sender,
@@ -868,12 +870,24 @@ public final class DefaultTpaService implements TpaService {
             target = Bukkit.getPlayer(targetName);
         }
         OfflinePlayer offlineTarget = (target == null) ? resolveOfflinePlayerIfCached(targetName) : null;
+        UUID targetId = (target != null) ? target.getUniqueId() : (offlineTarget != null ? offlineTarget.getUniqueId() : null);
 
-        if (target == null && (offlineTarget == null || offlineTarget.getName() == null)) {
+        if (targetId == null) {
+            String trimmed = targetName.trim();
+            try {
+                targetId = UUID.fromString(trimmed);
+            } catch (Throwable ignored) {
+            }
+        }
+
+        if (targetId == null) {
             this.sendMessage(player, this.config().messages().playerNotOnline(), "player", targetName);
             return;
         }
-        UUID targetId = (target != null) ? target.getUniqueId() : offlineTarget.getUniqueId();
+
+        if (offlineTarget == null && target == null) {
+            offlineTarget = resolveOfflinePlayerIfCached(targetId);
+        }
 
         if (player.getUniqueId().equals(targetId)) {
             this.sendMessage(player, this.config().messages().rejectSelfTpa());

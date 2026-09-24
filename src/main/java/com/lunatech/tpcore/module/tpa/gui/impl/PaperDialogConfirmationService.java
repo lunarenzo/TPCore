@@ -60,6 +60,12 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
 
         Player senderPlayer = Bukkit.getPlayer(request.senderId());
         String senderName = (senderPlayer != null) ? senderPlayer.getName() : "Player";
+        if (senderPlayer == null) {
+            org.bukkit.OfflinePlayer offlineSender = resolveOfflinePlayerIfCached(request.senderId());
+            if (offlineSender != null && offlineSender.getName() != null) {
+                senderName = offlineSender.getName();
+            }
+        }
 
         if (ServerVersion.IS_DIALOG_SUPPORTED) {
             TpaConfig config = this.configSupplier.get();
@@ -284,6 +290,27 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
             this.loggedNotice = true;
             this.logger.info("Paper Dialog API requires Paper 1.21.6+ (API 1.21.7+). Falling back to Chest GUI confirmation menu.");
         }
+    }
+
+    private static final Method GET_OFFLINE_PLAYER_IF_CACHED_UUID;
+    static {
+        Method mUuid = null;
+        try {
+            mUuid = Bukkit.class.getMethod("getOfflinePlayerIfCached", java.util.UUID.class);
+            mUuid.setAccessible(true);
+        } catch (Throwable ignored) {
+        }
+        GET_OFFLINE_PLAYER_IF_CACHED_UUID = mUuid;
+    }
+
+    private static org.bukkit.OfflinePlayer resolveOfflinePlayerIfCached(java.util.UUID uuid) {
+        if (GET_OFFLINE_PLAYER_IF_CACHED_UUID != null && uuid != null) {
+            try {
+                return (org.bukkit.OfflinePlayer) GET_OFFLINE_PLAYER_IF_CACHED_UUID.invoke(null, uuid);
+            } catch (Throwable ignored) {
+            }
+        }
+        return null;
     }
 
     private static final class DialogReflectionCache {
