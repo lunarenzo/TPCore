@@ -32,7 +32,7 @@ public final class TpaEventListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerQuit(PlayerQuitEvent event) {
         if (event != null && event.getPlayer() != null) {
-            this.tpaService.handlePlayerQuit(event.getPlayer().getUniqueId());
+            this.tpaService.handlePlayerQuit(event.getPlayer());
         }
     }
 

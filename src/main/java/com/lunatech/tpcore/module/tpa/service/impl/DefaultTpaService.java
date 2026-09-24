@@ -1040,7 +1040,18 @@ public final class DefaultTpaService implements TpaService {
     }
 
     @Override
+    public void handlePlayerQuit(Player player) {
+        if (player != null) {
+            this.saveUserSettingsToPdc(player);
+            this.handlePlayerQuit(player.getUniqueId());
+        }
+    }
+
+    @Override
     public void handlePlayerQuit(UUID playerId) {
+        if (playerId == null) {
+            return;
+        }
         Player player = Bukkit.getPlayer(playerId);
         if (player != null) {
             this.saveUserSettingsToPdc(player);
@@ -1097,6 +1108,7 @@ public final class DefaultTpaService implements TpaService {
 
         this.repository.removeAllRequestsForPlayer(playerId);
         this.repository.setUserSettings(playerId, null);
+        this.repository.setCooldownEnd(playerId, 0L);
         this.cancelWarmup(playerId, null);
         this.cancelWarmupsForDestination(playerId, this.config().messages().targetToggledOff());
     }
@@ -1132,7 +1144,7 @@ public final class DefaultTpaService implements TpaService {
     @Override
     public void handlePlayerTeleport(UUID playerId) {
         this.cancelWarmup(playerId, null);
-        this.cancelWarmupsForDestination(playerId, this.config().messages().targetToggledOff());
+        this.cancelWarmupsForDestination(playerId, this.config().messages().requestCancelledTarget());
     }
 
     @Override

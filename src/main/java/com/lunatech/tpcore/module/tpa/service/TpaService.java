@@ -42,6 +42,8 @@ public interface TpaService {
 
     void handlePlayerJoin(Player player);
 
+    void handlePlayerQuit(Player player);
+
     void handlePlayerQuit(UUID playerId);
 
     void handlePlayerDamage(UUID playerId);

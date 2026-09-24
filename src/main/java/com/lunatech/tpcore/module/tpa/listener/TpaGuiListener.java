@@ -57,9 +57,7 @@ public final class TpaGuiListener implements Listener {
                 Player target = (holder.getTargetPlayerId() != null) ? Bukkit.getPlayer(holder.getTargetPlayerId()) : null;
                 if (slot == acceptSlot) {
                     closeInventoryDeferred(player);
-                    if (target != null && target.isOnline()) {
-                        this.tpaService.sendRequest(player, target, holder.getTpaType());
-                    }
+                    this.tpaService.sendRequest(player, target, holder.getTpaType());
                 } else if (slot == denySlot) {
                     closeInventoryDeferred(player);
                 }
