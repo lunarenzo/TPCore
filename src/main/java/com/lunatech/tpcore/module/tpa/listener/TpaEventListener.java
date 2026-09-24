@@ -7,6 +7,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.entity.EntityPortalEnterEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerBedEnterEvent;
 import org.bukkit.event.player.PlayerChangedWorldEvent;
@@ -93,6 +94,13 @@ public final class TpaEventListener implements Listener {
     public void onPlayerBedEnter(PlayerBedEnterEvent event) {
         if (event != null && event.getPlayer() != null) {
             this.tpaService.handlePlayerMove(event.getPlayer());
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onEntityPortalEnter(EntityPortalEnterEvent event) {
+        if (event != null && event.getEntity() instanceof Player player) {
+            this.tpaService.handlePlayerTeleport(player.getUniqueId());
         }
     }
 }

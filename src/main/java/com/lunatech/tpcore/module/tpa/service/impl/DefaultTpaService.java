@@ -1515,11 +1515,11 @@ public final class DefaultTpaService implements TpaService {
         if (player == null || !player.isOnline()) {
             return;
         }
+        boolean matches = (expectedOtherPlayerId == null);
         try {
             InventoryView view = player.getOpenInventory();
             Inventory top = (view != null) ? view.getTopInventory() : null;
             if (top != null && top.getHolder() instanceof TpaConfirmationHolder holder) {
-                boolean matches = (expectedOtherPlayerId == null);
                 if (expectedOtherPlayerId != null) {
                     if (holder.getConfirmationType() == TpaConfirmationHolder.ConfirmationType.ACCEPT_REQUEST && holder.getRequest() != null) {
                         matches = expectedOtherPlayerId.equals(holder.getRequest().senderId());
@@ -1533,7 +1533,7 @@ public final class DefaultTpaService implements TpaService {
             }
         } catch (Throwable ignored) {
         }
-        if (DialogCloseReflectionCache.CLOSE_DIALOG != null) {
+        if (matches && DialogCloseReflectionCache.CLOSE_DIALOG != null) {
             try {
                 DialogCloseReflectionCache.CLOSE_DIALOG.invoke(player);
             } catch (Throwable ignored) {

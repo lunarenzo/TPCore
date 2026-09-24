@@ -108,8 +108,9 @@ public final class TpaSafetyInspector {
                 Block standOn = world.getBlockAt(checkX, checkY - 1, checkZ);
                 Block feet = world.getBlockAt(checkX, checkY, checkZ);
                 Block head = world.getBlockAt(checkX, checkY + 1, checkZ);
+                Block overhead = world.getBlockAt(checkX, checkY + 2, checkZ);
 
-                if (!isSolidGround(standOn) || !isPassable(feet) || !isPassable(head)) {
+                if (!isSolidGround(standOn) || !isPassable(feet) || !isPassable(head) || isHazard(overhead.getType()) || isFallingHazard(overhead.getType())) {
                     continue;
                 }
 
@@ -129,11 +130,26 @@ public final class TpaSafetyInspector {
         return null;
     }
 
+    private static boolean isFallingHazard(Material material) {
+        if (material == null) {
+            return false;
+        }
+        String name = material.name();
+        return name.contains("SAND") ||
+               name.contains("GRAVEL") ||
+               name.contains("ANVIL") ||
+               name.contains("LAVA") ||
+               name.startsWith("POINTED_DRIPSTONE");
+    }
+
     public static boolean isSolidGround(Block block) {
         if (block == null) {
             return false;
         }
         if (block.getBlockData() instanceof Waterlogged waterlogged && waterlogged.isWaterlogged()) {
+            return false;
+        }
+        if (block.getBlockData() instanceof Openable openable && openable.isOpen()) {
             return false;
         }
         return isSolidGround(block.getType());

@@ -101,7 +101,7 @@ public final class ConcurrentTpaRepository implements TpaRepository {
         if (targetMap != null) {
             removedInc = targetMap.remove(senderId);
             if (targetMap.isEmpty()) {
-                this.incoming.remove(targetId, targetMap);
+                this.incoming.computeIfPresent(targetId, (k, map) -> map.isEmpty() ? null : map);
             }
         }
 
@@ -109,7 +109,7 @@ public final class ConcurrentTpaRepository implements TpaRepository {
         if (senderMap != null) {
             senderMap.remove(targetId);
             if (senderMap.isEmpty()) {
-                this.outgoing.remove(senderId, senderMap);
+                this.outgoing.computeIfPresent(senderId, (k, map) -> map.isEmpty() ? null : map);
             }
         }
         return removedInc != null;
@@ -124,7 +124,7 @@ public final class ConcurrentTpaRepository implements TpaRepository {
                 if (senderMap != null) {
                     senderMap.remove(playerId);
                     if (senderMap.isEmpty()) {
-                        this.outgoing.remove(senderId, senderMap);
+                        this.outgoing.computeIfPresent(senderId, (k, map) -> map.isEmpty() ? null : map);
                     }
                 }
             }
@@ -137,7 +137,7 @@ public final class ConcurrentTpaRepository implements TpaRepository {
                 if (inMap != null) {
                     inMap.remove(playerId);
                     if (inMap.isEmpty()) {
-                        this.incoming.remove(targetId, inMap);
+                        this.incoming.computeIfPresent(targetId, (k, map) -> map.isEmpty() ? null : map);
                     }
                 }
             }
