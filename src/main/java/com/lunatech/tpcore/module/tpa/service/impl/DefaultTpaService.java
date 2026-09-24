@@ -339,10 +339,13 @@ public final class DefaultTpaService implements TpaService {
         for (Player target : targets) {
             if (target != null && target.isOnline()) {
                 if (type == TpaType.TPA_TO && this.activeWarmups.containsKey(sender.getUniqueId())) {
-                    continue;
+                    break;
                 }
                 if (processSingleSendRequest(sender, target, type, false, true)) {
                     sentAny = true;
+                    if (this.activeWarmups.containsKey(sender.getUniqueId())) {
+                        break;
+                    }
                 }
             }
         }
@@ -770,6 +773,12 @@ public final class DefaultTpaService implements TpaService {
         }
 
         this.repository.setPlayerBlocked(player.getUniqueId(), targetId, true);
+        this.repository.removeRequest(player.getUniqueId(), targetId);
+        this.repository.removeRequest(targetId, player.getUniqueId());
+        this.closeConfirmationMenuIfOpen(player, targetId);
+        if (target != null && target.isOnline()) {
+            this.closeConfirmationMenuIfOpen(target, player.getUniqueId());
+        }
         this.saveUserSettingsToPdc(player);
 
         String displayName = (target != null) ? target.getName() : ((offlineTarget != null && offlineTarget.getName() != null) ? offlineTarget.getName() : targetName);

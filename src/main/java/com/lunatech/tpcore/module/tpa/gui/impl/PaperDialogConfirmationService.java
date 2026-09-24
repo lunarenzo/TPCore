@@ -167,9 +167,9 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
             if (DialogReflectionCache.DIALOG_BASE_BODY != null) {
                 DialogReflectionCache.DIALOG_BASE_BODY.invoke(baseBuilder, Collections.singletonList(bodyItem));
             }
-            Object dialogBase = DialogReflectionCache.DIALOG_BASE_BUILD != null
+            Object dialogBase = (DialogReflectionCache.DIALOG_BASE_BUILD != null)
                 ? DialogReflectionCache.DIALOG_BASE_BUILD.invoke(baseBuilder)
-                : baseBuilder.getClass().getMethod("build").invoke(baseBuilder);
+                : invokeBuildMethod(baseBuilder);
 
             // Accept button
             Object acceptBuilder = DialogReflectionCache.ACTION_BUTTON_BUILDER.invoke(null, acceptComp);
@@ -179,9 +179,9 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
                     DialogReflectionCache.ACTION_BUTTON_ACTION.invoke(acceptBuilder, acceptAction);
                 }
             }
-            Object acceptButton = DialogReflectionCache.ACTION_BUTTON_BUILD != null
+            Object acceptButton = (DialogReflectionCache.ACTION_BUTTON_BUILD != null)
                 ? DialogReflectionCache.ACTION_BUTTON_BUILD.invoke(acceptBuilder)
-                : acceptBuilder.getClass().getMethod("build").invoke(acceptBuilder);
+                : invokeBuildMethod(acceptBuilder);
 
             // Deny/Cancel button
             Object denyBuilder = DialogReflectionCache.ACTION_BUTTON_BUILDER.invoke(null, denyComp);
@@ -191,9 +191,9 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
                     DialogReflectionCache.ACTION_BUTTON_ACTION.invoke(denyBuilder, denyAction);
                 }
             }
-            Object denyButton = DialogReflectionCache.ACTION_BUTTON_BUILD != null
+            Object denyButton = (DialogReflectionCache.ACTION_BUTTON_BUILD != null)
                 ? DialogReflectionCache.ACTION_BUTTON_BUILD.invoke(denyBuilder)
-                : denyBuilder.getClass().getMethod("build").invoke(denyBuilder);
+                : invokeBuildMethod(denyBuilder);
 
             // DialogType
             Object dialogType = DialogReflectionCache.DIALOG_TYPE_CONFIRMATION.invoke(null, acceptButton, denyButton);
@@ -245,6 +245,25 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
             this.logger.error("Failed to create DialogAction customClick for key {}", keyString, t);
         }
         return null;
+    }
+
+    private static final java.util.Map<Class<?>, Method> BUILD_METHOD_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private static Object invokeBuildMethod(Object builder) throws Exception {
+        if (builder == null) {
+            return null;
+        }
+        Class<?> clazz = builder.getClass();
+        Method method = BUILD_METHOD_CACHE.computeIfAbsent(clazz, c -> {
+            try {
+                Method m = c.getMethod("build");
+                m.setAccessible(true);
+                return m;
+            } catch (Throwable ignored) {
+                return null;
+            }
+        });
+        return (method != null) ? method.invoke(builder) : null;
     }
 
     private void logFallbackNoticeOnce() {
