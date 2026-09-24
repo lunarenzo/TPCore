@@ -104,7 +104,7 @@ public final class TpaGuiListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onInventoryDrag(InventoryDragEvent event) {
-        if (event.getInventory().getHolder() instanceof TpaConfirmationHolder) {
+        if (event.getView().getTopInventory().getHolder() instanceof TpaConfirmationHolder) {
             event.setCancelled(true);
         }
     }

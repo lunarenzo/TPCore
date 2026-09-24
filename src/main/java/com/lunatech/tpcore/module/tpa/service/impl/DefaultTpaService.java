@@ -1534,6 +1534,11 @@ public final class DefaultTpaService implements TpaService {
         if (this.sweeperTask != null) {
             this.sweeperTask.cancel();
         }
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            if (p != null && p.isOnline()) {
+                this.saveUserSettingsToPdc(p);
+            }
+        }
         for (ActiveWarmup warmup : this.activeWarmups.values()) {
             if (warmup.task() != null) {
                 warmup.task().cancel();

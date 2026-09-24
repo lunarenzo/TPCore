@@ -20,7 +20,6 @@ public final class ConcurrentTpaRepository implements TpaRepository {
 
     private final Map<UUID, Map<UUID, TpaRequest>> incoming = new ConcurrentHashMap<>();
     private final Map<UUID, Map<UUID, TpaRequest>> outgoing = new ConcurrentHashMap<>();
-    private final Set<UUID> toggledOffPlayers = ConcurrentHashMap.newKeySet();
     private final Map<UUID, TpaUserSettings> userSettingsMap = new ConcurrentHashMap<>();
     private final Map<UUID, Long> cooldownsMap = new ConcurrentHashMap<>();
 
@@ -148,19 +147,11 @@ public final class ConcurrentTpaRepository implements TpaRepository {
     @Override
     public boolean isTpaToggledOff(UUID playerId) {
         TpaUserSettings settings = this.userSettingsMap.get(playerId);
-        if (settings != null) {
-            return settings.toggledOff();
-        }
-        return this.toggledOffPlayers.contains(playerId);
+        return settings != null && settings.toggledOff();
     }
 
     @Override
     public void setTpaToggledOff(UUID playerId, boolean toggledOff) {
-        if (toggledOff) {
-            this.toggledOffPlayers.add(playerId);
-        } else {
-            this.toggledOffPlayers.remove(playerId);
-        }
         this.userSettingsMap.compute(playerId, (id, current) -> {
             boolean autoAccept = (current != null) && current.autoAccept();
             Set<UUID> blocked = (current != null) ? current.blockedPlayers() : Collections.emptySet();
@@ -192,15 +183,9 @@ public final class ConcurrentTpaRepository implements TpaRepository {
     public void setUserSettings(UUID playerId, TpaUserSettings settings) {
         if (settings == null) {
             this.userSettingsMap.remove(playerId);
-            this.toggledOffPlayers.remove(playerId);
             return;
         }
         this.userSettingsMap.put(playerId, settings);
-        if (settings.toggledOff()) {
-            this.toggledOffPlayers.add(playerId);
-        } else {
-            this.toggledOffPlayers.remove(playerId);
-        }
     }
 
     @Override
@@ -263,7 +248,6 @@ public final class ConcurrentTpaRepository implements TpaRepository {
     public void clear() {
         this.incoming.clear();
         this.outgoing.clear();
-        this.toggledOffPlayers.clear();
         this.userSettingsMap.clear();
         this.cooldownsMap.clear();
     }
