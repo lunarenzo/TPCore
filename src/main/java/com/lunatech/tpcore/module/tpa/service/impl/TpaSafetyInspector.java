@@ -6,6 +6,8 @@ import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Block;
 
+import org.bukkit.block.data.Waterlogged;
+
 import java.lang.reflect.Method;
 import java.util.EnumSet;
 import java.util.Locale;
@@ -172,7 +174,11 @@ public final class TpaSafetyInspector {
         if (block == null) {
             return true;
         }
-        if (isHazard(block.getType())) {
+        Material type = block.getType();
+        if (type == Material.WATER || isHazard(type)) {
+            return false;
+        }
+        if (block.getBlockData() instanceof Waterlogged waterlogged && waterlogged.isWaterlogged()) {
             return false;
         }
         return block.isPassable();
@@ -182,7 +188,7 @@ public final class TpaSafetyInspector {
         if (material == null) {
             return true;
         }
-        if (HAZARD_MATERIALS.contains(material)) {
+        if (material == Material.WATER || HAZARD_MATERIALS.contains(material)) {
             return false;
         }
         return !material.isSolid();
@@ -196,6 +202,9 @@ public final class TpaSafetyInspector {
             return false;
         }
         String upper = name.toUpperCase(Locale.ROOT);
+        if (upper.equals("WATER")) {
+            return false;
+        }
         return upper.contains("AIR") || upper.contains("LIGHT") || upper.contains("GRASS") || upper.contains("FLOWER");
     }
 }

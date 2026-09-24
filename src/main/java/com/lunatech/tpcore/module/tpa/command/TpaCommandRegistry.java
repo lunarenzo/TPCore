@@ -80,13 +80,11 @@ public final class TpaCommandRegistry {
                                     }
                                 } else {
                                     TpaConfig cfg = this.configSupplier.get();
-                                    String rawInput = ctx.getInput();
-                                    int spaceIdx = rawInput != null ? rawInput.lastIndexOf(' ') : -1;
-                                    String targetArg = (spaceIdx >= 0 && spaceIdx < rawInput.length() - 1) ? rawInput.substring(spaceIdx + 1).trim() : "Player";
+                                    String targetArg = extractTargetArg(ctx.getInput());
                                     sender.sendMessage(this.miniMessage.deserialize(
                                         cfg.messages().playerNotOnline(),
                                         Placeholder.parsed("prefix", cfg.messages().prefix()),
-                                        Placeholder.unparsed("player", targetArg.isEmpty() ? "Player" : targetArg)
+                                        Placeholder.unparsed("player", targetArg)
                                     ));
                                 }
                             }
@@ -127,13 +125,11 @@ public final class TpaCommandRegistry {
                                     }
                                 } else {
                                     TpaConfig cfg = this.configSupplier.get();
-                                    String rawInput = ctx.getInput();
-                                    int spaceIdx = rawInput != null ? rawInput.lastIndexOf(' ') : -1;
-                                    String targetArg = (spaceIdx >= 0 && spaceIdx < rawInput.length() - 1) ? rawInput.substring(spaceIdx + 1).trim() : "Player";
+                                    String targetArg = extractTargetArg(ctx.getInput());
                                     sender.sendMessage(this.miniMessage.deserialize(
                                         cfg.messages().playerNotOnline(),
                                         Placeholder.parsed("prefix", cfg.messages().prefix()),
-                                        Placeholder.unparsed("player", targetArg.isEmpty() ? "Player" : targetArg)
+                                        Placeholder.unparsed("player", targetArg)
                                     ));
                                 }
                             }
@@ -432,5 +428,20 @@ public final class TpaCommandRegistry {
         }
 
         this.tpaService.acceptRequest(target, optionalSenderName);
+    }
+
+    private static String extractTargetArg(String rawInput) {
+        if (rawInput == null || rawInput.isBlank()) {
+            return "Player";
+        }
+        String trimmed = rawInput.trim();
+        int spaceIdx = trimmed.lastIndexOf(' ');
+        if (spaceIdx >= 0 && spaceIdx < trimmed.length() - 1) {
+            String arg = trimmed.substring(spaceIdx + 1).trim();
+            if (!arg.isEmpty()) {
+                return arg;
+            }
+        }
+        return "Player";
     }
 }

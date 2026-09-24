@@ -309,7 +309,7 @@ public final class DefaultTpaService implements TpaService {
 
     @Override
     public void sendRequest(Player sender, Player target, TpaType type) {
-        processSingleSendRequest(sender, target, type, true);
+        processSingleSendRequest(sender, target, type, true, false);
     }
 
     @Override
@@ -339,7 +339,7 @@ public final class DefaultTpaService implements TpaService {
                 if (type == TpaType.TPA_TO && this.activeWarmups.containsKey(sender.getUniqueId())) {
                     continue;
                 }
-                if (processSingleSendRequest(sender, target, type, false)) {
+                if (processSingleSendRequest(sender, target, type, false, true)) {
                     sentAny = true;
                 }
             }
@@ -350,18 +350,22 @@ public final class DefaultTpaService implements TpaService {
         }
     }
 
-    private boolean processSingleSendRequest(Player sender, Player target, TpaType type, boolean applyCooldown) {
+    private boolean processSingleSendRequest(Player sender, Player target, TpaType type, boolean applyCooldown, boolean isBulk) {
         if (!this.config().allowSelfTpa() && sender.getUniqueId().equals(target.getUniqueId())) {
-            this.sendMessage(sender, this.config().messages().rejectSelfTpa());
+            if (!isBulk) {
+                this.sendMessage(sender, this.config().messages().rejectSelfTpa());
+            }
             return false;
         }
 
         if (this.repository.isTpaToggledOff(target.getUniqueId()) || this.repository.isPlayerBlocked(target.getUniqueId(), sender.getUniqueId())) {
-            this.sendMessage(
-                sender,
-                this.config().messages().targetToggledOff(),
-                "target", target.getName()
-            );
+            if (!isBulk) {
+                this.sendMessage(
+                    sender,
+                    this.config().messages().targetToggledOff(),
+                    "target", target.getName()
+                );
+            }
             return false;
         }
 
@@ -394,11 +398,13 @@ public final class DefaultTpaService implements TpaService {
 
         Optional<TpaRequest> existing = this.repository.getRequest(target.getUniqueId(), sender.getUniqueId());
         if (existing.isPresent() && !existing.get().isExpired(this.config().requestTimeoutSeconds())) {
-            this.sendMessage(
-                sender,
-                this.config().messages().alreadyHasPendingRequest(),
-                "target", target.getName()
-            );
+            if (!isBulk) {
+                this.sendMessage(
+                    sender,
+                    this.config().messages().alreadyHasPendingRequest(),
+                    "target", target.getName()
+                );
+            }
             return false;
         }
 
@@ -413,11 +419,13 @@ public final class DefaultTpaService implements TpaService {
                 }
             }
             if (activeCount >= maxRequests) {
-                this.sendMessage(
-                    sender,
-                    this.config().messages().maxPendingRequestsReached(),
-                    "target", target.getName()
-                );
+                if (!isBulk) {
+                    this.sendMessage(
+                        sender,
+                        this.config().messages().maxPendingRequestsReached(),
+                        "target", target.getName()
+                    );
+                }
                 return false;
             }
         }
