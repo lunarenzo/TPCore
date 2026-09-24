@@ -1352,8 +1352,11 @@ public final class DefaultTpaService implements TpaService {
         );
 
         warmup.setTask(task);
-        if (warmup.isCancelled() && task != null) {
-            task.cancel();
+        if (warmup.isCancelled()) {
+            if (task != null) {
+                task.cancel();
+            }
+            this.cancelWarmup(player.getUniqueId(), null);
         }
     }
 
@@ -1490,11 +1493,29 @@ public final class DefaultTpaService implements TpaService {
                 player.getScheduler().run(
                     this.plugin,
                     playerTask -> {
-                        if (!player.isOnline() || !destinationPlayer.isOnline() || destination.getWorld() == null) {
+                        if (!player.isOnline()) {
+                            this.repository.setCooldownEnd(destinationPlayer.getUniqueId(), 0L);
+                            if (destinationPlayer.isOnline()) {
+                                OfflinePlayer op = resolveOfflinePlayerIfCached(player.getUniqueId());
+                                String pName = (op != null && op.getName() != null) ? op.getName() : "Player";
+                                this.sendMessage(
+                                    destinationPlayer,
+                                    this.config().messages().playerNotOnline(),
+                                    "player", pName
+                                );
+                            }
+                            return;
+                        }
+                        if (!destinationPlayer.isOnline() || destination.getWorld() == null) {
                             return;
                         }
                         player.teleportAsync(destination).thenAccept(success -> {
-                            if (!success) {
+                            if (success) {
+                                TpaConfig cfg = this.config();
+                                if (cfg.enableSounds()) {
+                                    playSound(player, cfg.completionSound(), (float) cfg.completionSoundVolume(), (float) cfg.completionSoundPitch());
+                                }
+                            } else {
                                 this.repository.setCooldownEnd(player.getUniqueId(), 0L);
                                 this.repository.setCooldownEnd(destinationPlayer.getUniqueId(), 0L);
                                 if (player.isOnline()) {

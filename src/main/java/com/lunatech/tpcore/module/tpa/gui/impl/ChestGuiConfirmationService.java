@@ -128,7 +128,11 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
         inventory.setItem(denySlot, denyItem);
 
         if (target.isOnline()) {
-            target.getScheduler().run(this.plugin, t -> target.openInventory(inventory), null);
+            target.getScheduler().run(this.plugin, t -> {
+                if (target.isOnline()) {
+                    target.openInventory(inventory);
+                }
+            }, null);
         }
     }
 
@@ -209,7 +213,11 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
         inventory.setItem(denySlot, denyItem);
 
         if (sender.isOnline()) {
-            sender.getScheduler().run(this.plugin, t -> sender.openInventory(inventory), null);
+            sender.getScheduler().run(this.plugin, t -> {
+                if (sender.isOnline()) {
+                    sender.openInventory(inventory);
+                }
+            }, null);
         }
     }
 
