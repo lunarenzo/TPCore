@@ -356,6 +356,13 @@ public final class DefaultTpaService implements TpaService {
     }
 
     private boolean processSingleSendRequest(Player sender, Player target, TpaType type, boolean applyCooldown, boolean isBulk) {
+        if (sender == null || target == null || !target.isOnline()) {
+            if (!isBulk && sender != null && sender.isOnline()) {
+                this.sendMessage(sender, this.config().messages().playerNotOnline(), "player", "Player");
+            }
+            return false;
+        }
+
         if (!this.config().allowSelfTpa() && sender.getUniqueId().equals(target.getUniqueId())) {
             if (!isBulk) {
                 this.sendMessage(sender, this.config().messages().rejectSelfTpa());
@@ -979,6 +986,13 @@ public final class DefaultTpaService implements TpaService {
             this.saveUserSettingsToPdc(player);
         }
 
+        String quitName = (player != null && player.getName() != null) ? player.getName() : null;
+        if (quitName == null) {
+            OfflinePlayer op = resolveOfflinePlayerIfCached(playerId);
+            quitName = (op != null && op.getName() != null) ? op.getName() : "Player";
+        }
+        final String displayName = quitName;
+
         Collection<TpaRequest> outgoing = this.repository.getOutgoingRequests(playerId);
         if (outgoing != null && !outgoing.isEmpty()) {
             for (TpaRequest req : outgoing) {
@@ -991,7 +1005,7 @@ public final class DefaultTpaService implements TpaService {
                             this.sendMessage(
                                 target,
                                 this.config().messages().requestCancelledTarget(),
-                                "sender", (player != null) ? player.getName() : "Player"
+                                "sender", displayName
                             );
                         },
                         null
@@ -1012,7 +1026,7 @@ public final class DefaultTpaService implements TpaService {
                             this.sendMessage(
                                 sender,
                                 this.config().messages().requestCancelledSender(),
-                                "target", (player != null) ? player.getName() : "Player"
+                                "target", displayName
                             );
                         },
                         null

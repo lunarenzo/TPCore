@@ -409,6 +409,11 @@ public final class TpaCommandRegistry {
 
     private void handleSendOrMenu(Player sender, Player target, TpaType type) {
         TpaConfig cfg = this.configSupplier.get();
+        if (sender != null && target != null && !cfg.allowSelfTpa() && sender.getUniqueId().equals(target.getUniqueId())) {
+            this.tpaService.sendRequest(sender, target, type);
+            return;
+        }
+
         boolean specificToggle = (type == TpaType.TPA_HERE) ? cfg.enableTpahereConfirm() : cfg.enableTpaConfirm();
 
         if (isConfirmationEnabled() && specificToggle && this.confirmationMenuService != null) {

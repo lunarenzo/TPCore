@@ -7,6 +7,7 @@ import org.bukkit.World;
 import org.bukkit.block.Block;
 
 import org.bukkit.block.data.Waterlogged;
+import org.bukkit.block.data.type.TrapDoor;
 
 import java.lang.reflect.Method;
 import java.util.EnumSet;
@@ -188,6 +189,9 @@ public final class TpaSafetyInspector {
             return false;
         }
         if (block.getBlockData() instanceof Waterlogged waterlogged && waterlogged.isWaterlogged()) {
+            return false;
+        }
+        if (block.getBlockData() instanceof TrapDoor trapDoor && trapDoor.isOpen()) {
             return false;
         }
         return block.isPassable();
