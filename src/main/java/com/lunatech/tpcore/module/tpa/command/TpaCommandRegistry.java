@@ -19,6 +19,7 @@ import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import java.lang.reflect.Method;
 import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
@@ -161,8 +162,8 @@ public final class TpaCommandRegistry {
                                         Player p = Bukkit.getPlayer(req.senderId());
                                         String name = (p != null && p.isOnline()) ? p.getName() : null;
                                         if (name == null) {
-                                            OfflinePlayer op = Bukkit.getOfflinePlayer(req.senderId());
-                                            name = op.getName() != null ? op.getName() : req.senderId().toString();
+                                            OfflinePlayer op = resolveOfflinePlayerIfCached(req.senderId());
+                                            name = (op != null && op.getName() != null) ? op.getName() : req.senderId().toString();
                                         }
                                         if (name != null && (remaining.isBlank() || name.regionMatches(true, 0, remaining, 0, remaining.length()))) {
                                             builder.suggest(name);
@@ -206,8 +207,8 @@ public final class TpaCommandRegistry {
                                         Player p = Bukkit.getPlayer(req.senderId());
                                         String name = (p != null && p.isOnline()) ? p.getName() : null;
                                         if (name == null) {
-                                            OfflinePlayer op = Bukkit.getOfflinePlayer(req.senderId());
-                                            name = op.getName() != null ? op.getName() : req.senderId().toString();
+                                            OfflinePlayer op = resolveOfflinePlayerIfCached(req.senderId());
+                                            name = (op != null && op.getName() != null) ? op.getName() : req.senderId().toString();
                                         }
                                         if (name != null && (remaining.isBlank() || name.regionMatches(true, 0, remaining, 0, remaining.length()))) {
                                             builder.suggest(name);
@@ -251,8 +252,8 @@ public final class TpaCommandRegistry {
                                         Player p = Bukkit.getPlayer(req.targetId());
                                         String name = (p != null && p.isOnline()) ? p.getName() : null;
                                         if (name == null) {
-                                            OfflinePlayer op = Bukkit.getOfflinePlayer(req.targetId());
-                                            name = op.getName() != null ? op.getName() : req.targetId().toString();
+                                            OfflinePlayer op = resolveOfflinePlayerIfCached(req.targetId());
+                                            name = (op != null && op.getName() != null) ? op.getName() : req.targetId().toString();
                                         }
                                         if (name != null && (remaining.isBlank() || name.regionMatches(true, 0, remaining, 0, remaining.length()))) {
                                             builder.suggest(name);
@@ -348,8 +349,8 @@ public final class TpaCommandRegistry {
                                         Player p = Bukkit.getPlayer(uuid);
                                         String name = (p != null && p.isOnline()) ? p.getName() : null;
                                         if (name == null) {
-                                            OfflinePlayer op = Bukkit.getOfflinePlayer(uuid);
-                                            name = op.getName() != null ? op.getName() : uuid.toString().substring(0, 8);
+                                            OfflinePlayer op = resolveOfflinePlayerIfCached(uuid);
+                                            name = (op != null && op.getName() != null) ? op.getName() : uuid.toString().substring(0, 8);
                                         }
                                         if (name != null && (remaining.isBlank() || name.regionMatches(true, 0, remaining, 0, remaining.length()))) {
                                             builder.suggest(name);
@@ -443,5 +444,26 @@ public final class TpaCommandRegistry {
             }
         }
         return "Player";
+    }
+
+    private static final Method GET_OFFLINE_PLAYER_IF_CACHED_UUID;
+    static {
+        Method mUuid = null;
+        try {
+            mUuid = Bukkit.class.getMethod("getOfflinePlayerIfCached", UUID.class);
+            mUuid.setAccessible(true);
+        } catch (Throwable ignored) {
+        }
+        GET_OFFLINE_PLAYER_IF_CACHED_UUID = mUuid;
+    }
+
+    private static OfflinePlayer resolveOfflinePlayerIfCached(UUID uuid) {
+        if (GET_OFFLINE_PLAYER_IF_CACHED_UUID != null && uuid != null) {
+            try {
+                return (OfflinePlayer) GET_OFFLINE_PLAYER_IF_CACHED_UUID.invoke(null, uuid);
+            } catch (Throwable ignored) {
+            }
+        }
+        return null;
     }
 }

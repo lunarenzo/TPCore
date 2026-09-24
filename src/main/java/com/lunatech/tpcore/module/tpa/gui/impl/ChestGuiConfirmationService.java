@@ -19,9 +19,11 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
 
+import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 import java.util.function.Supplier;
 
 public final class ChestGuiConfirmationService implements TpaConfirmationMenuService {
@@ -57,10 +59,9 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
         Player senderPlayer = Bukkit.getPlayer(request.senderId());
         String senderName = (senderPlayer != null) ? senderPlayer.getName() : "Player";
         if (senderPlayer == null) {
-            OfflinePlayer offlineSender = Bukkit.getOfflinePlayer(request.senderId());
-            String cachedName = offlineSender.getName();
-            if (cachedName != null) {
-                senderName = cachedName;
+            OfflinePlayer offlineSender = resolveOfflinePlayerIfCached(request.senderId());
+            if (offlineSender != null && offlineSender.getName() != null) {
+                senderName = offlineSender.getName();
             }
         }
 
@@ -235,5 +236,26 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
             return defaultSlot;
         }
         return slot;
+    }
+
+    private static final Method GET_OFFLINE_PLAYER_IF_CACHED_UUID;
+    static {
+        Method mUuid = null;
+        try {
+            mUuid = Bukkit.class.getMethod("getOfflinePlayerIfCached", UUID.class);
+            mUuid.setAccessible(true);
+        } catch (Throwable ignored) {
+        }
+        GET_OFFLINE_PLAYER_IF_CACHED_UUID = mUuid;
+    }
+
+    private static OfflinePlayer resolveOfflinePlayerIfCached(UUID uuid) {
+        if (GET_OFFLINE_PLAYER_IF_CACHED_UUID != null && uuid != null) {
+            try {
+                return (OfflinePlayer) GET_OFFLINE_PLAYER_IF_CACHED_UUID.invoke(null, uuid);
+            } catch (Throwable ignored) {
+            }
+        }
+        return null;
     }
 }

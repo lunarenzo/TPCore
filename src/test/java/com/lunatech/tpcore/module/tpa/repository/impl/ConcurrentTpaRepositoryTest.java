@@ -24,8 +24,8 @@ class ConcurrentTpaRepositoryTest {
     }
 
     @Test
-    @DisplayName("removeAllRequestsForPlayer evicts toggledOff status and request mappings")
-    void testRemoveAllRequestsForPlayerEvictsToggledOff() {
+    @DisplayName("removeAllRequestsForPlayer purges request mappings while preserving user settings")
+    void testRemoveAllRequestsForPlayerPurgesRequestMappings() {
         UUID player1 = UUID.randomUUID();
         UUID player2 = UUID.randomUUID();
 
@@ -35,7 +35,7 @@ class ConcurrentTpaRepositoryTest {
         this.repository.setTpaToggledOff(player1, true);
         this.repository.removeAllRequestsForPlayer(player1);
 
-        assertFalse(this.repository.isTpaToggledOff(player1));
+        assertTrue(this.repository.isTpaToggledOff(player1));
         assertTrue(this.repository.getOutgoingRequests(player1).isEmpty());
         assertTrue(this.repository.getIncomingRequests(player2).isEmpty());
     }
@@ -68,15 +68,21 @@ class ConcurrentTpaRepositoryTest {
         assertTrue(this.repository.isAutoAcceptEnabled(player1));
         assertTrue(this.repository.isPlayerBlocked(player1, player2));
 
-        // Clean up on disconnect
+        // Verify removeAllRequestsForPlayer does not wipe user settings
         this.repository.removeAllRequestsForPlayer(player1);
+        assertTrue(this.repository.isTpaToggledOff(player1));
+        assertTrue(this.repository.isAutoAcceptEnabled(player1));
+        assertTrue(this.repository.isPlayerBlocked(player1, player2));
+
+        // Clean up on explicit null setting
+        this.repository.setUserSettings(player1, null);
         assertFalse(this.repository.isTpaToggledOff(player1));
         assertFalse(this.repository.isAutoAcceptEnabled(player1));
         assertFalse(this.repository.isPlayerBlocked(player1, player2));
     }
 
     @Test
-    @DisplayName("Cooldown tracking functions correctly and cleans up on quit")
+    @DisplayName("Cooldown tracking functions correctly")
     void testCooldownTracking() {
         UUID player1 = UUID.randomUUID();
         long futureTime = System.currentTimeMillis() + 10000L;
@@ -86,6 +92,9 @@ class ConcurrentTpaRepositoryTest {
         assertEquals(futureTime, this.repository.getCooldownEnd(player1));
 
         this.repository.removeAllRequestsForPlayer(player1);
+        assertEquals(futureTime, this.repository.getCooldownEnd(player1));
+
+        this.repository.setCooldownEnd(player1, 0L);
         assertEquals(0L, this.repository.getCooldownEnd(player1));
     }
 }

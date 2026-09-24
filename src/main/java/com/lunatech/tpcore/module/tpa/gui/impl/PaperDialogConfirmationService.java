@@ -17,6 +17,7 @@ import org.slf4j.Logger;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.function.Consumer;
@@ -164,7 +165,7 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
 
             Object bodyItem = DialogReflectionCache.DIALOG_BODY_PLAIN.invoke(null, bodyComp);
             if (DialogReflectionCache.DIALOG_BASE_BODY != null) {
-                DialogReflectionCache.DIALOG_BASE_BODY.invoke(baseBuilder, List.of(bodyItem));
+                DialogReflectionCache.DIALOG_BASE_BODY.invoke(baseBuilder, Collections.singletonList(bodyItem));
             }
             Object dialogBase = DialogReflectionCache.DIALOG_BASE_BUILD != null
                 ? DialogReflectionCache.DIALOG_BASE_BUILD.invoke(baseBuilder)

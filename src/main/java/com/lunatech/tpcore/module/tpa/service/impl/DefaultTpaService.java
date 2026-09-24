@@ -575,16 +575,23 @@ public final class DefaultTpaService implements TpaService {
             }
             Player sender = Bukkit.getPlayer(targetRequest.senderId());
             if (sender != null && sender.isOnline()) {
-                this.closeConfirmationMenuIfOpen(sender, targetRequest.targetId());
-                this.sendMessage(
-                    sender,
-                    this.config().messages().requestDeniedSender(),
-                    "target", target.getName()
+                UUID reqTargetId = targetRequest.targetId();
+                sender.getScheduler().run(
+                    this.plugin,
+                    t -> {
+                        this.closeConfirmationMenuIfOpen(sender, reqTargetId);
+                        this.sendMessage(
+                            sender,
+                            this.config().messages().requestDeniedSender(),
+                            "target", target.getName()
+                        );
+                        if (this.config().enableSounds()) {
+                            TpaConfig cfg = this.config();
+                            playSound(sender, cfg.cancelSound(), (float) cfg.cancelSoundVolume(), (float) cfg.cancelSoundPitch());
+                        }
+                    },
+                    null
                 );
-                if (this.config().enableSounds()) {
-                    TpaConfig cfg = this.config();
-                    playSound(sender, cfg.cancelSound(), (float) cfg.cancelSoundVolume(), (float) cfg.cancelSoundPitch());
-                }
             }
             this.closeConfirmationMenuIfOpen(target, targetRequest.senderId());
             String senderDisplayName = (sender != null) ? sender.getName() : null;
@@ -631,16 +638,23 @@ public final class DefaultTpaService implements TpaService {
             }
             Player target = Bukkit.getPlayer(targetRequest.targetId());
             if (target != null && target.isOnline()) {
-                this.closeConfirmationMenuIfOpen(target, targetRequest.senderId());
-                this.sendMessage(
-                    target,
-                    this.config().messages().requestCancelledTarget(),
-                    "sender", sender.getName()
+                UUID reqSenderId = targetRequest.senderId();
+                target.getScheduler().run(
+                    this.plugin,
+                    t -> {
+                        this.closeConfirmationMenuIfOpen(target, reqSenderId);
+                        this.sendMessage(
+                            target,
+                            this.config().messages().requestCancelledTarget(),
+                            "sender", sender.getName()
+                        );
+                        if (this.config().enableSounds()) {
+                            TpaConfig cfg = this.config();
+                            playSound(target, cfg.cancelSound(), (float) cfg.cancelSoundVolume(), (float) cfg.cancelSoundPitch());
+                        }
+                    },
+                    null
                 );
-                if (this.config().enableSounds()) {
-                    TpaConfig cfg = this.config();
-                    playSound(target, cfg.cancelSound(), (float) cfg.cancelSoundVolume(), (float) cfg.cancelSoundPitch());
-                }
             }
             this.closeConfirmationMenuIfOpen(sender, targetRequest.targetId());
             String targetDisplayName = (target != null) ? target.getName() : null;

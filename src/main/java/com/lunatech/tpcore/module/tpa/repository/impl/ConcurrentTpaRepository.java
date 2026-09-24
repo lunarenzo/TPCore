@@ -106,10 +106,6 @@ public final class ConcurrentTpaRepository implements TpaRepository {
 
     @Override
     public void removeAllRequestsForPlayer(UUID playerId) {
-        this.toggledOffPlayers.remove(playerId);
-        this.userSettingsMap.remove(playerId);
-        this.cooldownsMap.remove(playerId);
-
         Map<UUID, TpaRequest> inc = this.incoming.remove(playerId);
         if (inc != null) {
             for (UUID senderId : inc.keySet()) {
