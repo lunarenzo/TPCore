@@ -689,6 +689,8 @@ public final class DefaultTpaService implements TpaService {
         this.saveUserSettingsToPdc(player);
 
         if (newStatus) {
+            this.repository.removeAllRequestsForPlayer(player.getUniqueId());
+            this.cancelWarmupsForDestination(player.getUniqueId(), this.config().messages().targetToggledOff());
             this.sendMessage(player, this.config().messages().toggleOff());
         } else {
             this.sendMessage(player, this.config().messages().toggleOn());
@@ -705,6 +707,10 @@ public final class DefaultTpaService implements TpaService {
 
         if (newStatus) {
             this.sendMessage(player, this.config().messages().autoAcceptOn());
+            Collection<TpaRequest> incoming = this.repository.getIncomingRequests(player.getUniqueId());
+            if (incoming != null && !incoming.isEmpty()) {
+                this.acceptRequestInternal(player, null, false);
+            }
         } else {
             this.sendMessage(player, this.config().messages().autoAcceptOff());
         }

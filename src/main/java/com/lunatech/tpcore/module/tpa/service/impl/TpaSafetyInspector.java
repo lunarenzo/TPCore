@@ -130,6 +130,9 @@ public final class TpaSafetyInspector {
         if (block == null) {
             return false;
         }
+        if (block.getBlockData() instanceof Waterlogged waterlogged && waterlogged.isWaterlogged()) {
+            return false;
+        }
         return isSolidGround(block.getType());
     }
 

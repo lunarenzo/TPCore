@@ -117,7 +117,7 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
                 ? config.dialogSendCancelText()
                 : "<red><bold>CANCEL</bold></red>";
 
-            String acceptKey = "tpcore:tpa_send_confirm/" + target.getUniqueId().toString() + "/" + type.name().toLowerCase(Locale.ROOT);
+            String acceptKey = "tpcore:tpa_send_confirm/" + target.getUniqueId().toString() + "/" + type.keyName();
             String denyKey = null;
 
             String title = (config.dialogTitle() != null && !config.dialogTitle().isBlank())
