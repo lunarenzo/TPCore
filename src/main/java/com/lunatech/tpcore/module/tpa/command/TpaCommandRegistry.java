@@ -86,12 +86,26 @@ public final class TpaCommandRegistry {
                                         handleSendOrMenu(sender, target, TpaType.TPA_TO);
                                     }
                                 } else {
-                                    String targetArg = extractTargetArg(ctx.getInput());
-                                    sender.sendMessage(this.miniMessage.deserialize(
-                                        cfg.messages().playerNotOnline(),
-                                        Placeholder.parsed("prefix", cfg.messages().prefix()),
-                                        Placeholder.unparsed("player", targetArg)
-                                    ));
+                                    boolean hadSelf = false;
+                                    for (Player p : rawTargets) {
+                                        if (p != null && p.getUniqueId().equals(sender.getUniqueId())) {
+                                            hadSelf = true;
+                                            break;
+                                        }
+                                    }
+                                    if (hadSelf && !cfg.allowSelfTpa()) {
+                                        sender.sendMessage(this.miniMessage.deserialize(
+                                            cfg.messages().rejectSelfTpa(),
+                                            Placeholder.parsed("prefix", cfg.messages().prefix())
+                                        ));
+                                    } else {
+                                        String targetArg = extractTargetArg(ctx.getInput());
+                                        sender.sendMessage(this.miniMessage.deserialize(
+                                            cfg.messages().playerNotOnline(),
+                                            Placeholder.parsed("prefix", cfg.messages().prefix()),
+                                            Placeholder.unparsed("player", targetArg)
+                                        ));
+                                    }
                                 }
                             }
                             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
@@ -136,12 +150,26 @@ public final class TpaCommandRegistry {
                                         handleSendOrMenu(sender, target, TpaType.TPA_HERE);
                                     }
                                 } else {
-                                    String targetArg = extractTargetArg(ctx.getInput());
-                                    sender.sendMessage(this.miniMessage.deserialize(
-                                        cfg.messages().playerNotOnline(),
-                                        Placeholder.parsed("prefix", cfg.messages().prefix()),
-                                        Placeholder.unparsed("player", targetArg)
-                                    ));
+                                    boolean hadSelf = false;
+                                    for (Player p : rawTargets) {
+                                        if (p != null && p.getUniqueId().equals(sender.getUniqueId())) {
+                                            hadSelf = true;
+                                            break;
+                                        }
+                                    }
+                                    if (hadSelf && !cfg.allowSelfTpa()) {
+                                        sender.sendMessage(this.miniMessage.deserialize(
+                                            cfg.messages().rejectSelfTpa(),
+                                            Placeholder.parsed("prefix", cfg.messages().prefix())
+                                        ));
+                                    } else {
+                                        String targetArg = extractTargetArg(ctx.getInput());
+                                        sender.sendMessage(this.miniMessage.deserialize(
+                                            cfg.messages().playerNotOnline(),
+                                            Placeholder.parsed("prefix", cfg.messages().prefix()),
+                                            Placeholder.unparsed("player", targetArg)
+                                        ));
+                                    }
                                 }
                             }
                             return com.mojang.brigadier.Command.SINGLE_SUCCESS;

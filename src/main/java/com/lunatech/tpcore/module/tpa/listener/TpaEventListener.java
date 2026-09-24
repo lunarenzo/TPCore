@@ -1,13 +1,16 @@
 package com.lunatech.tpcore.module.tpa.listener;
 
 import com.lunatech.tpcore.module.tpa.service.TpaService;
+import org.bukkit.GameMode;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
+import org.bukkit.event.player.PlayerBedEnterEvent;
 import org.bukkit.event.player.PlayerChangedWorldEvent;
+import org.bukkit.event.player.PlayerGameModeChangeEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
@@ -76,6 +79,20 @@ public final class TpaEventListener implements Listener {
     public void onVehicleEnter(VehicleEnterEvent event) {
         if (event != null && event.getEntered() instanceof Player player) {
             this.tpaService.handlePlayerMove(player);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onPlayerGameModeChange(PlayerGameModeChangeEvent event) {
+        if (event != null && event.getPlayer() != null && event.getNewGameMode() == GameMode.SPECTATOR) {
+            this.tpaService.handlePlayerTeleport(event.getPlayer().getUniqueId());
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onPlayerBedEnter(PlayerBedEnterEvent event) {
+        if (event != null && event.getPlayer() != null) {
+            this.tpaService.handlePlayerMove(event.getPlayer());
         }
     }
 }
