@@ -19,6 +19,7 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.function.Supplier;
@@ -81,7 +82,7 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
                     ? "<gray>Request Type: <gold>TPA Here (Teleport to them)</gold></gray>"
                     : "<gray>Request Type: <gold>TPA (Teleport to you)</gold></gray>");
 
-            skullMeta.lore(List.of(
+            skullMeta.lore(Arrays.asList(
                 formatComponent(reqTypeText, Placeholder.unparsed("sender", senderName), Placeholder.unparsed("target", target.getName())),
                 formatComponent("<gray>Expires in: <gold>" + cfg.requestTimeoutSeconds() + "s</gold></gray>")
             ));
@@ -170,7 +171,7 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
                     ? "<gray>Request Type: <gold>TPA Here (Ask them to teleport to you)</gold></gray>"
                     : "<gray>Request Type: <gold>TPA (Teleport to their location)</gold></gray>");
 
-            skullMeta.lore(List.of(
+            skullMeta.lore(Arrays.asList(
                 formatComponent(reqTypeText, Placeholder.unparsed("sender", sender.getName()), Placeholder.unparsed("target", target.getName())),
                 formatComponent("<gray>Timeout: <gold>" + cfg.requestTimeoutSeconds() + "s</gold></gray>")
             ));

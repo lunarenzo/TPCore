@@ -102,22 +102,24 @@ public final class TpaSafetyInspector {
                     continue;
                 }
 
+                Location candidate = new Location(
+                    world,
+                    checkX + 0.5,
+                    checkY,
+                    checkZ + 0.5,
+                    targetLocation.getYaw(),
+                    targetLocation.getPitch()
+                );
+                if (!world.getWorldBorder().isInside(candidate)) {
+                    continue;
+                }
+
                 Block standOn = world.getBlockAt(checkX, checkY - 1, checkZ);
                 Block feet = world.getBlockAt(checkX, checkY, checkZ);
                 Block head = world.getBlockAt(checkX, checkY + 1, checkZ);
 
                 if (isSolidGround(standOn) && isPassable(feet) && isPassable(head)) {
-                    Location candidate = new Location(
-                        world,
-                        checkX + 0.5,
-                        checkY,
-                        checkZ + 0.5,
-                        targetLocation.getYaw(),
-                        targetLocation.getPitch()
-                    );
-                    if (world.getWorldBorder().isInside(candidate)) {
-                        return candidate;
-                    }
+                    return candidate;
                 }
             }
         }

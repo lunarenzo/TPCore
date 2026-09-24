@@ -163,8 +163,8 @@ public final class DefaultTpaService implements TpaService {
                             Player target = Bukkit.getPlayer(request.targetId());
                             String targetName = (target != null && target.isOnline()) ? target.getName() : null;
                             if (targetName == null) {
-                                OfflinePlayer op = Bukkit.getOfflinePlayer(request.targetId());
-                                targetName = op.getName();
+                                OfflinePlayer op = resolveOfflinePlayerIfCached(request.targetId());
+                                targetName = (op != null) ? op.getName() : null;
                             }
                             String finalTargetName = (targetName != null) ? targetName : "Player";
                             sender.getScheduler().run(
@@ -186,8 +186,8 @@ public final class DefaultTpaService implements TpaService {
                             Player senderPlayer = Bukkit.getPlayer(request.senderId());
                             String senderName = (senderPlayer != null && senderPlayer.isOnline()) ? senderPlayer.getName() : null;
                             if (senderName == null) {
-                                OfflinePlayer op = Bukkit.getOfflinePlayer(request.senderId());
-                                senderName = op.getName();
+                                OfflinePlayer op = resolveOfflinePlayerIfCached(request.senderId());
+                                senderName = (op != null) ? op.getName() : null;
                             }
                             String finalSenderName = (senderName != null) ? senderName : "Player";
                             target.getScheduler().run(
@@ -693,20 +693,38 @@ public final class DefaultTpaService implements TpaService {
     }
 
     private static final Method GET_OFFLINE_PLAYER_IF_CACHED;
+    private static final Method GET_OFFLINE_PLAYER_IF_CACHED_UUID;
     static {
-        Method m = null;
+        Method mName = null;
+        Method mUuid = null;
         try {
-            m = Bukkit.class.getMethod("getOfflinePlayerIfCached", String.class);
-            m.setAccessible(true);
+            mName = Bukkit.class.getMethod("getOfflinePlayerIfCached", String.class);
+            mName.setAccessible(true);
         } catch (Throwable ignored) {
         }
-        GET_OFFLINE_PLAYER_IF_CACHED = m;
+        try {
+            mUuid = Bukkit.class.getMethod("getOfflinePlayerIfCached", UUID.class);
+            mUuid.setAccessible(true);
+        } catch (Throwable ignored) {
+        }
+        GET_OFFLINE_PLAYER_IF_CACHED = mName;
+        GET_OFFLINE_PLAYER_IF_CACHED_UUID = mUuid;
     }
 
     private static OfflinePlayer resolveOfflinePlayerIfCached(String name) {
-        if (GET_OFFLINE_PLAYER_IF_CACHED != null) {
+        if (GET_OFFLINE_PLAYER_IF_CACHED != null && name != null) {
             try {
                 return (OfflinePlayer) GET_OFFLINE_PLAYER_IF_CACHED.invoke(null, name);
+            } catch (Throwable ignored) {
+            }
+        }
+        return null;
+    }
+
+    private static OfflinePlayer resolveOfflinePlayerIfCached(UUID uuid) {
+        if (GET_OFFLINE_PLAYER_IF_CACHED_UUID != null && uuid != null) {
+            try {
+                return (OfflinePlayer) GET_OFFLINE_PLAYER_IF_CACHED_UUID.invoke(null, uuid);
             } catch (Throwable ignored) {
             }
         }
