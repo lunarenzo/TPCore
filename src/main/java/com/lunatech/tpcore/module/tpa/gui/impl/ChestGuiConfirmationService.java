@@ -65,16 +65,16 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
             }
         }
 
+        final String finalSenderName = senderName;
         ItemStack headItem = new ItemStack(Material.PLAYER_HEAD);
-        SkullMeta skullMeta = (SkullMeta) headItem.getItemMeta();
-        if (skullMeta != null) {
+        headItem.editMeta(SkullMeta.class, skullMeta -> {
             if (senderPlayer != null && senderPlayer.isOnline()) {
                 skullMeta.setPlayerProfile(senderPlayer.getPlayerProfile());
             } else {
-                skullMeta.setPlayerProfile(Bukkit.createProfile(request.senderId(), senderName));
+                skullMeta.setPlayerProfile(Bukkit.createProfile(request.senderId(), finalSenderName));
             }
 
-            skullMeta.displayName(formatComponent("<yellow><bold>" + senderName + "</bold></yellow>"));
+            skullMeta.displayName(formatComponent("<yellow><bold>" + finalSenderName + "</bold></yellow>"));
 
             String reqTypeConfig = (request.type() == TpaType.TPA_HERE) ? cfg.dialogAcceptTpahereBodyText() : cfg.dialogAcceptTpaBodyText();
             String reqTypeText = (reqTypeConfig != null && !reqTypeConfig.isBlank())
@@ -84,15 +84,13 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
                     : "<gray>Request Type: <gold>TPA (Teleport to you)</gold></gray>");
 
             List<Component> loreList = new java.util.ArrayList<>(formatComponents(reqTypeText,
-                Placeholder.unparsed("sender", senderName),
+                Placeholder.unparsed("sender", finalSenderName),
                 Placeholder.unparsed("target", target.getName()),
                 Placeholder.unparsed("seconds", String.valueOf(cfg.requestTimeoutSeconds()))
             ));
             loreList.add(formatComponent("<gray>Expires in: <gold>" + cfg.requestTimeoutSeconds() + "s</gold></gray>"));
             skullMeta.lore(loreList);
-
-            headItem.setItemMeta(skullMeta);
-        }
+        });
         int headSlot = clampSlot(cfg.guiHeadSlot(), 13);
         int acceptSlot = clampSlot(cfg.guiAcceptSlot(), 15);
         int denySlot = clampSlot(cfg.guiDenySlot(), 11);
@@ -160,8 +158,7 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
 
         // Target's Player Head
         ItemStack headItem = new ItemStack(Material.PLAYER_HEAD);
-        SkullMeta skullMeta = (SkullMeta) headItem.getItemMeta();
-        if (skullMeta != null) {
+        headItem.editMeta(SkullMeta.class, skullMeta -> {
             if (target.isOnline()) {
                 skullMeta.setPlayerProfile(target.getPlayerProfile());
             } else {
@@ -184,9 +181,7 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
             ));
             loreList.add(formatComponent("<gray>Timeout: <gold>" + cfg.requestTimeoutSeconds() + "s</gold></gray>"));
             skullMeta.lore(loreList);
-
-            headItem.setItemMeta(skullMeta);
-        }
+        });
         inventory.setItem(headSlot, headItem);
 
         // Confirm Send Button
@@ -212,11 +207,7 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
 
     private ItemStack createItem(Material material, String nameMiniMessage) {
         ItemStack item = new ItemStack(material);
-        ItemMeta meta = item.getItemMeta();
-        if (meta != null) {
-            meta.displayName(formatComponent(nameMiniMessage));
-            item.setItemMeta(meta);
-        }
+        item.editMeta(meta -> meta.displayName(formatComponent(nameMiniMessage)));
         return item;
     }
 

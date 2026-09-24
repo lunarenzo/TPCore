@@ -59,6 +59,7 @@ public final class DefaultTpaService implements TpaService {
     private final Map<UUID, ActiveWarmup> activeWarmups = new ConcurrentHashMap<>();
     private final Map<String, Key> soundKeyCache = new ConcurrentHashMap<>();
     private final ScheduledTask sweeperTask;
+    private static final Title.Times WARMUP_TITLE_TIMES = Title.Times.times(Duration.ZERO, Duration.ofSeconds(1), Duration.ofMillis(200));
 
     private static final class ActiveWarmup {
         private final UUID teleportingPlayerId;
@@ -358,7 +359,8 @@ public final class DefaultTpaService implements TpaService {
     private boolean processSingleSendRequest(Player sender, Player target, TpaType type, boolean applyCooldown, boolean isBulk) {
         if (sender == null || target == null || !target.isOnline()) {
             if (!isBulk && sender != null && sender.isOnline()) {
-                this.sendMessage(sender, this.config().messages().playerNotOnline(), "player", "Player");
+                String targetName = (target != null && target.getName() != null) ? target.getName() : "Player";
+                this.sendMessage(sender, this.config().messages().playerNotOnline(), "player", targetName);
             }
             return false;
         }
@@ -1218,7 +1220,7 @@ public final class DefaultTpaService implements TpaService {
             Title title = Title.title(
                 this.miniMessage.deserialize(cfg.titleFormat(), combined),
                 this.miniMessage.deserialize(cfg.subtitleFormat(), combined),
-                Title.Times.times(Duration.ZERO, Duration.ofSeconds(1), Duration.ofMillis(200))
+                WARMUP_TITLE_TIMES
             );
             player.showTitle(title);
         }
@@ -1317,6 +1319,7 @@ public final class DefaultTpaService implements TpaService {
                 if (this.config().requireSafeLocation()) {
                     Location safeLoc = TpaSafetyInspector.findSafeLocation(rawTargetLoc);
                     if (safeLoc == null) {
+                        this.repository.setCooldownEnd(player.getUniqueId(), 0L);
                         player.getScheduler().run(
                             this.plugin,
                             pTask -> this.sendMessage(player, this.config().messages().unsafeDestination()),
