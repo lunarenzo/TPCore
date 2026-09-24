@@ -979,6 +979,7 @@ public final class DefaultTpaService implements TpaService {
         }
 
         this.repository.removeAllRequestsForPlayer(playerId);
+        this.repository.setUserSettings(playerId, null);
         this.cancelWarmup(playerId, null);
         this.cancelWarmupsForDestination(playerId, this.config().messages().targetToggledOff());
     }
@@ -1132,6 +1133,9 @@ public final class DefaultTpaService implements TpaService {
         );
 
         warmup.setTask(task);
+        if (warmup.isCancelled() && task != null) {
+            task.cancel();
+        }
     }
 
     private void updateWarmupFeedback(Player player, int remainingSeconds, int totalWarmupSeconds) {
@@ -1264,7 +1268,11 @@ public final class DefaultTpaService implements TpaService {
                             }
                             player.leaveVehicle();
                         }
-                        player.teleportAsync(destination);
+                        player.teleportAsync(destination).thenAccept(success -> {
+                            if (!success && player.isOnline()) {
+                                this.sendMessage(player, this.config().messages().unsafeDestination());
+                            }
+                        });
                     },
                     null
                 );

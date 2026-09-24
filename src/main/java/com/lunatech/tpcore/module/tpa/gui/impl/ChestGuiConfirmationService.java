@@ -118,7 +118,9 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
         ItemStack denyItem = createItem(denyMat, denyName);
         inventory.setItem(denySlot, denyItem);
 
-        target.openInventory(inventory);
+        if (target.isOnline()) {
+            target.openInventory(inventory);
+        }
     }
 
     @Override
@@ -197,7 +199,9 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
         ItemStack denyItem = createItem(denyMat, sendCancelName);
         inventory.setItem(denySlot, denyItem);
 
-        sender.openInventory(inventory);
+        if (sender.isOnline()) {
+            sender.openInventory(inventory);
+        }
     }
 
     private ItemStack createItem(Material material, String nameMiniMessage) {
