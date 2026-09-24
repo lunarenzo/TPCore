@@ -163,7 +163,7 @@ public final class TpaCommandRegistry {
                                         String name = (p != null && p.isOnline()) ? p.getName() : null;
                                         if (name == null) {
                                             OfflinePlayer op = resolveOfflinePlayerIfCached(req.senderId());
-                                            name = (op != null && op.getName() != null) ? op.getName() : req.senderId().toString();
+                                            name = (op != null) ? op.getName() : null;
                                         }
                                         if (name != null && (remaining.isBlank() || name.regionMatches(true, 0, remaining, 0, remaining.length()))) {
                                             builder.suggest(name);
@@ -208,7 +208,7 @@ public final class TpaCommandRegistry {
                                         String name = (p != null && p.isOnline()) ? p.getName() : null;
                                         if (name == null) {
                                             OfflinePlayer op = resolveOfflinePlayerIfCached(req.senderId());
-                                            name = (op != null && op.getName() != null) ? op.getName() : req.senderId().toString();
+                                            name = (op != null) ? op.getName() : null;
                                         }
                                         if (name != null && (remaining.isBlank() || name.regionMatches(true, 0, remaining, 0, remaining.length()))) {
                                             builder.suggest(name);
@@ -253,7 +253,7 @@ public final class TpaCommandRegistry {
                                         String name = (p != null && p.isOnline()) ? p.getName() : null;
                                         if (name == null) {
                                             OfflinePlayer op = resolveOfflinePlayerIfCached(req.targetId());
-                                            name = (op != null && op.getName() != null) ? op.getName() : req.targetId().toString();
+                                            name = (op != null) ? op.getName() : null;
                                         }
                                         if (name != null && (remaining.isBlank() || name.regionMatches(true, 0, remaining, 0, remaining.length()))) {
                                             builder.suggest(name);
@@ -350,7 +350,7 @@ public final class TpaCommandRegistry {
                                         String name = (p != null && p.isOnline()) ? p.getName() : null;
                                         if (name == null) {
                                             OfflinePlayer op = resolveOfflinePlayerIfCached(uuid);
-                                            name = (op != null && op.getName() != null) ? op.getName() : uuid.toString().substring(0, 8);
+                                            name = (op != null) ? op.getName() : null;
                                         }
                                         if (name != null && (remaining.isBlank() || name.regionMatches(true, 0, remaining, 0, remaining.length()))) {
                                             builder.suggest(name);

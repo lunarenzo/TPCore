@@ -68,7 +68,7 @@ public final class TpaModule implements ReloadableModule {
         this.service = new DefaultTpaService(this.plugin, this.repository, this.config);
         this.confirmationMenuService = new DynamicConfirmationMenuService(() -> this.config, () -> this.service, this.plugin.getSLF4JLogger());
         this.listener = new TpaEventListener(this.service);
-        this.guiListener = new TpaGuiListener(this.service, () -> this.config);
+        this.guiListener = new TpaGuiListener(this.plugin, this.service, () -> this.config);
         this.dialogListener = new TpaDialogListener(this.plugin, () -> this.service);
         this.commandRegistry = new TpaCommandRegistry(this.plugin, this.service, () -> this.config, this.confirmationMenuService);
 

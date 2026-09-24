@@ -12,14 +12,18 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 
+import org.bukkit.plugin.java.JavaPlugin;
+
 import java.util.function.Supplier;
 
 public final class TpaGuiListener implements Listener {
 
+    private final JavaPlugin plugin;
     private final TpaService tpaService;
     private final Supplier<TpaConfig> configSupplier;
 
-    public TpaGuiListener(TpaService tpaService, Supplier<TpaConfig> configSupplier) {
+    public TpaGuiListener(JavaPlugin plugin, TpaService tpaService, Supplier<TpaConfig> configSupplier) {
+        this.plugin = plugin;
         this.tpaService = tpaService;
         this.configSupplier = configSupplier;
     }
@@ -52,29 +56,29 @@ public final class TpaGuiListener implements Listener {
             if (holder.getConfirmationType() == TpaConfirmationHolder.ConfirmationType.SEND_REQUEST) {
                 Player target = (holder.getTargetPlayerId() != null) ? Bukkit.getPlayer(holder.getTargetPlayerId()) : null;
                 if (slot == acceptSlot) {
-                    player.closeInventory();
+                    closeInventoryDeferred(player);
                     if (target != null && target.isOnline()) {
                         this.tpaService.sendRequest(player, target, holder.getTpaType());
                     }
                 } else if (slot == denySlot) {
-                    player.closeInventory();
+                    closeInventoryDeferred(player);
                 }
             } else if (holder.getConfirmationType() == TpaConfirmationHolder.ConfirmationType.ACCEPT_REQUEST) {
                 TpaRequest request = holder.getRequest();
                 if (request == null || request.isExpired(cfg.requestTimeoutSeconds())) {
-                    player.closeInventory();
+                    closeInventoryDeferred(player);
                     return;
                 }
 
                 if (slot == acceptSlot) {
-                    player.closeInventory();
+                    closeInventoryDeferred(player);
                     String senderIdStr = request.senderId().toString();
                     TpaRequest pending = this.tpaService.findPendingRequest(player, senderIdStr);
                     if (pending != null && !pending.isExpired(cfg.requestTimeoutSeconds())) {
                         this.tpaService.acceptRequest(player, senderIdStr);
                     }
                 } else if (slot == denySlot) {
-                    player.closeInventory();
+                    closeInventoryDeferred(player);
                     String senderIdStr = request.senderId().toString();
                     TpaRequest pending = this.tpaService.findPendingRequest(player, senderIdStr);
                     if (pending != null && !pending.isExpired(cfg.requestTimeoutSeconds())) {
@@ -82,6 +86,12 @@ public final class TpaGuiListener implements Listener {
                     }
                 }
             }
+        }
+    }
+
+    private void closeInventoryDeferred(Player player) {
+        if (player != null && player.isOnline()) {
+            player.getScheduler().run(this.plugin, t -> player.closeInventory(), null);
         }
     }
 

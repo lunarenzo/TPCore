@@ -205,9 +205,14 @@ public final class TpaDialogListener implements Listener {
                 getProf = findMethod(connClass, "getProfile");
 
                 try {
-                    Class<?> profClass = Class.forName("com.mojang.authlib.GameProfile");
+                    Class<?> profClass = Class.forName("com.destroystokyo.paper.profile.PlayerProfile");
                     getId = findMethod(profClass, "getId");
                 } catch (ClassNotFoundException ignored) {
+                    try {
+                        Class<?> profClass = Class.forName("org.bukkit.profile.PlayerProfile");
+                        getId = findMethod(profClass, "getId");
+                    } catch (ClassNotFoundException ignored2) {
+                    }
                 }
 
                 closeDiag = findMethod(Player.class, "closeDialog");

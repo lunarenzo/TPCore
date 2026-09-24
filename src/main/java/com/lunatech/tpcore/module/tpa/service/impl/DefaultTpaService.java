@@ -156,7 +156,9 @@ public final class DefaultTpaService implements TpaService {
 
                 if (!expired.isEmpty()) {
                     for (TpaRequest request : expired) {
-                        this.repository.removeRequest(request.targetId(), request.senderId());
+                        if (!this.repository.removeRequest(request.targetId(), request.senderId())) {
+                            continue;
+                        }
 
                         Player sender = Bukkit.getPlayer(request.senderId());
                         if (sender != null && sender.isOnline()) {
