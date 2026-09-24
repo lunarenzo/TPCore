@@ -589,8 +589,8 @@ public final class DefaultTpaService implements TpaService {
             this.closeConfirmationMenuIfOpen(target, targetRequest.senderId());
             String senderDisplayName = (sender != null) ? sender.getName() : null;
             if (senderDisplayName == null) {
-                OfflinePlayer op = Bukkit.getOfflinePlayer(targetRequest.senderId());
-                senderDisplayName = op.getName() != null ? op.getName() : "Player";
+                OfflinePlayer op = resolveOfflinePlayerIfCached(targetRequest.senderId());
+                senderDisplayName = (op != null && op.getName() != null) ? op.getName() : "Player";
             }
             this.sendMessage(
                 target,
@@ -645,8 +645,8 @@ public final class DefaultTpaService implements TpaService {
             this.closeConfirmationMenuIfOpen(sender, targetRequest.targetId());
             String targetDisplayName = (target != null) ? target.getName() : null;
             if (targetDisplayName == null) {
-                OfflinePlayer op = Bukkit.getOfflinePlayer(targetRequest.targetId());
-                targetDisplayName = op.getName() != null ? op.getName() : "Player";
+                OfflinePlayer op = resolveOfflinePlayerIfCached(targetRequest.targetId());
+                targetDisplayName = (op != null && op.getName() != null) ? op.getName() : "Player";
             }
             this.sendMessage(
                 sender,
@@ -801,8 +801,8 @@ public final class DefaultTpaService implements TpaService {
             if (p != null && p.isOnline()) {
                 names.add(p.getName());
             } else {
-                OfflinePlayer op = Bukkit.getOfflinePlayer(uuid);
-                String name = op.getName();
+                OfflinePlayer op = resolveOfflinePlayerIfCached(uuid);
+                String name = (op != null) ? op.getName() : null;
                 names.add(name != null ? name : uuid.toString().substring(0, 8));
             }
         }
@@ -878,8 +878,8 @@ public final class DefaultTpaService implements TpaService {
                 return req;
             }
             if (sender == null) {
-                OfflinePlayer op = Bukkit.getOfflinePlayer(req.senderId());
-                String cachedName = op.getName();
+                OfflinePlayer op = resolveOfflinePlayerIfCached(req.senderId());
+                String cachedName = (op != null) ? op.getName() : null;
                 if (cachedName != null && cachedName.equalsIgnoreCase(trimmed)) {
                     return req;
                 }
@@ -903,8 +903,8 @@ public final class DefaultTpaService implements TpaService {
                 return req;
             }
             if (target == null) {
-                OfflinePlayer op = Bukkit.getOfflinePlayer(req.targetId());
-                String cachedName = op.getName();
+                OfflinePlayer op = resolveOfflinePlayerIfCached(req.targetId());
+                String cachedName = (op != null) ? op.getName() : null;
                 if (cachedName != null && cachedName.equalsIgnoreCase(trimmed)) {
                     return req;
                 }
