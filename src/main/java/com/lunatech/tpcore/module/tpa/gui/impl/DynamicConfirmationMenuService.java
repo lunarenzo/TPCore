@@ -8,6 +8,8 @@ import com.lunatech.tpcore.module.tpa.service.TpaService;
 import org.bukkit.entity.Player;
 import org.slf4j.Logger;
 
+import org.bukkit.plugin.java.JavaPlugin;
+
 import java.util.Locale;
 import java.util.function.Supplier;
 
@@ -18,13 +20,14 @@ public final class DynamicConfirmationMenuService implements TpaConfirmationMenu
     private final PaperDialogConfirmationService paperDialogService;
 
     public DynamicConfirmationMenuService(
+        JavaPlugin plugin,
         Supplier<TpaConfig> configSupplier,
         Supplier<TpaService> serviceSupplier,
         Logger logger
     ) {
         this.configSupplier = configSupplier;
-        this.chestGuiService = new ChestGuiConfirmationService(configSupplier);
-        this.paperDialogService = new PaperDialogConfirmationService(configSupplier, serviceSupplier, logger);
+        this.chestGuiService = new ChestGuiConfirmationService(plugin, configSupplier);
+        this.paperDialogService = new PaperDialogConfirmationService(plugin, configSupplier, serviceSupplier, logger);
     }
 
     @Override

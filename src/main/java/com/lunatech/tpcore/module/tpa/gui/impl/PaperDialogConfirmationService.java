@@ -13,6 +13,7 @@ import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
+import org.bukkit.plugin.java.JavaPlugin;
 import org.slf4j.Logger;
 
 import java.lang.reflect.Method;
@@ -33,13 +34,21 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
     private boolean loggedNotice = false;
 
     public PaperDialogConfirmationService(Supplier<TpaConfig> configSupplier, Logger logger) {
-        this(configSupplier, () -> null, logger);
+        this(null, configSupplier, () -> null, logger);
     }
 
     public PaperDialogConfirmationService(Supplier<TpaConfig> configSupplier, Supplier<TpaService> serviceSupplier, Logger logger) {
+        this(null, configSupplier, serviceSupplier, logger);
+    }
+
+    public PaperDialogConfirmationService(JavaPlugin plugin, Supplier<TpaConfig> configSupplier, Logger logger) {
+        this(plugin, configSupplier, () -> null, logger);
+    }
+
+    public PaperDialogConfirmationService(JavaPlugin plugin, Supplier<TpaConfig> configSupplier, Supplier<TpaService> serviceSupplier, Logger logger) {
         this.configSupplier = configSupplier;
         this.serviceSupplier = serviceSupplier;
-        this.fallbackChestGui = new ChestGuiConfirmationService(configSupplier);
+        this.fallbackChestGui = new ChestGuiConfirmationService(plugin, configSupplier);
         this.logger = logger;
     }
 

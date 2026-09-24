@@ -348,12 +348,14 @@ public final class DefaultTpaService implements TpaService {
         boolean sentAny = false;
         for (Player target : targets) {
             if (target != null && target.isOnline()) {
-                if (type == TpaType.TPA_TO && this.activeWarmups.containsKey(sender.getUniqueId())) {
+                if ((type == TpaType.TPA_TO && this.activeWarmups.containsKey(sender.getUniqueId()))
+                    || (type == TpaType.TPA_HERE && this.activeWarmups.containsKey(target.getUniqueId()))) {
                     break;
                 }
                 if (processSingleSendRequest(sender, target, type, false, true)) {
                     sentAny = true;
-                    if (this.activeWarmups.containsKey(sender.getUniqueId())) {
+                    if ((type == TpaType.TPA_TO && this.activeWarmups.containsKey(sender.getUniqueId()))
+                        || (type == TpaType.TPA_HERE && this.activeWarmups.containsKey(target.getUniqueId()))) {
                         break;
                     }
                 }
@@ -393,7 +395,8 @@ public final class DefaultTpaService implements TpaService {
         }
 
         if (this.repository.isAutoAcceptEnabled(target.getUniqueId())) {
-            if (type == TpaType.TPA_TO && this.activeWarmups.containsKey(sender.getUniqueId())) {
+            if ((type == TpaType.TPA_TO && this.activeWarmups.containsKey(sender.getUniqueId()))
+                || (type == TpaType.TPA_HERE && this.activeWarmups.containsKey(target.getUniqueId()))) {
                 return false;
             }
             int cooldownSecs = this.config().requestCooldownSeconds();

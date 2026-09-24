@@ -19,6 +19,8 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
 
+import org.bukkit.plugin.java.JavaPlugin;
+
 import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.List;
@@ -28,10 +30,16 @@ import java.util.function.Supplier;
 
 public final class ChestGuiConfirmationService implements TpaConfirmationMenuService {
 
+    private final JavaPlugin plugin;
     private final Supplier<TpaConfig> configSupplier;
     private final MiniMessage miniMessage;
 
     public ChestGuiConfirmationService(Supplier<TpaConfig> configSupplier) {
+        this(null, configSupplier);
+    }
+
+    public ChestGuiConfirmationService(JavaPlugin plugin, Supplier<TpaConfig> configSupplier) {
+        this.plugin = plugin;
         this.configSupplier = configSupplier;
         this.miniMessage = MiniMessage.miniMessage();
     }
@@ -120,7 +128,7 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
         inventory.setItem(denySlot, denyItem);
 
         if (target.isOnline()) {
-            target.openInventory(inventory);
+            target.getScheduler().run(this.plugin, t -> target.openInventory(inventory), null);
         }
     }
 
@@ -201,7 +209,7 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
         inventory.setItem(denySlot, denyItem);
 
         if (sender.isOnline()) {
-            sender.openInventory(inventory);
+            sender.getScheduler().run(this.plugin, t -> sender.openInventory(inventory), null);
         }
     }
 

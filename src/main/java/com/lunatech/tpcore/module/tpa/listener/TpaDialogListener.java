@@ -99,13 +99,17 @@ public final class TpaDialogListener implements Listener {
 
             if (keyString.startsWith("tpcore:tpa_accept/")) {
                 String senderIdStr = keyString.substring("tpcore:tpa_accept/".length());
+                closePlayerDialog(player);
                 service.acceptRequest(player, senderIdStr);
             } else if (keyString.startsWith("tpcore:tpa_deny/")) {
                 String senderIdStr = keyString.substring("tpcore:tpa_deny/".length());
+                closePlayerDialog(player);
                 service.denyRequest(player, senderIdStr);
             } else if ("tpcore:tpa_accept".equals(keyString)) {
+                closePlayerDialog(player);
                 service.acceptRequest(player, null);
             } else if ("tpcore:tpa_deny".equals(keyString)) {
+                closePlayerDialog(player);
                 service.denyRequest(player, null);
             } else if ("tpcore:tpa_send_cancel".equals(keyString)) {
                 closePlayerDialog(player);
@@ -119,6 +123,7 @@ public final class TpaDialogListener implements Listener {
                         UUID targetId = UUID.fromString(targetIdStr);
                         TpaType type = "tpa_here".equalsIgnoreCase(typeStr) ? TpaType.TPA_HERE : TpaType.TPA_TO;
                         Player target = Bukkit.getPlayer(targetId);
+                        closePlayerDialog(player);
                         service.sendRequest(player, target, type);
                     } catch (Exception e) {
                         this.logger.warn("Failed to parse send confirmation data from dialog key: {}", keyString);
