@@ -54,10 +54,11 @@ public final class TpaGuiListener implements Listener {
             }
 
             if (holder.getConfirmationType() == TpaConfirmationHolder.ConfirmationType.SEND_REQUEST) {
-                Player target = (holder.getTargetPlayerId() != null) ? Bukkit.getPlayer(holder.getTargetPlayerId()) : null;
                 if (slot == acceptSlot) {
                     closeInventoryDeferred(player);
-                    this.tpaService.sendRequest(player, target, holder.getTpaType());
+                    if (holder.getTargetPlayerId() != null) {
+                        this.tpaService.sendRequest(player, holder.getTargetPlayerId(), holder.getTpaType());
+                    }
                 } else if (slot == denySlot) {
                     closeInventoryDeferred(player);
                 }
@@ -105,5 +106,26 @@ public final class TpaGuiListener implements Listener {
         if (event.getView().getTopInventory().getHolder() instanceof TpaConfirmationHolder) {
             event.setCancelled(true);
         }
+    }
+
+    private static final java.lang.reflect.Method GET_OFFLINE_PLAYER_IF_CACHED_UUID;
+    static {
+        java.lang.reflect.Method mUuid = null;
+        try {
+            mUuid = Bukkit.class.getMethod("getOfflinePlayerIfCached", java.util.UUID.class);
+            mUuid.setAccessible(true);
+        } catch (Throwable ignored) {
+        }
+        GET_OFFLINE_PLAYER_IF_CACHED_UUID = mUuid;
+    }
+
+    private static org.bukkit.OfflinePlayer resolveOfflinePlayerIfCached(java.util.UUID uuid) {
+        if (GET_OFFLINE_PLAYER_IF_CACHED_UUID != null && uuid != null) {
+            try {
+                return (org.bukkit.OfflinePlayer) GET_OFFLINE_PLAYER_IF_CACHED_UUID.invoke(null, uuid);
+            } catch (Throwable ignored) {
+            }
+        }
+        return null;
     }
 }

@@ -325,6 +325,21 @@ public final class DefaultTpaService implements TpaService {
     }
 
     @Override
+    public void sendRequest(Player sender, UUID targetId, TpaType type) {
+        if (sender == null || targetId == null) {
+            return;
+        }
+        Player target = Bukkit.getPlayer(targetId);
+        if (target != null && target.isOnline()) {
+            sendRequest(sender, target, type);
+        } else if (sender.isOnline()) {
+            OfflinePlayer op = resolveOfflinePlayerIfCached(targetId);
+            String targetName = (op != null && op.getName() != null) ? op.getName() : "Player";
+            this.sendMessage(sender, this.config().messages().playerNotOnline(), "player", targetName);
+        }
+    }
+
+    @Override
     public void sendBulkRequests(Player sender, List<Player> targets, TpaType type) {
         if (sender == null || targets == null || targets.isEmpty()) {
             return;
@@ -1132,13 +1147,14 @@ public final class DefaultTpaService implements TpaService {
         this.repository.setUserSettings(playerId, null);
         this.repository.setCooldownEnd(playerId, 0L);
         this.cancelWarmup(playerId, null);
-        this.cancelWarmupsForDestination(playerId, this.config().messages().targetToggledOff());
+        this.cancelWarmupsForDestination(playerId, this.config().messages().playerNotOnline());
     }
 
     @Override
     public void handlePlayerDamage(UUID playerId) {
         if (this.config().cancelOnDamage()) {
             this.cancelWarmup(playerId, this.config().messages().warmupCancelledDamage());
+            this.cancelWarmupsForDestination(playerId, this.config().messages().warmupCancelledDamage());
         }
     }
 
@@ -1173,7 +1189,7 @@ public final class DefaultTpaService implements TpaService {
     public void handlePlayerDeath(UUID playerId) {
         this.repository.removeAllRequestsForPlayer(playerId);
         this.cancelWarmup(playerId, null);
-        this.cancelWarmupsForDestination(playerId, this.config().messages().targetToggledOff());
+        this.cancelWarmupsForDestination(playerId, this.config().messages().playerNotOnline());
     }
 
     private void cancelWarmupsForDestination(UUID destinationId, String cancelMessage) {
@@ -1433,12 +1449,23 @@ public final class DefaultTpaService implements TpaService {
                             return;
                         }
                         player.teleportAsync(destination).thenAccept(success -> {
-                            if (!success && player.isOnline()) {
-                                player.getScheduler().run(
-                                    this.plugin,
-                                    pTask -> this.sendMessage(player, this.config().messages().unsafeDestination()),
-                                    null
-                                );
+                            if (!success) {
+                                this.repository.setCooldownEnd(player.getUniqueId(), 0L);
+                                this.repository.setCooldownEnd(destinationPlayer.getUniqueId(), 0L);
+                                if (player.isOnline()) {
+                                    player.getScheduler().run(
+                                        this.plugin,
+                                        pTask -> this.sendMessage(player, this.config().messages().unsafeDestination()),
+                                        null
+                                    );
+                                }
+                                if (destinationPlayer.isOnline()) {
+                                    destinationPlayer.getScheduler().run(
+                                        this.plugin,
+                                        dTask -> this.sendMessage(destinationPlayer, this.config().messages().unsafeDestination()),
+                                        null
+                                    );
+                                }
                             }
                         });
                     },

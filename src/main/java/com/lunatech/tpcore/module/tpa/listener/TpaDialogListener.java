@@ -122,9 +122,8 @@ public final class TpaDialogListener implements Listener {
                         String typeStr = sub.substring(slashIdx + 1);
                         UUID targetId = UUID.fromString(targetIdStr);
                         TpaType type = "tpa_here".equalsIgnoreCase(typeStr) ? TpaType.TPA_HERE : TpaType.TPA_TO;
-                        Player target = Bukkit.getPlayer(targetId);
                         closePlayerDialog(player);
-                        service.sendRequest(player, target, type);
+                        service.sendRequest(player, targetId, type);
                     } catch (Exception e) {
                         this.logger.warn("Failed to parse send confirmation data from dialog key: {}", keyString);
                     }

@@ -14,6 +14,8 @@ public interface TpaService {
 
     void sendRequest(Player sender, Player target, TpaType type);
 
+    void sendRequest(Player sender, UUID targetId, TpaType type);
+
     void sendBulkRequests(Player sender, List<Player> targets, TpaType type);
 
     void acceptRequest(Player target, String optionalSenderName);
