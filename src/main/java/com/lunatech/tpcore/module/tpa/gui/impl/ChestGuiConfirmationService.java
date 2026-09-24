@@ -83,10 +83,13 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
                     ? "<gray>Request Type: <gold>TPA Here (Teleport to them)</gold></gray>"
                     : "<gray>Request Type: <gold>TPA (Teleport to you)</gold></gray>");
 
-            skullMeta.lore(Arrays.asList(
-                formatComponent(reqTypeText, Placeholder.unparsed("sender", senderName), Placeholder.unparsed("target", target.getName())),
-                formatComponent("<gray>Expires in: <gold>" + cfg.requestTimeoutSeconds() + "s</gold></gray>")
+            List<Component> loreList = new java.util.ArrayList<>(formatComponents(reqTypeText,
+                Placeholder.unparsed("sender", senderName),
+                Placeholder.unparsed("target", target.getName()),
+                Placeholder.unparsed("seconds", String.valueOf(cfg.requestTimeoutSeconds()))
             ));
+            loreList.add(formatComponent("<gray>Expires in: <gold>" + cfg.requestTimeoutSeconds() + "s</gold></gray>"));
+            skullMeta.lore(loreList);
 
             headItem.setItemMeta(skullMeta);
         }
@@ -174,10 +177,13 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
                     ? "<gray>Request Type: <gold>TPA Here (Ask them to teleport to you)</gold></gray>"
                     : "<gray>Request Type: <gold>TPA (Teleport to their location)</gold></gray>");
 
-            skullMeta.lore(Arrays.asList(
-                formatComponent(reqTypeText, Placeholder.unparsed("sender", sender.getName()), Placeholder.unparsed("target", target.getName())),
-                formatComponent("<gray>Timeout: <gold>" + cfg.requestTimeoutSeconds() + "s</gold></gray>")
+            List<Component> loreList = new java.util.ArrayList<>(formatComponents(reqTypeText,
+                Placeholder.unparsed("sender", sender.getName()),
+                Placeholder.unparsed("target", target.getName()),
+                Placeholder.unparsed("seconds", String.valueOf(cfg.requestTimeoutSeconds()))
             ));
+            loreList.add(formatComponent("<gray>Timeout: <gold>" + cfg.requestTimeoutSeconds() + "s</gold></gray>"));
+            skullMeta.lore(loreList);
 
             headItem.setItemMeta(skullMeta);
         }
@@ -222,6 +228,20 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
             return this.miniMessage.deserialize(miniMessageText).decoration(TextDecoration.ITALIC, false);
         }
         return this.miniMessage.deserialize(miniMessageText, TagResolver.resolver(resolvers)).decoration(TextDecoration.ITALIC, false);
+    }
+
+    private List<Component> formatComponents(String miniMessageText, TagResolver... resolvers) {
+        if (miniMessageText == null || miniMessageText.isBlank()) {
+            return java.util.Collections.emptyList();
+        }
+        String[] lines = miniMessageText.split("\\r?\\n");
+        List<Component> result = new java.util.ArrayList<>(lines.length);
+        for (String line : lines) {
+            if (!line.isBlank()) {
+                result.add(formatComponent(line, resolvers));
+            }
+        }
+        return result;
     }
 
     private Material parseMaterial(String name, Material fallback) {

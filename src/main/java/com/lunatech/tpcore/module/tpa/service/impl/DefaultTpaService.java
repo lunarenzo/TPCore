@@ -1222,7 +1222,7 @@ public final class DefaultTpaService implements TpaService {
         try {
             Key key = resolveSoundKey(soundKey);
             if (key != null) {
-                float clampedVol = Math.max(0.0f, Math.min(1.0f, volume));
+                float clampedVol = Math.max(0.0f, volume);
                 float clampedPitch = Math.max(0.5f, Math.min(2.0f, pitch));
                 player.playSound(sound(key, Source.PLAYER, clampedVol, clampedPitch));
             }
@@ -1249,8 +1249,15 @@ public final class DefaultTpaService implements TpaService {
             try {
                 return Key.key(cleanKey);
             } catch (Throwable ignored) {
-                return null;
             }
+
+            if (cleanKey.contains("_")) {
+                try {
+                    return Key.key(cleanKey.replace('_', '.'));
+                } catch (Throwable ignored) {
+                }
+            }
+            return null;
         });
     }
 
