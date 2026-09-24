@@ -66,7 +66,14 @@ public final class ConcurrentTpaRepository implements TpaRepository {
     public Collection<TpaRequest> getAllRequests() {
         List<TpaRequest> all = new ArrayList<>();
         for (Map<UUID, TpaRequest> map : this.incoming.values()) {
-            all.addAll(map.values());
+            if (map == null || map.isEmpty()) {
+                continue;
+            }
+            for (TpaRequest request : map.values()) {
+                if (request != null) {
+                    all.add(request);
+                }
+            }
         }
         return Collections.unmodifiableCollection(all);
     }
@@ -77,8 +84,13 @@ public final class ConcurrentTpaRepository implements TpaRepository {
             return;
         }
         for (Map<UUID, TpaRequest> map : this.incoming.values()) {
+            if (map == null || map.isEmpty()) {
+                continue;
+            }
             for (TpaRequest request : map.values()) {
-                action.accept(request);
+                if (request != null) {
+                    action.accept(request);
+                }
             }
         }
     }

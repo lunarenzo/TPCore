@@ -191,7 +191,7 @@ public final class TpaSafetyInspector {
         if (block.getBlockData() instanceof Waterlogged waterlogged && waterlogged.isWaterlogged()) {
             return false;
         }
-        if (block.getBlockData() instanceof Openable openable && openable.isOpen()) {
+        if (block.getBlockData() instanceof Openable openable && !openable.isOpen()) {
             return false;
         }
         return block.isPassable();

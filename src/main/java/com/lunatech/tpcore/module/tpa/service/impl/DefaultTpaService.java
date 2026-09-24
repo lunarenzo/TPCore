@@ -1193,7 +1193,7 @@ public final class DefaultTpaService implements TpaService {
                     }
                 }
             },
-            null,
+            () -> this.cancelWarmup(player.getUniqueId(), null),
             20L,
             20L
         );

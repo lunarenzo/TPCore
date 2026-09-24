@@ -173,24 +173,28 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
 
             // Accept button
             Object acceptBuilder = DialogReflectionCache.ACTION_BUTTON_BUILDER.invoke(null, acceptComp);
-            if (acceptKey != null) {
-                Object acceptAction = createCustomClickAction(acceptKey);
-                if (acceptAction != null && DialogReflectionCache.ACTION_BUTTON_ACTION != null) {
-                    DialogReflectionCache.ACTION_BUTTON_ACTION.invoke(acceptBuilder, acceptAction);
-                }
+            if (acceptKey == null || DialogReflectionCache.ACTION_BUTTON_ACTION == null) {
+                return false;
             }
+            Object acceptAction = createCustomClickAction(acceptKey);
+            if (acceptAction == null) {
+                return false;
+            }
+            DialogReflectionCache.ACTION_BUTTON_ACTION.invoke(acceptBuilder, acceptAction);
             Object acceptButton = (DialogReflectionCache.ACTION_BUTTON_BUILD != null)
                 ? DialogReflectionCache.ACTION_BUTTON_BUILD.invoke(acceptBuilder)
                 : invokeBuildMethod(acceptBuilder);
 
             // Deny/Cancel button
             Object denyBuilder = DialogReflectionCache.ACTION_BUTTON_BUILDER.invoke(null, denyComp);
-            if (denyKey != null) {
-                Object denyAction = createCustomClickAction(denyKey);
-                if (denyAction != null && DialogReflectionCache.ACTION_BUTTON_ACTION != null) {
-                    DialogReflectionCache.ACTION_BUTTON_ACTION.invoke(denyBuilder, denyAction);
-                }
+            if (denyKey == null) {
+                return false;
             }
+            Object denyAction = createCustomClickAction(denyKey);
+            if (denyAction == null) {
+                return false;
+            }
+            DialogReflectionCache.ACTION_BUTTON_ACTION.invoke(denyBuilder, denyAction);
             Object denyButton = (DialogReflectionCache.ACTION_BUTTON_BUILD != null)
                 ? DialogReflectionCache.ACTION_BUTTON_BUILD.invoke(denyBuilder)
                 : invokeBuildMethod(denyBuilder);
