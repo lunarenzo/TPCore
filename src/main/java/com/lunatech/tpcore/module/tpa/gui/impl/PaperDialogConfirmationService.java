@@ -168,7 +168,10 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
             Component titleComp = this.miniMessage.deserialize(titleText);
             TagResolver senderRes = Placeholder.unparsed("sender", senderName != null ? senderName : "");
             TagResolver targetRes = Placeholder.unparsed("target", targetName != null ? targetName : "");
-            Component bodyComp = this.miniMessage.deserialize(bodyText, TagResolver.resolver(senderRes, targetRes));
+            TpaConfig config = (this.configSupplier != null) ? this.configSupplier.get() : null;
+            int timeoutSec = (config != null) ? config.requestTimeoutSeconds() : 60;
+            TagResolver secRes = Placeholder.unparsed("seconds", String.valueOf(timeoutSec));
+            Component bodyComp = this.miniMessage.deserialize(bodyText, TagResolver.resolver(senderRes, targetRes, secRes));
             Component acceptComp = this.miniMessage.deserialize(acceptText);
             Component denyComp = this.miniMessage.deserialize(denyText);
 

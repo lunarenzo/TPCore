@@ -274,7 +274,7 @@ public final class DefaultTpaService implements TpaService {
     }
 
     private void saveUserSettingsToPdc(Player player) {
-        if (player == null) {
+        if (player == null || !player.isOnline()) {
             return;
         }
         TpaUserSettings settings = this.repository.getUserSettings(player.getUniqueId());
@@ -811,8 +811,15 @@ public final class DefaultTpaService implements TpaService {
 
         if (newStatus) {
             this.sendMessage(player, this.config().messages().autoAcceptOn());
-            Collection<TpaRequest> incoming = this.repository.getIncomingRequests(player.getUniqueId());
-            if (incoming != null && !incoming.isEmpty()) {
+            int prevSize = -1;
+            while (this.repository.isAutoAcceptEnabled(player.getUniqueId())
+                    && !this.repository.getIncomingRequests(player.getUniqueId()).isEmpty()
+                    && !this.isPlayerInWarmup(player.getUniqueId())) {
+                int size = this.repository.getIncomingRequests(player.getUniqueId()).size();
+                if (size == prevSize) {
+                    break;
+                }
+                prevSize = size;
                 this.acceptRequestInternal(player, null, false);
             }
         } else {
@@ -984,7 +991,7 @@ public final class DefaultTpaService implements TpaService {
             } else {
                 OfflinePlayer op = resolveOfflinePlayerIfCached(uuid);
                 String name = (op != null) ? op.getName() : null;
-                names.add(name != null ? name : uuid.toString().substring(0, 8));
+                names.add(name != null ? name : uuid.toString().substring(0, 8) + "...");
             }
         }
         String joined = String.join(", ", names);
