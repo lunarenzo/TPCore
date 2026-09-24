@@ -61,9 +61,17 @@ public final class TpaCommandRegistry {
                             CommandSourceStack src = ctx.getSource();
                             if (src.getSender() instanceof Player sender) {
                                 PlayerSelectorArgumentResolver resolver = ctx.getArgument("player", PlayerSelectorArgumentResolver.class);
-                                List<Player> targets = resolver.resolve(src);
+                                List<Player> rawTargets = resolver.resolve(src);
+                                TpaConfig cfg = this.configSupplier.get();
+                                List<Player> targets = new java.util.ArrayList<>();
+                                for (Player p : rawTargets) {
+                                    if (p != null && p.isOnline()) {
+                                        if (cfg.allowSelfTpa() || !p.getUniqueId().equals(sender.getUniqueId())) {
+                                            targets.add(p);
+                                        }
+                                    }
+                                }
                                 if (targets.size() > 1 && !hasBulkPermission(sender)) {
-                                    TpaConfig cfg = this.configSupplier.get();
                                     sender.sendMessage(this.miniMessage.deserialize(
                                         cfg.messages().noBulkPermission(),
                                         Placeholder.parsed("prefix", cfg.messages().prefix())
@@ -75,12 +83,9 @@ public final class TpaCommandRegistry {
                                         this.tpaService.sendBulkRequests(sender, targets, TpaType.TPA_TO);
                                     } else {
                                         Player target = targets.get(0);
-                                        if (target != null && target.isOnline()) {
-                                            handleSendOrMenu(sender, target, TpaType.TPA_TO);
-                                        }
+                                        handleSendOrMenu(sender, target, TpaType.TPA_TO);
                                     }
                                 } else {
-                                    TpaConfig cfg = this.configSupplier.get();
                                     String targetArg = extractTargetArg(ctx.getInput());
                                     sender.sendMessage(this.miniMessage.deserialize(
                                         cfg.messages().playerNotOnline(),
@@ -106,9 +111,17 @@ public final class TpaCommandRegistry {
                             CommandSourceStack src = ctx.getSource();
                             if (src.getSender() instanceof Player sender) {
                                 PlayerSelectorArgumentResolver resolver = ctx.getArgument("player", PlayerSelectorArgumentResolver.class);
-                                List<Player> targets = resolver.resolve(src);
+                                List<Player> rawTargets = resolver.resolve(src);
+                                TpaConfig cfg = this.configSupplier.get();
+                                List<Player> targets = new java.util.ArrayList<>();
+                                for (Player p : rawTargets) {
+                                    if (p != null && p.isOnline()) {
+                                        if (cfg.allowSelfTpa() || !p.getUniqueId().equals(sender.getUniqueId())) {
+                                            targets.add(p);
+                                        }
+                                    }
+                                }
                                 if (targets.size() > 1 && !hasBulkPermission(sender)) {
-                                    TpaConfig cfg = this.configSupplier.get();
                                     sender.sendMessage(this.miniMessage.deserialize(
                                         cfg.messages().noBulkPermission(),
                                         Placeholder.parsed("prefix", cfg.messages().prefix())
@@ -120,12 +133,9 @@ public final class TpaCommandRegistry {
                                         this.tpaService.sendBulkRequests(sender, targets, TpaType.TPA_HERE);
                                     } else {
                                         Player target = targets.get(0);
-                                        if (target != null && target.isOnline()) {
-                                            handleSendOrMenu(sender, target, TpaType.TPA_HERE);
-                                        }
+                                        handleSendOrMenu(sender, target, TpaType.TPA_HERE);
                                     }
                                 } else {
-                                    TpaConfig cfg = this.configSupplier.get();
                                     String targetArg = extractTargetArg(ctx.getInput());
                                     sender.sendMessage(this.miniMessage.deserialize(
                                         cfg.messages().playerNotOnline(),

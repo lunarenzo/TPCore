@@ -7,6 +7,7 @@ import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.Event;
 import org.bukkit.event.EventPriority;
+import org.bukkit.event.HandlerList;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerEvent;
 import org.bukkit.plugin.EventExecutor;
@@ -51,6 +52,19 @@ public final class TpaDialogListener implements Listener {
         } catch (Exception e) {
             this.logger.error("Failed to register Paper PlayerCustomClickEvent listener", e);
         }
+    }
+
+    public void unregister() {
+        try {
+            Class<?> eventClass = Class.forName("io.papermc.paper.event.player.PlayerCustomClickEvent");
+            Method getHandlerList = eventClass.getMethod("getHandlerList");
+            HandlerList hl = (HandlerList) getHandlerList.invoke(null);
+            if (hl != null) {
+                hl.unregister(this);
+            }
+        } catch (Throwable ignored) {
+        }
+        HandlerList.unregisterAll(this);
     }
 
     private void handleCustomClick(Event event) {

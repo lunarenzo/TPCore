@@ -92,7 +92,7 @@ public final class TpaModule implements ReloadableModule {
             this.guiListener = null;
         }
         if (this.dialogListener != null) {
-            HandlerList.unregisterAll(this.dialogListener);
+            this.dialogListener.unregister();
             this.dialogListener = null;
         }
         if (this.service != null) {

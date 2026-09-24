@@ -497,7 +497,24 @@ public final class DefaultTpaService implements TpaService {
     }
 
     private void acceptRequestInternal(Player target, String optionalSenderName, boolean notifyMessages) {
-        Collection<TpaRequest> incoming = this.repository.getIncomingRequests(target.getUniqueId());
+        Collection<TpaRequest> rawIncoming = this.repository.getIncomingRequests(target.getUniqueId());
+
+        if (rawIncoming.isEmpty()) {
+            if (notifyMessages) {
+                this.sendMessage(target, this.config().messages().noPendingRequests());
+            }
+            return;
+        }
+
+        List<TpaRequest> incoming = new ArrayList<>();
+        int timeoutSeconds = this.config().requestTimeoutSeconds();
+        for (TpaRequest req : rawIncoming) {
+            if (req != null && !req.isExpired(timeoutSeconds)) {
+                incoming.add(req);
+            } else if (req != null) {
+                this.repository.removeRequest(req.targetId(), req.senderId());
+            }
+        }
 
         if (incoming.isEmpty()) {
             if (notifyMessages) {
@@ -511,7 +528,7 @@ public final class DefaultTpaService implements TpaService {
         if (optionalSenderName != null && !optionalSenderName.isBlank()) {
             targetRequest = resolveMatchingRequest(incoming, optionalSenderName);
         } else if (incoming.size() == 1) {
-            targetRequest = incoming.iterator().next();
+            targetRequest = incoming.get(0);
         } else {
             if (notifyMessages) {
                 this.sendMessage(target, this.config().messages().multiplePendingRequests());
@@ -566,7 +583,22 @@ public final class DefaultTpaService implements TpaService {
 
     @Override
     public void denyRequest(Player target, String optionalSenderName) {
-        Collection<TpaRequest> incoming = this.repository.getIncomingRequests(target.getUniqueId());
+        Collection<TpaRequest> rawIncoming = this.repository.getIncomingRequests(target.getUniqueId());
+        if (rawIncoming.isEmpty()) {
+            this.sendMessage(target, this.config().messages().noPendingRequests());
+            return;
+        }
+
+        List<TpaRequest> incoming = new ArrayList<>();
+        int timeoutSeconds = this.config().requestTimeoutSeconds();
+        for (TpaRequest req : rawIncoming) {
+            if (req != null && !req.isExpired(timeoutSeconds)) {
+                incoming.add(req);
+            } else if (req != null) {
+                this.repository.removeRequest(req.targetId(), req.senderId());
+            }
+        }
+
         if (incoming.isEmpty()) {
             this.sendMessage(target, this.config().messages().noPendingRequests());
             return;
@@ -576,7 +608,7 @@ public final class DefaultTpaService implements TpaService {
         if (optionalSenderName != null && !optionalSenderName.isBlank()) {
             targetRequest = resolveMatchingRequest(incoming, optionalSenderName);
         } else if (incoming.size() == 1) {
-            targetRequest = incoming.iterator().next();
+            targetRequest = incoming.get(0);
         } else {
             this.sendMessage(target, this.config().messages().multiplePendingRequests());
             return;
@@ -630,7 +662,22 @@ public final class DefaultTpaService implements TpaService {
 
     @Override
     public void cancelRequest(Player sender, String optionalTargetName) {
-        Collection<TpaRequest> outgoing = this.repository.getOutgoingRequests(sender.getUniqueId());
+        Collection<TpaRequest> rawOutgoing = this.repository.getOutgoingRequests(sender.getUniqueId());
+        if (rawOutgoing.isEmpty()) {
+            this.sendMessage(sender, this.config().messages().noPendingRequests());
+            return;
+        }
+
+        List<TpaRequest> outgoing = new ArrayList<>();
+        int timeoutSeconds = this.config().requestTimeoutSeconds();
+        for (TpaRequest req : rawOutgoing) {
+            if (req != null && !req.isExpired(timeoutSeconds)) {
+                outgoing.add(req);
+            } else if (req != null) {
+                this.repository.removeRequest(req.targetId(), req.senderId());
+            }
+        }
+
         if (outgoing.isEmpty()) {
             this.sendMessage(sender, this.config().messages().noPendingRequests());
             return;
@@ -640,7 +687,7 @@ public final class DefaultTpaService implements TpaService {
         if (optionalTargetName != null && !optionalTargetName.isBlank()) {
             targetRequest = resolveMatchingOutgoingRequest(outgoing, optionalTargetName);
         } else if (outgoing.size() == 1) {
-            targetRequest = outgoing.iterator().next();
+            targetRequest = outgoing.get(0);
         } else {
             this.sendMessage(sender, this.config().messages().multiplePendingRequests());
             return;
@@ -1248,11 +1295,13 @@ public final class DefaultTpaService implements TpaService {
         }
     }
 
+    private static final Key INVALID_SOUND_KEY = Key.key("tpcore", "invalid_sound");
+
     private Key resolveSoundKey(String soundKey) {
         if (soundKey == null || soundKey.isBlank()) {
             return null;
         }
-        return this.soundKeyCache.computeIfAbsent(soundKey, rawKey -> {
+        Key cached = this.soundKeyCache.computeIfAbsent(soundKey, rawKey -> {
             String trimmed = rawKey.trim();
             try {
                 Sound bukkitSound = Sound.valueOf(trimmed.toUpperCase(Locale.ROOT));
@@ -1275,8 +1324,9 @@ public final class DefaultTpaService implements TpaService {
                 } catch (Throwable ignored) {
                 }
             }
-            return null;
+            return INVALID_SOUND_KEY;
         });
+        return (cached == INVALID_SOUND_KEY) ? null : cached;
     }
 
     private BossBar.Color parseBossBarColor(String colorStr) {
