@@ -588,6 +588,7 @@ public final class DefaultTpaService implements TpaService {
             Player sender = Bukkit.getPlayer(targetRequest.senderId());
             if (sender != null && sender.isOnline()) {
                 UUID reqTargetId = targetRequest.targetId();
+                final String targetDisplayName = target.getName();
                 sender.getScheduler().run(
                     this.plugin,
                     t -> {
@@ -595,7 +596,7 @@ public final class DefaultTpaService implements TpaService {
                         this.sendMessage(
                             sender,
                             this.config().messages().requestDeniedSender(),
-                            "target", target.getName()
+                            "target", targetDisplayName
                         );
                         if (this.config().enableSounds()) {
                             TpaConfig cfg = this.config();
@@ -651,6 +652,7 @@ public final class DefaultTpaService implements TpaService {
             Player target = Bukkit.getPlayer(targetRequest.targetId());
             if (target != null && target.isOnline()) {
                 UUID reqSenderId = targetRequest.senderId();
+                final String senderDisplayName = sender.getName();
                 target.getScheduler().run(
                     this.plugin,
                     t -> {
@@ -658,7 +660,7 @@ public final class DefaultTpaService implements TpaService {
                         this.sendMessage(
                             target,
                             this.config().messages().requestCancelledTarget(),
-                            "sender", sender.getName()
+                            "sender", senderDisplayName
                         );
                         if (this.config().enableSounds()) {
                             TpaConfig cfg = this.config();
@@ -1370,12 +1372,18 @@ public final class DefaultTpaService implements TpaService {
                     if (warmup.destinationPlayerId() != null) {
                         Player dest = Bukkit.getPlayer(warmup.destinationPlayerId());
                         if (dest != null && dest.isOnline()) {
+                            String pName = (player != null && player.getName() != null) ? player.getName() : null;
+                            if (pName == null) {
+                                OfflinePlayer op = resolveOfflinePlayerIfCached(playerId);
+                                pName = (op != null && op.getName() != null) ? op.getName() : "Player";
+                            }
+                            final String teleporterName = pName;
                             dest.getScheduler().run(
                                 this.plugin,
                                 dTask -> this.sendMessage(
                                     dest,
                                     this.config().messages().requestCancelledTarget(),
-                                    "sender", (player != null) ? player.getName() : "Player"
+                                    "sender", teleporterName
                                 ),
                                 null
                             );
