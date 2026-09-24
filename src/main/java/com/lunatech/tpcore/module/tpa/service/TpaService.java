@@ -48,6 +48,8 @@ public interface TpaService {
 
     void handlePlayerMove(Player player);
 
+    void handlePlayerMove(Player player, org.bukkit.Location to);
+
     void handlePlayerTeleport(UUID playerId);
 
     void handlePlayerDeath(UUID playerId);

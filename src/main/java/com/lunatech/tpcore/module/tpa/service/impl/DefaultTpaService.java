@@ -783,7 +783,12 @@ public final class DefaultTpaService implements TpaService {
         this.repository.removeRequest(targetId, player.getUniqueId());
         this.closeConfirmationMenuIfOpen(player, targetId);
         if (target != null && target.isOnline()) {
-            this.closeConfirmationMenuIfOpen(target, player.getUniqueId());
+            final Player finalTarget = target;
+            target.getScheduler().run(
+                this.plugin,
+                t -> this.closeConfirmationMenuIfOpen(finalTarget, player.getUniqueId()),
+                null
+            );
         }
         this.saveUserSettingsToPdc(player);
 
@@ -802,6 +807,29 @@ public final class DefaultTpaService implements TpaService {
         }
         OfflinePlayer offlineTarget = (target == null) ? resolveOfflinePlayerIfCached(targetName) : null;
         UUID targetId = (target != null) ? target.getUniqueId() : (offlineTarget != null ? offlineTarget.getUniqueId() : null);
+
+        if (targetId == null) {
+            String trimmed = targetName.trim();
+            try {
+                UUID parsedUuid = UUID.fromString(trimmed);
+                if (this.repository.isPlayerBlocked(player.getUniqueId(), parsedUuid)) {
+                    targetId = parsedUuid;
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+
+        if (targetId == null) {
+            String trimmed = targetName.trim();
+            Set<UUID> blocked = this.getBlockedPlayers(player);
+            for (UUID bId : blocked) {
+                String bStr = bId.toString();
+                if (bStr.equalsIgnoreCase(trimmed) || bStr.startsWith(trimmed)) {
+                    targetId = bId;
+                    break;
+                }
+            }
+        }
 
         if (targetId == null || !this.repository.isPlayerBlocked(player.getUniqueId(), targetId)) {
             this.sendMessage(player, this.config().messages().notBlocked(), "player", targetName);
@@ -1008,14 +1036,21 @@ public final class DefaultTpaService implements TpaService {
 
     @Override
     public void handlePlayerMove(Player player) {
-        if (!this.config().cancelOnMove() || this.activeWarmups.isEmpty() || player == null) {
+        if (player != null && player.isOnline()) {
+            handlePlayerMove(player, player.getLocation());
+        }
+    }
+
+    @Override
+    public void handlePlayerMove(Player player, Location to) {
+        if (!this.config().cancelOnMove() || this.activeWarmups.isEmpty() || player == null || to == null) {
             return;
         }
         if (!this.activeWarmups.containsKey(player.getUniqueId())) {
             return;
         }
         ActiveWarmup warmup = this.activeWarmups.get(player.getUniqueId());
-        if (warmup != null && warmup.hasMoved(player.getLocation())) {
+        if (warmup != null && warmup.hasMoved(to)) {
             this.cancelWarmup(player.getUniqueId(), this.config().messages().warmupCancelledMove());
         }
     }
@@ -1276,12 +1311,6 @@ public final class DefaultTpaService implements TpaService {
                     playerTask -> {
                         if (!player.isOnline() || !destinationPlayer.isOnline() || destination.getWorld() == null) {
                             return;
-                        }
-                        if (player.isInsideVehicle()) {
-                            if (player.getVehicle() != null) {
-                                player.getVehicle().removePassenger(player);
-                            }
-                            player.leaveVehicle();
                         }
                         player.teleportAsync(destination).thenAccept(success -> {
                             if (!success && player.isOnline()) {
