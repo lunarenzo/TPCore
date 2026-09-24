@@ -44,8 +44,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 public final class DefaultTpaService implements TpaService {
@@ -62,19 +60,50 @@ public final class DefaultTpaService implements TpaService {
     private final Map<String, Key> soundKeyCache = new ConcurrentHashMap<>();
     private final ScheduledTask sweeperTask;
 
-    private record ActiveWarmup(
-        UUID teleportingPlayerId,
-        UUID destinationPlayerId,
-        String worldName,
-        double startX,
-        double startY,
-        double startZ,
-        int totalWarmupSeconds,
-        AtomicInteger remainingSeconds,
-        AtomicBoolean cancelled,
-        BossBar bossBar,
-        AtomicReference<ScheduledTask> taskRef
-    ) {
+    private static final class ActiveWarmup {
+        private final UUID teleportingPlayerId;
+        private final UUID destinationPlayerId;
+        private final String worldName;
+        private final double startX;
+        private final double startY;
+        private final double startZ;
+        private final int totalWarmupSeconds;
+        private final BossBar bossBar;
+        private int remainingSeconds;
+        private volatile boolean cancelled;
+        private volatile ScheduledTask task;
+
+        ActiveWarmup(
+            UUID teleportingPlayerId,
+            UUID destinationPlayerId,
+            String worldName,
+            double startX,
+            double startY,
+            double startZ,
+            int totalWarmupSeconds,
+            BossBar bossBar
+        ) {
+            this.teleportingPlayerId = teleportingPlayerId;
+            this.destinationPlayerId = destinationPlayerId;
+            this.worldName = worldName;
+            this.startX = startX;
+            this.startY = startY;
+            this.startZ = startZ;
+            this.totalWarmupSeconds = totalWarmupSeconds;
+            this.remainingSeconds = totalWarmupSeconds;
+            this.bossBar = bossBar;
+        }
+
+        public UUID teleportingPlayerId() { return teleportingPlayerId; }
+        public UUID destinationPlayerId() { return destinationPlayerId; }
+        public BossBar bossBar() { return bossBar; }
+        public int remainingSeconds() { return remainingSeconds; }
+        public int decrementRemainingSeconds() { return --remainingSeconds; }
+        public boolean isCancelled() { return cancelled; }
+        public void markCancelled() { this.cancelled = true; }
+        public ScheduledTask task() { return task; }
+        public void setTask(ScheduledTask task) { this.task = task; }
+
         public boolean hasMoved(Location currentLoc) {
             if (currentLoc == null || currentLoc.getWorld() == null) {
                 return true;
@@ -866,11 +895,17 @@ public final class DefaultTpaService implements TpaService {
             for (TpaRequest req : outgoing) {
                 Player target = Bukkit.getPlayer(req.targetId());
                 if (target != null && target.isOnline()) {
-                    this.closeConfirmationMenuIfOpen(target, playerId);
-                    this.sendMessage(
-                        target,
-                        this.config().messages().requestCancelledTarget(),
-                        "sender", (player != null) ? player.getName() : "Player"
+                    target.getScheduler().run(
+                        this.plugin,
+                        t -> {
+                            this.closeConfirmationMenuIfOpen(target, playerId);
+                            this.sendMessage(
+                                target,
+                                this.config().messages().requestCancelledTarget(),
+                                "sender", (player != null) ? player.getName() : "Player"
+                            );
+                        },
+                        null
                     );
                 }
             }
@@ -881,11 +916,17 @@ public final class DefaultTpaService implements TpaService {
             for (TpaRequest req : incoming) {
                 Player sender = Bukkit.getPlayer(req.senderId());
                 if (sender != null && sender.isOnline()) {
-                    this.closeConfirmationMenuIfOpen(sender, playerId);
-                    this.sendMessage(
-                        sender,
-                        this.config().messages().requestCancelledSender(),
-                        "target", (player != null) ? player.getName() : "Player"
+                    sender.getScheduler().run(
+                        this.plugin,
+                        t -> {
+                            this.closeConfirmationMenuIfOpen(sender, playerId);
+                            this.sendMessage(
+                                sender,
+                                this.config().messages().requestCancelledSender(),
+                                "target", (player != null) ? player.getName() : "Player"
+                            );
+                        },
+                        null
                     );
                 }
             }
@@ -978,9 +1019,6 @@ public final class DefaultTpaService implements TpaService {
         }
 
         Location currentLoc = player.getLocation();
-        AtomicInteger remaining = new AtomicInteger(warmupSeconds);
-        AtomicBoolean cancelled = new AtomicBoolean(false);
-        AtomicReference<ScheduledTask> taskRef = new AtomicReference<>();
         BossBar finalBossBar = bossBar;
 
         ActiveWarmup warmup = new ActiveWarmup(
@@ -991,10 +1029,7 @@ public final class DefaultTpaService implements TpaService {
             currentLoc.getY(),
             currentLoc.getZ(),
             warmupSeconds,
-            remaining,
-            cancelled,
-            finalBossBar,
-            taskRef
+            finalBossBar
         );
         this.activeWarmups.put(player.getUniqueId(), warmup);
 
@@ -1003,16 +1038,16 @@ public final class DefaultTpaService implements TpaService {
         ScheduledTask task = player.getScheduler().runAtFixedRate(
             this.plugin,
             scheduledTask -> {
-                if (!player.isOnline() || !destinationPlayer.isOnline() || cancelled.get()) {
+                if (!player.isOnline() || !destinationPlayer.isOnline() || warmup.isCancelled()) {
                     scheduledTask.cancel();
                     String cancelMsg = (!destinationPlayer.isOnline() && player.isOnline()) ? this.config().messages().targetToggledOff() : null;
                     this.cancelWarmup(player.getUniqueId(), cancelMsg);
                     return;
                 }
 
-                int rem = remaining.decrementAndGet();
+                int rem = warmup.decrementRemainingSeconds();
                 if (rem > 0) {
-                    if (cancelled.get()) {
+                    if (warmup.isCancelled()) {
                         scheduledTask.cancel();
                         return;
                     }
@@ -1027,7 +1062,8 @@ public final class DefaultTpaService implements TpaService {
                 } else {
                     scheduledTask.cancel();
                     ActiveWarmup removed = this.activeWarmups.remove(player.getUniqueId());
-                    if (removed != null && !cancelled.getAndSet(true)) {
+                    if (removed != null && !removed.isCancelled()) {
+                        removed.markCancelled();
                         if (finalBossBar != null) {
                             player.hideBossBar(finalBossBar);
                         }
@@ -1046,7 +1082,7 @@ public final class DefaultTpaService implements TpaService {
             20L
         );
 
-        taskRef.set(task);
+        warmup.setTask(task);
     }
 
     private void updateWarmupFeedback(Player player, int remainingSeconds, int totalWarmupSeconds) {
@@ -1190,9 +1226,9 @@ public final class DefaultTpaService implements TpaService {
     private void cancelWarmup(UUID playerId, String cancelMessageTemplate) {
         ActiveWarmup warmup = this.activeWarmups.remove(playerId);
         if (warmup != null) {
-            warmup.cancelled().set(true);
-            if (warmup.taskRef() != null && warmup.taskRef().get() != null) {
-                warmup.taskRef().get().cancel();
+            warmup.markCancelled();
+            if (warmup.task() != null) {
+                warmup.task().cancel();
             }
             Player player = Bukkit.getPlayer(playerId);
             if (player != null && player.isOnline()) {
@@ -1211,10 +1247,14 @@ public final class DefaultTpaService implements TpaService {
                     if (warmup.destinationPlayerId() != null) {
                         Player dest = Bukkit.getPlayer(warmup.destinationPlayerId());
                         if (dest != null && dest.isOnline()) {
-                            this.sendMessage(
-                                dest,
-                                this.config().messages().requestCancelledTarget(),
-                                "sender", (player != null) ? player.getName() : "Player"
+                            dest.getScheduler().run(
+                                this.plugin,
+                                dTask -> this.sendMessage(
+                                    dest,
+                                    this.config().messages().requestCancelledTarget(),
+                                    "sender", (player != null) ? player.getName() : "Player"
+                                ),
+                                null
                             );
                         }
                     }
@@ -1311,8 +1351,8 @@ public final class DefaultTpaService implements TpaService {
             this.sweeperTask.cancel();
         }
         for (ActiveWarmup warmup : this.activeWarmups.values()) {
-            if (warmup.taskRef() != null && warmup.taskRef().get() != null) {
-                warmup.taskRef().get().cancel();
+            if (warmup.task() != null) {
+                warmup.task().cancel();
             }
             Player player = Bukkit.getPlayer(warmup.teleportingPlayerId());
             if (player != null && player.isOnline()) {

@@ -8,6 +8,8 @@ import com.lunatech.tpcore.module.tpa.model.TpaType;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.text.minimessage.MiniMessage;
+import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
+import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.OfflinePlayer;
@@ -80,7 +82,7 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
                     : "<gray>Request Type: <gold>TPA (Teleport to you)</gold></gray>");
 
             skullMeta.lore(List.of(
-                formatComponent(reqTypeText),
+                formatComponent(reqTypeText, Placeholder.unparsed("sender", senderName), Placeholder.unparsed("target", target.getName())),
                 formatComponent("<gray>Expires in: <gold>" + cfg.requestTimeoutSeconds() + "s</gold></gray>")
             ));
 
@@ -169,7 +171,7 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
                     : "<gray>Request Type: <gold>TPA (Teleport to their location)</gold></gray>");
 
             skullMeta.lore(List.of(
-                formatComponent(reqTypeText),
+                formatComponent(reqTypeText, Placeholder.unparsed("sender", sender.getName()), Placeholder.unparsed("target", target.getName())),
                 formatComponent("<gray>Timeout: <gold>" + cfg.requestTimeoutSeconds() + "s</gold></gray>")
             ));
 
@@ -206,11 +208,14 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
         return item;
     }
 
-    private Component formatComponent(String miniMessageText) {
+    private Component formatComponent(String miniMessageText, TagResolver... resolvers) {
         if (miniMessageText == null || miniMessageText.isBlank()) {
             return Component.empty().decoration(TextDecoration.ITALIC, false);
         }
-        return this.miniMessage.deserialize(miniMessageText).decoration(TextDecoration.ITALIC, false);
+        if (resolvers == null || resolvers.length == 0) {
+            return this.miniMessage.deserialize(miniMessageText).decoration(TextDecoration.ITALIC, false);
+        }
+        return this.miniMessage.deserialize(miniMessageText, TagResolver.resolver(resolvers)).decoration(TextDecoration.ITALIC, false);
     }
 
     private Material parseMaterial(String name, Material fallback) {
