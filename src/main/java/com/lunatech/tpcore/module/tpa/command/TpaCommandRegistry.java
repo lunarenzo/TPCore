@@ -152,7 +152,7 @@ public final class TpaCommandRegistry {
                         }
                         return com.mojang.brigadier.Command.SINGLE_SUCCESS;
                     })
-                    .then(Commands.argument("player", StringArgumentType.word())
+                    .then(Commands.argument("player", StringArgumentType.string())
                         .suggests((ctx, builder) -> {
                             if (ctx.getSource().getSender() instanceof Player target) {
                                 Collection<TpaRequest> requests = this.tpaService.getPendingRequestsForTarget(target);
@@ -197,7 +197,7 @@ public final class TpaCommandRegistry {
                         }
                         return com.mojang.brigadier.Command.SINGLE_SUCCESS;
                     })
-                    .then(Commands.argument("player", StringArgumentType.word())
+                    .then(Commands.argument("player", StringArgumentType.string())
                         .suggests((ctx, builder) -> {
                             if (ctx.getSource().getSender() instanceof Player target) {
                                 Collection<TpaRequest> requests = this.tpaService.getPendingRequestsForTarget(target);
@@ -242,7 +242,7 @@ public final class TpaCommandRegistry {
                         }
                         return com.mojang.brigadier.Command.SINGLE_SUCCESS;
                     })
-                    .then(Commands.argument("player", StringArgumentType.word())
+                    .then(Commands.argument("player", StringArgumentType.string())
                         .suggests((ctx, builder) -> {
                             if (ctx.getSource().getSender() instanceof Player sender) {
                                 Collection<TpaRequest> requests = this.tpaService.getOutgoingRequestsForSender(sender);
@@ -311,7 +311,7 @@ public final class TpaCommandRegistry {
             commands.register(
                 Commands.literal("tpablock")
                     .requires(src -> src.getSender().hasPermission(Permissions.TPA_BLOCK))
-                    .then(Commands.argument("player", StringArgumentType.word())
+                    .then(Commands.argument("player", StringArgumentType.string())
                         .suggests((ctx, builder) -> {
                             String remaining = builder.getRemainingLowerCase();
                             for (Player p : Bukkit.getOnlinePlayers()) {
@@ -339,7 +339,7 @@ public final class TpaCommandRegistry {
             commands.register(
                 Commands.literal("tpaunblock")
                     .requires(src -> src.getSender().hasPermission(Permissions.TPA_UNBLOCK))
-                    .then(Commands.argument("player", StringArgumentType.word())
+                    .then(Commands.argument("player", StringArgumentType.string())
                         .suggests((ctx, builder) -> {
                             if (ctx.getSource().getSender() instanceof Player sender) {
                                 Set<UUID> blocked = this.tpaService.getBlockedPlayers(sender);
@@ -352,8 +352,10 @@ public final class TpaCommandRegistry {
                                             OfflinePlayer op = resolveOfflinePlayerIfCached(uuid);
                                             name = (op != null) ? op.getName() : null;
                                         }
-                                        if (name != null && (remaining.isBlank() || name.regionMatches(true, 0, remaining, 0, remaining.length()))) {
-                                            builder.suggest(name);
+                                        String uuidStr = uuid.toString();
+                                        String suggested = (name != null) ? name : uuidStr;
+                                        if (remaining.isBlank() || suggested.regionMatches(true, 0, remaining, 0, remaining.length()) || uuidStr.regionMatches(true, 0, remaining, 0, remaining.length())) {
+                                            builder.suggest(suggested);
                                         }
                                     }
                                 }

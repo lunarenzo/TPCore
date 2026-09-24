@@ -42,6 +42,8 @@ public final class TpaSafetyInspector {
                 name.contains("POWDER_SNOW") ||
                 name.startsWith("POINTED_DRIPSTONE") ||
                 name.equals("RESPAWN_ANCHOR") ||
+                name.contains("PORTAL") ||
+                name.contains("GATEWAY") ||
                 name.contains("VOID")) {
                 HAZARD_MATERIALS.add(mat);
             }
@@ -172,6 +174,8 @@ public final class TpaSafetyInspector {
                upper.contains("POWDER_SNOW") ||
                (upper.contains("DRIPSTONE") && !upper.contains("DRIPSTONE_BLOCK")) ||
                upper.contains("RESPAWN_ANCHOR") ||
+               upper.contains("PORTAL") ||
+               upper.contains("GATEWAY") ||
                upper.contains("VOID");
     }
 
