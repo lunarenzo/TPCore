@@ -128,6 +128,15 @@ public final class DefaultTpaService implements TpaService {
         this.keyAutoAccept = new NamespacedKey(plugin, "tpa_auto_accept");
         this.keyBlockList = new NamespacedKey(plugin, "tpa_block_list");
         this.sweeperTask = this.startExpirationSweeper();
+        this.loadOnlinePlayersSettings();
+    }
+
+    private void loadOnlinePlayersSettings() {
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            if (player != null && player.isOnline()) {
+                this.handlePlayerJoin(player);
+            }
+        }
     }
 
     private TpaConfig config() {
@@ -1390,7 +1399,11 @@ public final class DefaultTpaService implements TpaService {
                         }
                         player.teleportAsync(destination).thenAccept(success -> {
                             if (!success && player.isOnline()) {
-                                this.sendMessage(player, this.config().messages().unsafeDestination());
+                                player.getScheduler().run(
+                                    this.plugin,
+                                    pTask -> this.sendMessage(player, this.config().messages().unsafeDestination()),
+                                    null
+                                );
                             }
                         });
                     },
@@ -1422,26 +1435,26 @@ public final class DefaultTpaService implements TpaService {
                         TpaConfig cfg = this.config();
                         playSound(player, cfg.cancelSound(), (float) cfg.cancelSoundVolume(), (float) cfg.cancelSoundPitch());
                     }
-                    if (warmup.destinationPlayerId() != null) {
-                        Player dest = Bukkit.getPlayer(warmup.destinationPlayerId());
-                        if (dest != null && dest.isOnline()) {
-                            String pName = (player != null && player.getName() != null) ? player.getName() : null;
-                            if (pName == null) {
-                                OfflinePlayer op = resolveOfflinePlayerIfCached(playerId);
-                                pName = (op != null && op.getName() != null) ? op.getName() : "Player";
-                            }
-                            final String teleporterName = pName;
-                            dest.getScheduler().run(
-                                this.plugin,
-                                dTask -> this.sendMessage(
-                                    dest,
-                                    this.config().messages().requestCancelledTarget(),
-                                    "sender", teleporterName
-                                ),
-                                null
-                            );
-                        }
+                }
+            }
+            if (warmup.destinationPlayerId() != null) {
+                Player dest = Bukkit.getPlayer(warmup.destinationPlayerId());
+                if (dest != null && dest.isOnline()) {
+                    String pName = (player != null && player.getName() != null) ? player.getName() : null;
+                    if (pName == null) {
+                        OfflinePlayer op = resolveOfflinePlayerIfCached(playerId);
+                        pName = (op != null && op.getName() != null) ? op.getName() : "Player";
                     }
+                    final String teleporterName = pName;
+                    dest.getScheduler().run(
+                        this.plugin,
+                        dTask -> this.sendMessage(
+                            dest,
+                            this.config().messages().requestCancelledTarget(),
+                            "sender", teleporterName
+                        ),
+                        null
+                    );
                 }
             }
         }
@@ -1554,6 +1567,7 @@ public final class DefaultTpaService implements TpaService {
             }
         }
         this.activeWarmups.clear();
+        this.soundKeyCache.clear();
         this.repository.clear();
     }
 }
