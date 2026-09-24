@@ -373,6 +373,10 @@ public final class DefaultTpaService implements TpaService {
             if (type == TpaType.TPA_TO && this.activeWarmups.containsKey(sender.getUniqueId())) {
                 return false;
             }
+            int cooldownSecs = this.config().requestCooldownSeconds();
+            if (applyCooldown && cooldownSecs > 0 && !sender.hasPermission(Permissions.TPA_BYPASS_COOLDOWN)) {
+                this.repository.setCooldownEnd(sender.getUniqueId(), System.currentTimeMillis() + cooldownSecs * 1000L);
+            }
             TpaRequest req = new TpaRequest(sender.getUniqueId(), target.getUniqueId(), type, System.currentTimeMillis());
             this.repository.addRequest(req);
             this.sendMessage(sender, this.config().messages().requestAutoAcceptedSender(), "target", target.getName());
@@ -954,7 +958,10 @@ public final class DefaultTpaService implements TpaService {
 
     @Override
     public void handlePlayerMove(Player player) {
-        if (!this.config().cancelOnMove() || this.activeWarmups.isEmpty()) {
+        if (!this.config().cancelOnMove() || this.activeWarmups.isEmpty() || player == null) {
+            return;
+        }
+        if (!this.activeWarmups.containsKey(player.getUniqueId())) {
             return;
         }
         ActiveWarmup warmup = this.activeWarmups.get(player.getUniqueId());
@@ -1114,7 +1121,8 @@ public final class DefaultTpaService implements TpaService {
 
         if (cfg.enableSounds()) {
             int elapsed = totalWarmupSeconds - remainingSeconds;
-            float rawPitch = (float) (1.0 + (cfg.tickSoundPitchStep() * elapsed));
+            float progress = (totalWarmupSeconds > 0) ? (float) elapsed / (float) totalWarmupSeconds : 1.0f;
+            float rawPitch = 1.0f + progress;
             playSound(player, cfg.tickSound(), (float) cfg.tickSoundVolume(), rawPitch);
         }
     }

@@ -198,7 +198,7 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
             Object dialogType = DialogReflectionCache.DIALOG_TYPE_CONFIRMATION.invoke(null, acceptButton, denyButton);
 
             // Build Dialog via Dialog.create(consumer)
-            Object consumerProxy = Proxy.newProxyInstance(player.getClass().getClassLoader(), new Class<?>[]{ DialogReflectionCache.CONSUMER_CLASS }, (proxy, method, args) -> {
+            Object consumerProxy = Proxy.newProxyInstance(DialogReflectionCache.CONSUMER_CLASS.getClassLoader(), DialogReflectionCache.CONSUMER_INTERFACES, (proxy, method, args) -> {
                 if ("accept".equals(method.getName()) && args.length == 1) {
                     Object builder = args[0];
                     Object emptyBuilder = (DialogReflectionCache.DIALOG_BUILDER_EMPTY != null)
@@ -256,6 +256,7 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
     private static final class DialogReflectionCache {
         private static final boolean SUPPORTED;
         private static final Class<?> CONSUMER_CLASS;
+        private static final Class<?>[] CONSUMER_INTERFACES;
         private static final Method DIALOG_BASE_BUILDER;
         private static final Method DIALOG_BASE_CAN_CLOSE;
         private static final Method DIALOG_BASE_BODY;
@@ -359,6 +360,7 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
 
             SUPPORTED = supp;
             CONSUMER_CLASS = consumerCls;
+            CONSUMER_INTERFACES = (consumerCls != null) ? new Class<?>[]{ consumerCls } : new Class<?>[0];
             DIALOG_BASE_BUILDER = dbBuilder;
             DIALOG_BASE_CAN_CLOSE = dbCanClose;
             DIALOG_BASE_BODY = dbBody;
