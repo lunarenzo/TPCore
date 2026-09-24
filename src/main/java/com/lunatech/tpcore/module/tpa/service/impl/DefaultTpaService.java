@@ -363,14 +363,12 @@ public final class DefaultTpaService implements TpaService {
         boolean sentAny = false;
         for (Player target : targets) {
             if (target != null && target.isOnline()) {
-                if ((type == TpaType.TPA_TO && this.activeWarmups.containsKey(sender.getUniqueId()))
-                    || (type == TpaType.TPA_HERE && this.activeWarmups.containsKey(target.getUniqueId()))) {
+                if (isPlayerInWarmup(sender.getUniqueId()) || isPlayerInWarmup(target.getUniqueId())) {
                     break;
                 }
                 if (processSingleSendRequest(sender, target, type, false, true)) {
                     sentAny = true;
-                    if ((type == TpaType.TPA_TO && this.activeWarmups.containsKey(sender.getUniqueId()))
-                        || (type == TpaType.TPA_HERE && this.activeWarmups.containsKey(target.getUniqueId()))) {
+                    if (isPlayerInWarmup(sender.getUniqueId()) || isPlayerInWarmup(target.getUniqueId())) {
                         break;
                     }
                 }
@@ -587,7 +585,13 @@ public final class DefaultTpaService implements TpaService {
         Player sender = Bukkit.getPlayer(targetRequest.senderId());
         if (sender == null || !sender.isOnline()) {
             if (notifyMessages) {
-                this.sendMessage(target, this.config().messages().noPendingRequests());
+                OfflinePlayer op = resolveOfflinePlayerIfCached(targetRequest.senderId());
+                String senderName = (op != null && op.getName() != null) ? op.getName() : "Player";
+                this.sendMessage(
+                    target,
+                    this.config().messages().playerNotOnline(),
+                    "player", senderName
+                );
             }
             return;
         }
@@ -1192,6 +1196,21 @@ public final class DefaultTpaService implements TpaService {
         this.cancelWarmupsForDestination(playerId, this.config().messages().playerNotOnline());
     }
 
+    private boolean isPlayerInWarmup(UUID playerId) {
+        if (playerId == null || this.activeWarmups.isEmpty()) {
+            return false;
+        }
+        if (this.activeWarmups.containsKey(playerId)) {
+            return true;
+        }
+        for (ActiveWarmup warmup : this.activeWarmups.values()) {
+            if (warmup != null && playerId.equals(warmup.destinationPlayerId())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private void cancelWarmupsForDestination(UUID destinationId, String cancelMessage) {
         if (this.activeWarmups.isEmpty() || destinationId == null) {
             return;
@@ -1491,6 +1510,10 @@ public final class DefaultTpaService implements TpaService {
                 if (this.config().enableTitle()) {
                     player.clearTitle();
                 }
+                if (this.config().enableSounds()) {
+                    TpaConfig cfg = this.config();
+                    playSound(player, cfg.cancelSound(), (float) cfg.cancelSoundVolume(), (float) cfg.cancelSoundPitch());
+                }
                 if (cancelMessageTemplate != null) {
                     String dName = null;
                     if (warmup.destinationPlayerId() != null) {
@@ -1505,10 +1528,6 @@ public final class DefaultTpaService implements TpaService {
                         dName = "Player";
                     }
                     this.sendMessage(player, cancelMessageTemplate, "player", dName, "target", dName);
-                    if (this.config().enableSounds()) {
-                        TpaConfig cfg = this.config();
-                        playSound(player, cfg.cancelSound(), (float) cfg.cancelSoundVolume(), (float) cfg.cancelSoundPitch());
-                    }
                 }
             }
             if (warmup.destinationPlayerId() != null) {

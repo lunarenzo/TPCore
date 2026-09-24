@@ -351,10 +351,14 @@ public final class TpaCommandRegistry {
                     .requires(src -> src.getSender().hasPermission(Permissions.TPA_BLOCK))
                     .then(Commands.argument("player", StringArgumentType.string())
                         .suggests((ctx, builder) -> {
-                            String remaining = builder.getRemainingLowerCase();
-                            for (Player p : Bukkit.getOnlinePlayers()) {
-                                if (remaining.isBlank() || p.getName().regionMatches(true, 0, remaining, 0, remaining.length())) {
-                                    builder.suggest(p.getName());
+                            if (ctx.getSource().getSender() instanceof Player sender) {
+                                String remaining = builder.getRemainingLowerCase();
+                                for (Player p : Bukkit.getOnlinePlayers()) {
+                                    if (p != null && p.isOnline() && !p.getUniqueId().equals(sender.getUniqueId())) {
+                                        if (remaining.isBlank() || p.getName().regionMatches(true, 0, remaining, 0, remaining.length())) {
+                                            builder.suggest(p.getName());
+                                        }
+                                    }
                                 }
                             }
                             return builder.buildFuture();
