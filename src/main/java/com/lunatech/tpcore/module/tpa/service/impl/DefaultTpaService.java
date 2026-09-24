@@ -406,7 +406,11 @@ public final class DefaultTpaService implements TpaService {
             TpaRequest req = new TpaRequest(sender.getUniqueId(), target.getUniqueId(), type, System.currentTimeMillis());
             this.repository.addRequest(req);
             this.sendMessage(sender, this.config().messages().requestAutoAcceptedSender(), "target", target.getName());
-            this.sendMessage(target, this.config().messages().requestAutoAcceptedTarget(), "sender", sender.getName());
+            target.getScheduler().run(
+                this.plugin,
+                tTask -> this.sendMessage(target, this.config().messages().requestAutoAcceptedTarget(), "sender", sender.getName()),
+                null
+            );
             this.acceptRequestInternal(target, sender.getName(), false);
             return true;
         }
@@ -580,17 +584,25 @@ public final class DefaultTpaService implements TpaService {
                 "sender", sender.getName()
             );
 
-            this.sendMessage(
-                sender,
-                this.config().messages().requestAcceptedSender(),
-                "target", target.getName()
+            sender.getScheduler().run(
+                this.plugin,
+                sTask -> this.sendMessage(
+                    sender,
+                    this.config().messages().requestAcceptedSender(),
+                    "target", target.getName()
+                ),
+                null
             );
         }
 
         Player teleportingPlayer = (targetRequest.type() == TpaType.TPA_TO) ? sender : target;
         Player destinationPlayer = (targetRequest.type() == TpaType.TPA_TO) ? target : sender;
 
-        this.executeTeleportSequence(teleportingPlayer, destinationPlayer);
+        teleportingPlayer.getScheduler().run(
+            this.plugin,
+            tTask -> this.executeTeleportSequence(teleportingPlayer, destinationPlayer),
+            null
+        );
     }
 
     @Override
@@ -1229,7 +1241,7 @@ public final class DefaultTpaService implements TpaService {
             scheduledTask -> {
                 if (!player.isOnline() || !destinationPlayer.isOnline() || warmup.isCancelled()) {
                     scheduledTask.cancel();
-                    String cancelMsg = (!destinationPlayer.isOnline() && player.isOnline()) ? this.config().messages().targetToggledOff() : null;
+                    String cancelMsg = (!destinationPlayer.isOnline() && player.isOnline()) ? this.config().messages().playerNotOnline() : null;
                     this.cancelWarmup(player.getUniqueId(), cancelMsg);
                     return;
                 }
@@ -1445,7 +1457,19 @@ public final class DefaultTpaService implements TpaService {
                     player.clearTitle();
                 }
                 if (cancelMessageTemplate != null) {
-                    this.sendMessage(player, cancelMessageTemplate);
+                    String dName = null;
+                    if (warmup.destinationPlayerId() != null) {
+                        Player dp = Bukkit.getPlayer(warmup.destinationPlayerId());
+                        dName = (dp != null && dp.getName() != null) ? dp.getName() : null;
+                        if (dName == null) {
+                            OfflinePlayer op = resolveOfflinePlayerIfCached(warmup.destinationPlayerId());
+                            dName = (op != null && op.getName() != null) ? op.getName() : "Player";
+                        }
+                    }
+                    if (dName == null) {
+                        dName = "Player";
+                    }
+                    this.sendMessage(player, cancelMessageTemplate, "player", dName, "target", dName);
                     if (this.config().enableSounds()) {
                         TpaConfig cfg = this.config();
                         playSound(player, cfg.cancelSound(), (float) cfg.cancelSoundVolume(), (float) cfg.cancelSoundPitch());
