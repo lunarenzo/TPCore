@@ -543,7 +543,7 @@ public final class DefaultTpaService implements TpaService {
 
         if (optionalSenderName != null && !optionalSenderName.isBlank()) {
             targetRequest = resolveMatchingRequest(incoming, optionalSenderName);
-        } else if (incoming.size() == 1) {
+        } else if (incoming.size() == 1 || !notifyMessages) {
             targetRequest = incoming.get(0);
         } else {
             if (notifyMessages) {
@@ -772,6 +772,7 @@ public final class DefaultTpaService implements TpaService {
 
         if (newStatus) {
             this.repository.removeAllRequestsForPlayer(player.getUniqueId());
+            this.cancelWarmup(player.getUniqueId(), null);
             this.cancelWarmupsForDestination(player.getUniqueId(), this.config().messages().targetToggledOff());
             this.sendMessage(player, this.config().messages().toggleOff());
         } else {
@@ -863,6 +864,8 @@ public final class DefaultTpaService implements TpaService {
         this.repository.setPlayerBlocked(player.getUniqueId(), targetId, true);
         this.repository.removeRequest(player.getUniqueId(), targetId);
         this.repository.removeRequest(targetId, player.getUniqueId());
+        this.cancelWarmup(player.getUniqueId(), null);
+        this.cancelWarmup(targetId, null);
         this.closeConfirmationMenuIfOpen(player, targetId);
         if (target != null && target.isOnline()) {
             final Player finalTarget = target;
@@ -916,6 +919,10 @@ public final class DefaultTpaService implements TpaService {
         if (targetId == null || !this.repository.isPlayerBlocked(player.getUniqueId(), targetId)) {
             this.sendMessage(player, this.config().messages().notBlocked(), "player", targetName);
             return;
+        }
+
+        if (offlineTarget == null && target == null) {
+            offlineTarget = resolveOfflinePlayerIfCached(targetId);
         }
 
         this.repository.setPlayerBlocked(player.getUniqueId(), targetId, false);
