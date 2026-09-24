@@ -41,6 +41,7 @@ public final class TpaSafetyInspector {
                 name.contains("BERRY_BUSH") ||
                 name.contains("WITHER_ROSE") ||
                 name.contains("POWDER_SNOW") ||
+                name.contains("WEB") ||
                 name.startsWith("POINTED_DRIPSTONE") ||
                 name.equals("RESPAWN_ANCHOR") ||
                 name.contains("PORTAL") ||
@@ -189,6 +190,7 @@ public final class TpaSafetyInspector {
                upper.contains("BERRY_BUSH") ||
                upper.contains("WITHER_ROSE") ||
                upper.contains("POWDER_SNOW") ||
+               upper.contains("WEB") ||
                (upper.contains("DRIPSTONE") && !upper.contains("DRIPSTONE_BLOCK")) ||
                upper.contains("RESPAWN_ANCHOR") ||
                upper.contains("PORTAL") ||

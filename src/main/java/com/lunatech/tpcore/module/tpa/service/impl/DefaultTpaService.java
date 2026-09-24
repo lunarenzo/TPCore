@@ -363,12 +363,15 @@ public final class DefaultTpaService implements TpaService {
         boolean sentAny = false;
         for (Player target : targets) {
             if (target != null && target.isOnline()) {
-                if (isPlayerInWarmup(sender.getUniqueId()) || isPlayerInWarmup(target.getUniqueId())) {
+                if (isPlayerInWarmup(sender.getUniqueId())) {
                     break;
+                }
+                if (isPlayerInWarmup(target.getUniqueId())) {
+                    continue;
                 }
                 if (processSingleSendRequest(sender, target, type, false, true)) {
                     sentAny = true;
-                    if (isPlayerInWarmup(sender.getUniqueId()) || isPlayerInWarmup(target.getUniqueId())) {
+                    if (isPlayerInWarmup(sender.getUniqueId())) {
                         break;
                     }
                 }
@@ -664,6 +667,7 @@ public final class DefaultTpaService implements TpaService {
                 this.sendMessage(target, this.config().messages().noPendingRequests());
                 return;
             }
+            this.repository.setCooldownEnd(targetRequest.senderId(), 0L);
             Player sender = Bukkit.getPlayer(targetRequest.senderId());
             if (sender != null && sender.isOnline()) {
                 UUID reqTargetId = targetRequest.targetId();
@@ -743,6 +747,7 @@ public final class DefaultTpaService implements TpaService {
                 this.sendMessage(sender, this.config().messages().noPendingRequests());
                 return;
             }
+            this.repository.setCooldownEnd(targetRequest.senderId(), 0L);
             Player target = Bukkit.getPlayer(targetRequest.targetId());
             if (target != null && target.isOnline()) {
                 UUID reqSenderId = targetRequest.senderId();
