@@ -164,10 +164,6 @@ public final class DefaultTpaService implements TpaService {
                 });
 
                 this.repository.clearExpiredCooldowns();
-                if (!this.teleportProtectionMap.isEmpty()) {
-                    long now = System.currentTimeMillis();
-                    this.teleportProtectionMap.values().removeIf(expiry -> expiry != null && now >= expiry);
-                }
 
                 if (!expired.isEmpty()) {
                     for (TpaRequest request : expired) {

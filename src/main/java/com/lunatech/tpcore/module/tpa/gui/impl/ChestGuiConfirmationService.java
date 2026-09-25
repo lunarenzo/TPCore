@@ -231,10 +231,15 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
         if (miniMessageText == null || miniMessageText.isBlank()) {
             return Component.empty().decoration(TextDecoration.ITALIC, false);
         }
-        if (resolvers == null || resolvers.length == 0) {
-            return this.miniMessage.deserialize(miniMessageText).decoration(TextDecoration.ITALIC, false);
+        try {
+            if (resolvers == null || resolvers.length == 0) {
+                return this.miniMessage.deserialize(miniMessageText).decoration(TextDecoration.ITALIC, false);
+            }
+            return this.miniMessage.deserialize(miniMessageText, TagResolver.resolver(resolvers)).decoration(TextDecoration.ITALIC, false);
+        } catch (Throwable ignored) {
+            String cleanText = miniMessageText.replaceAll("<[^>]*>", "");
+            return Component.text(cleanText).decoration(TextDecoration.ITALIC, false);
         }
-        return this.miniMessage.deserialize(miniMessageText, TagResolver.resolver(resolvers)).decoration(TextDecoration.ITALIC, false);
     }
 
     private List<Component> formatComponents(String miniMessageText, TagResolver... resolvers) {
@@ -283,7 +288,19 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
     private static OfflinePlayer resolveOfflinePlayerIfCached(UUID uuid) {
         if (GET_OFFLINE_PLAYER_IF_CACHED_UUID != null && uuid != null) {
             try {
-                return (OfflinePlayer) GET_OFFLINE_PLAYER_IF_CACHED_UUID.invoke(null, uuid);
+                OfflinePlayer op = (OfflinePlayer) GET_OFFLINE_PLAYER_IF_CACHED_UUID.invoke(null, uuid);
+                if (op != null && op.getName() != null) {
+                    return op;
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        if (uuid != null) {
+            try {
+                OfflinePlayer op = Bukkit.getOfflinePlayer(uuid);
+                if (op != null && op.getName() != null) {
+                    return op;
+                }
             } catch (Throwable ignored) {
             }
         }
