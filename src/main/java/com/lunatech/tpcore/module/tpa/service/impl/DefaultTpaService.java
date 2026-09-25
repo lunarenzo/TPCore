@@ -1534,30 +1534,32 @@ public final class DefaultTpaService implements TpaService {
                             return;
                         }
                         player.teleportAsync(destination).thenAccept(success -> {
-                            if (success) {
-                                player.setFallDistance(0.0f);
-                                grantTeleportProtection(player);
-                                TpaConfig cfg = this.config();
-                                if (cfg.enableSounds()) {
-                                    playSound(player, cfg.completionSound(), (float) cfg.completionSoundVolume(), (float) cfg.completionSoundPitch());
-                                }
-                            } else {
-                                this.repository.setCooldownEnd(player.getUniqueId(), 0L);
-                                this.repository.setCooldownEnd(destinationPlayer.getUniqueId(), 0L);
-                                if (player.isOnline()) {
-                                    player.getScheduler().run(
-                                        this.plugin,
-                                        pTask -> this.sendMessage(player, this.config().messages().unsafeDestination()),
-                                        null
-                                    );
-                                }
-                                if (destinationPlayer.isOnline()) {
-                                    destinationPlayer.getScheduler().run(
-                                        this.plugin,
-                                        dTask -> this.sendMessage(destinationPlayer, this.config().messages().unsafeDestination()),
-                                        null
-                                    );
-                                }
+                            if (player.isOnline()) {
+                                player.getScheduler().run(
+                                    this.plugin,
+                                    compTask -> {
+                                        if (success) {
+                                            player.setFallDistance(0.0f);
+                                            grantTeleportProtection(player);
+                                            TpaConfig cfg = this.config();
+                                            if (cfg.enableSounds()) {
+                                                playSound(player, cfg.completionSound(), (float) cfg.completionSoundVolume(), (float) cfg.completionSoundPitch());
+                                            }
+                                        } else {
+                                            this.repository.setCooldownEnd(player.getUniqueId(), 0L);
+                                            this.repository.setCooldownEnd(destinationPlayer.getUniqueId(), 0L);
+                                            this.sendMessage(player, this.config().messages().unsafeDestination());
+                                            if (destinationPlayer.isOnline()) {
+                                                destinationPlayer.getScheduler().run(
+                                                    this.plugin,
+                                                    dTask -> this.sendMessage(destinationPlayer, this.config().messages().unsafeDestination()),
+                                                    null
+                                                );
+                                            }
+                                        }
+                                    },
+                                    null
+                                );
                             }
                         });
                     },
@@ -1652,7 +1654,7 @@ public final class DefaultTpaService implements TpaService {
             }
         } catch (Throwable ignored) {
         }
-        if (matches && DialogCloseReflectionCache.CLOSE_DIALOG != null) {
+        if (DialogCloseReflectionCache.CLOSE_DIALOG != null) {
             try {
                 DialogCloseReflectionCache.CLOSE_DIALOG.invoke(player);
             } catch (Throwable ignored) {

@@ -3,6 +3,7 @@ package com.lunatech.tpcore.module.tpa.service.impl;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.Tag;
 import org.bukkit.World;
 import org.bukkit.block.Block;
 
@@ -114,8 +115,16 @@ public final class TpaSafetyInspector {
                 Block feet = world.getBlockAt(checkX, checkY, checkZ);
                 Block head = world.getBlockAt(checkX, checkY + 1, checkZ);
                 Block overhead = world.getBlockAt(checkX, checkY + 2, checkZ);
+                Block highOverhead1 = world.getBlockAt(checkX, checkY + 3, checkZ);
+                Block highOverhead2 = world.getBlockAt(checkX, checkY + 4, checkZ);
 
-                if (!isSolidGround(standOn) || !isPassable(feet) || !isPassable(head) || isHazard(overhead.getType()) || isFallingHazard(overhead.getType())) {
+                if (!isSolidGround(standOn)
+                    || !isPassable(feet)
+                    || !isPassable(head)
+                    || isHazard(overhead.getType())
+                    || isFallingHazard(overhead.getType())
+                    || isFallingHazard(highOverhead1.getType())
+                    || isFallingHazard(highOverhead2.getType())) {
                     continue;
                 }
 
@@ -163,6 +172,13 @@ public final class TpaSafetyInspector {
 
     public static boolean isSolidGround(Material material) {
         if (material == null || HAZARD_MATERIALS.contains(material)) {
+            return false;
+        }
+        if (Tag.FENCES.isTagged(material) || Tag.WALLS.isTagged(material)) {
+            return false;
+        }
+        String name = material.name();
+        if (name.contains("FENCE") || (name.contains("WALL") && !name.contains("WALL_"))) {
             return false;
         }
         return material == Material.BEDROCK || material.isSolid();

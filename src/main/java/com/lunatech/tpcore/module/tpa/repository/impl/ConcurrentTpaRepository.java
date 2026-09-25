@@ -96,6 +96,9 @@ public final class ConcurrentTpaRepository implements TpaRepository {
 
     @Override
     public boolean removeRequest(UUID targetId, UUID senderId) {
+        if (targetId == null || senderId == null) {
+            return false;
+        }
         TpaRequest removedInc = null;
         Map<UUID, TpaRequest> targetMap = this.incoming.get(targetId);
         if (targetMap != null) {
@@ -117,6 +120,9 @@ public final class ConcurrentTpaRepository implements TpaRepository {
 
     @Override
     public void removeAllRequestsForPlayer(UUID playerId) {
+        if (playerId == null) {
+            return;
+        }
         Map<UUID, TpaRequest> inc = this.incoming.remove(playerId);
         if (inc != null) {
             for (UUID senderId : inc.keySet()) {
