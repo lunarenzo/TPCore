@@ -1533,6 +1533,10 @@ public final class DefaultTpaService implements TpaService {
                         if (!destinationPlayer.isOnline() || destination.getWorld() == null) {
                             return;
                         }
+                        if (player.isInsideVehicle()) {
+                            player.leaveVehicle();
+                        }
+                        player.eject();
                         player.teleportAsync(destination).thenAccept(success -> {
                             if (player.isOnline()) {
                                 player.getScheduler().run(

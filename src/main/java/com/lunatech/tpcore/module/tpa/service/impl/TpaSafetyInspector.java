@@ -154,6 +154,8 @@ public final class TpaSafetyInspector {
                name.contains("ANVIL") ||
                name.contains("LAVA") ||
                name.contains("POWDER_SNOW") ||
+               name.contains("CONCRETE_POWDER") ||
+               name.equals("DRAGON_EGG") ||
                name.startsWith("POINTED_DRIPSTONE");
     }
 
