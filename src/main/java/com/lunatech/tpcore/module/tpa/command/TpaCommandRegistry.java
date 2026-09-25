@@ -15,6 +15,7 @@ import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import org.bukkit.Bukkit;
+import org.bukkit.GameMode;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -65,7 +66,7 @@ public final class TpaCommandRegistry {
                                 TpaConfig cfg = this.configSupplier.get();
                                 List<Player> targets = new java.util.ArrayList<>();
                                 for (Player p : rawTargets) {
-                                    if (p != null && p.isOnline()) {
+                                    if (p != null && p.isOnline() && !p.isDead() && p.getGameMode() != GameMode.SPECTATOR) {
                                         if (cfg.allowSelfTpa() || !p.getUniqueId().equals(sender.getUniqueId())) {
                                             targets.add(p);
                                         }
@@ -129,7 +130,7 @@ public final class TpaCommandRegistry {
                                 TpaConfig cfg = this.configSupplier.get();
                                 List<Player> targets = new java.util.ArrayList<>();
                                 for (Player p : rawTargets) {
-                                    if (p != null && p.isOnline()) {
+                                    if (p != null && p.isOnline() && !p.isDead() && p.getGameMode() != GameMode.SPECTATOR) {
                                         if (cfg.allowSelfTpa() || !p.getUniqueId().equals(sender.getUniqueId())) {
                                             targets.add(p);
                                         }
@@ -509,7 +510,19 @@ public final class TpaCommandRegistry {
     private static OfflinePlayer resolveOfflinePlayerIfCached(UUID uuid) {
         if (GET_OFFLINE_PLAYER_IF_CACHED_UUID != null && uuid != null) {
             try {
-                return (OfflinePlayer) GET_OFFLINE_PLAYER_IF_CACHED_UUID.invoke(null, uuid);
+                OfflinePlayer op = (OfflinePlayer) GET_OFFLINE_PLAYER_IF_CACHED_UUID.invoke(null, uuid);
+                if (op != null && op.getName() != null) {
+                    return op;
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        if (uuid != null) {
+            try {
+                OfflinePlayer op = Bukkit.getOfflinePlayer(uuid);
+                if (op != null && op.getName() != null) {
+                    return op;
+                }
             } catch (Throwable ignored) {
             }
         }
