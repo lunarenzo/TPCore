@@ -1466,7 +1466,13 @@ public final class DefaultTpaService implements TpaService {
     }
 
     private void performFinalTeleport(Player player, Player destinationPlayer) {
-        if (player == null || !player.isOnline() || destinationPlayer == null || !destinationPlayer.isOnline()) {
+        if (player == null || !player.isOnline()) {
+            return;
+        }
+        if (destinationPlayer == null || !destinationPlayer.isOnline()) {
+            this.repository.setCooldownEnd(player.getUniqueId(), 0L);
+            String dName = (destinationPlayer != null && destinationPlayer.getName() != null) ? destinationPlayer.getName() : "Player";
+            this.sendMessage(player, this.config().messages().playerNotOnline(), "player", dName);
             return;
         }
 
@@ -1518,6 +1524,7 @@ public final class DefaultTpaService implements TpaService {
                         }
                         player.teleportAsync(destination).thenAccept(success -> {
                             if (success) {
+                                player.setFallDistance(0.0f);
                                 grantTeleportProtection(player);
                                 TpaConfig cfg = this.config();
                                 if (cfg.enableSounds()) {

@@ -22,6 +22,7 @@ import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.event.vehicle.VehicleEnterEvent;
+import org.bukkit.event.vehicle.VehicleMoveEvent;
 
 public final class TpaEventListener implements Listener {
 
@@ -47,7 +48,7 @@ public final class TpaEventListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onEntityDamageProtection(EntityDamageEvent event) {
-        if (event == null || event.isCancelled()) {
+        if (event == null || event.isCancelled() || isExemptDamageCause(event.getCause())) {
             return;
         }
 
@@ -94,6 +95,16 @@ public final class TpaEventListener implements Listener {
                 || cause == EntityDamageEvent.DamageCause.HOT_FLOOR;
     }
 
+    private boolean isExemptDamageCause(EntityDamageEvent.DamageCause cause) {
+        if (cause == null) {
+            return false;
+        }
+        return cause == EntityDamageEvent.DamageCause.VOID
+                || cause == EntityDamageEvent.DamageCause.SUICIDE
+                || cause == EntityDamageEvent.DamageCause.STARVATION
+                || cause.name().equals("KILL");
+    }
+
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onEntityDamage(EntityDamageEvent event) {
         if (event != null && event.getEntity() instanceof Player player) {
@@ -107,6 +118,18 @@ public final class TpaEventListener implements Listener {
             return;
         }
         this.tpaService.handlePlayerMove(event.getPlayer(), event.getTo());
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onVehicleMove(VehicleMoveEvent event) {
+        if (event == null || event.getVehicle() == null || event.getTo() == null) {
+            return;
+        }
+        for (Entity passenger : event.getVehicle().getPassengers()) {
+            if (passenger instanceof Player player) {
+                this.tpaService.handlePlayerMove(player, event.getTo());
+            }
+        }
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
