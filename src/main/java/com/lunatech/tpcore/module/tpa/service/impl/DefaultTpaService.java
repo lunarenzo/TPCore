@@ -164,6 +164,10 @@ public final class DefaultTpaService implements TpaService {
                 });
 
                 this.repository.clearExpiredCooldowns();
+                if (!this.teleportProtectionMap.isEmpty()) {
+                    long now = System.currentTimeMillis();
+                    this.teleportProtectionMap.values().removeIf(expiry -> expiry != null && now >= expiry);
+                }
 
                 if (!expired.isEmpty()) {
                     for (TpaRequest request : expired) {
@@ -1220,6 +1224,7 @@ public final class DefaultTpaService implements TpaService {
     @Override
     public void handlePlayerDeath(UUID playerId) {
         this.repository.removeAllRequestsForPlayer(playerId);
+        this.teleportProtectionMap.remove(playerId);
         this.cancelWarmup(playerId, null);
         this.cancelWarmupsForDestination(playerId, this.config().messages().playerNotOnline());
     }
@@ -1727,6 +1732,21 @@ public final class DefaultTpaService implements TpaService {
             player,
             this.config().messages().teleportProtectionStart(),
             "seconds", String.valueOf(seconds)
+        );
+
+        player.getScheduler().runDelayed(
+            this.plugin,
+            task -> {
+                if (player.isOnline()) {
+                    Long exp = this.teleportProtectionMap.get(player.getUniqueId());
+                    if (exp != null && System.currentTimeMillis() >= exp) {
+                        this.teleportProtectionMap.remove(player.getUniqueId());
+                        this.sendMessage(player, this.config().messages().teleportProtectionEnded());
+                    }
+                }
+            },
+            null,
+            seconds * 20L
         );
     }
 

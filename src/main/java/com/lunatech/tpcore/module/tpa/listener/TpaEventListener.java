@@ -2,8 +2,11 @@ package com.lunatech.tpcore.module.tpa.listener;
 
 import com.lunatech.tpcore.module.tpa.service.TpaService;
 import org.bukkit.GameMode;
+import org.bukkit.entity.AreaEffectCloud;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Projectile;
+import org.bukkit.entity.ThrownPotion;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
@@ -51,12 +54,21 @@ public final class TpaEventListener implements Listener {
         Player attacker = null;
         boolean isPvp = false;
         if (event instanceof EntityDamageByEntityEvent byEntityEvent) {
-            if (byEntityEvent.getDamager() instanceof Player pDamager) {
+            Entity damager = byEntityEvent.getDamager();
+            if (damager instanceof Player pDamager) {
                 attacker = pDamager;
                 isPvp = true;
-            } else if (byEntityEvent.getDamager() instanceof Projectile projectile
+            } else if (damager instanceof Projectile projectile
                     && projectile.getShooter() instanceof Player pShooter) {
                 attacker = pShooter;
+                isPvp = true;
+            } else if (damager instanceof AreaEffectCloud cloud
+                    && cloud.getSource() instanceof Player pCloudShooter) {
+                attacker = pCloudShooter;
+                isPvp = true;
+            } else if (damager instanceof ThrownPotion potion
+                    && potion.getShooter() instanceof Player pPotionShooter) {
+                attacker = pPotionShooter;
                 isPvp = true;
             }
         }
