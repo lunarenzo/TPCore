@@ -832,6 +832,9 @@ public final class DefaultTpaService implements TpaService {
                 prevSize = size;
                 this.acceptRequestInternal(player, null, false);
             }
+            if (this.isPlayerInWarmup(player.getUniqueId())) {
+                this.repository.removeAllRequestsForPlayer(player.getUniqueId());
+            }
         } else {
             this.sendMessage(player, this.config().messages().autoAcceptOff());
         }
