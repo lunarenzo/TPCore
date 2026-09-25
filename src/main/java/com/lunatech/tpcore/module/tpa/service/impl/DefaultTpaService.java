@@ -873,7 +873,19 @@ public final class DefaultTpaService implements TpaService {
     private static OfflinePlayer resolveOfflinePlayerIfCached(UUID uuid) {
         if (GET_OFFLINE_PLAYER_IF_CACHED_UUID != null && uuid != null) {
             try {
-                return (OfflinePlayer) GET_OFFLINE_PLAYER_IF_CACHED_UUID.invoke(null, uuid);
+                OfflinePlayer op = (OfflinePlayer) GET_OFFLINE_PLAYER_IF_CACHED_UUID.invoke(null, uuid);
+                if (op != null && op.getName() != null) {
+                    return op;
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        if (uuid != null) {
+            try {
+                OfflinePlayer op = Bukkit.getOfflinePlayer(uuid);
+                if (op != null && op.getName() != null) {
+                    return op;
+                }
             } catch (Throwable ignored) {
             }
         }

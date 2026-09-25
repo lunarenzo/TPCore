@@ -22,6 +22,7 @@ import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.event.vehicle.VehicleEnterEvent;
+import org.bukkit.event.vehicle.VehicleExitEvent;
 import org.bukkit.event.vehicle.VehicleMoveEvent;
 
 public final class TpaEventListener implements Listener {
@@ -156,6 +157,13 @@ public final class TpaEventListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onVehicleEnter(VehicleEnterEvent event) {
         if (event != null && event.getEntered() instanceof Player player) {
+            this.tpaService.handlePlayerTeleport(player.getUniqueId());
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onVehicleExit(VehicleExitEvent event) {
+        if (event != null && event.getExited() instanceof Player player) {
             this.tpaService.handlePlayerTeleport(player.getUniqueId());
         }
     }
