@@ -27,6 +27,15 @@ allow-self-tpa: false
 # Whether to require destination ground safety before teleportation
 require-safe-location: true
 
+# Teleport protection duration in seconds granted to player after teleporting (0 to disable)
+protection-seconds: 4
+
+# Whether to immediately cancel teleport protection if the protected player attacks another entity
+protection-cancel-on-attack: true
+
+# Whether protection protects against all damage types (true) or PVP damage only (false)
+protection-all-damage: false
+
 # Whether to enable confirmation menus (GUI or DIALOG) for TPA requests
 # When set to false, TPA operates in classic instant chat mode
 enable-confirmation-menu: true
@@ -125,6 +134,8 @@ messages:
   target-tpa-received: "<prefix><yellow><sender></yellow> <gray>wants to teleport to you.</gray>\n<prefix><green><click:run_command:'/tpaccept <sender>'><hover:show_text:'<green>Click to ACCEPT teleport request</green>'><bold>[ACCEPT]</bold></click></green>  <red><click:run_command:'/tpdeny <sender>'><hover:show_text:'<red>Click to DENY teleport request</red>'><bold>[DENY]</bold></click></red>"
   target-tpahere-received: "<prefix><yellow><sender></yellow> <gray>requests you to teleport to them.</gray>\n<prefix><green><click:run_command:'/tpaccept <sender>'><hover:show_text:'<green>Click to ACCEPT teleport request</green>'><bold>[ACCEPT]</bold></click></green>  <red><click:run_command:'/tpdeny <sender>'><hover:show_text:'<red>Click to DENY teleport request</red>'><bold>[DENY]</bold></click></red>"
   target-toggled-off: "<prefix><red>Player <yellow><target></yellow> is not accepting TPA requests right now.</red>"
+  teleport-protection-ended: "<prefix><yellow>Your teleport protection has ended.</yellow>"
+  teleport-protection-start: "<prefix><green>You have <gold><seconds>s</gold> of teleport protection!</green>"
   toggle-off: "<prefix><gray>TPA requests are now <red>DISABLED</red>.</gray>"
   toggle-on: "<prefix><gray>TPA requests are now <green>ENABLED</green>.</gray>"
   unsafe-destination: "<prefix><red>Teleportation cancelled because the target location is unsafe!</red>"
