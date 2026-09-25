@@ -1740,8 +1740,9 @@ public final class DefaultTpaService implements TpaService {
                 if (player.isOnline()) {
                     Long exp = this.teleportProtectionMap.get(player.getUniqueId());
                     if (exp != null && System.currentTimeMillis() >= exp) {
-                        this.teleportProtectionMap.remove(player.getUniqueId());
-                        this.sendMessage(player, this.config().messages().teleportProtectionEnded());
+                        if (this.teleportProtectionMap.remove(player.getUniqueId(), exp)) {
+                            this.sendMessage(player, this.config().messages().teleportProtectionEnded());
+                        }
                     }
                 }
             },
@@ -1760,7 +1761,12 @@ public final class DefaultTpaService implements TpaService {
             return false;
         }
         if (System.currentTimeMillis() >= expiry) {
-            this.teleportProtectionMap.remove(playerId);
+            if (this.teleportProtectionMap.remove(playerId, expiry)) {
+                Player p = Bukkit.getPlayer(playerId);
+                if (p != null && p.isOnline()) {
+                    this.sendMessage(p, this.config().messages().teleportProtectionEnded());
+                }
+            }
             return false;
         }
         return true;
@@ -1772,7 +1778,7 @@ public final class DefaultTpaService implements TpaService {
             return;
         }
         Long removed = this.teleportProtectionMap.remove(playerId);
-        if (removed != null && System.currentTimeMillis() < removed) {
+        if (removed != null) {
             Player p = Bukkit.getPlayer(playerId);
             if (p != null && p.isOnline()) {
                 this.sendMessage(p, this.config().messages().teleportProtectionEnded());

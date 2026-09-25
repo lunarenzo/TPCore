@@ -47,35 +47,51 @@ public final class TpaEventListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onEntityDamageProtection(EntityDamageEvent event) {
-        if (event == null || !(event.getEntity() instanceof Player victim)) {
+        if (event == null || event.isCancelled()) {
             return;
         }
 
+        Player victim = event.getEntity() instanceof Player p ? p : null;
         Player attacker = null;
         boolean isPvp = false;
+
         if (event instanceof EntityDamageByEntityEvent byEntityEvent) {
             Entity damager = byEntityEvent.getDamager();
             if (damager instanceof Player pDamager) {
                 attacker = pDamager;
-                isPvp = true;
+                isPvp = (victim != null);
             } else if (damager instanceof Projectile projectile
                     && projectile.getShooter() instanceof Player pShooter) {
                 attacker = pShooter;
-                isPvp = true;
+                isPvp = (victim != null);
             } else if (damager instanceof AreaEffectCloud cloud
                     && cloud.getSource() instanceof Player pCloudShooter) {
                 attacker = pCloudShooter;
-                isPvp = true;
+                isPvp = (victim != null);
             } else if (damager instanceof ThrownPotion potion
                     && potion.getShooter() instanceof Player pPotionShooter) {
                 attacker = pPotionShooter;
-                isPvp = true;
+                isPvp = (victim != null);
             }
+        }
+
+        if (victim == null && attacker == null) {
+            return;
         }
 
         if (this.tpaService.handlePlayerProtectionDamage(victim, attacker, isPvp)) {
             event.setCancelled(true);
+            if (victim != null && isCombustionDamage(event.getCause())) {
+                victim.setFireTicks(0);
+            }
         }
+    }
+
+    private boolean isCombustionDamage(EntityDamageEvent.DamageCause cause) {
+        return cause == EntityDamageEvent.DamageCause.FIRE
+                || cause == EntityDamageEvent.DamageCause.FIRE_TICK
+                || cause == EntityDamageEvent.DamageCause.LAVA
+                || cause == EntityDamageEvent.DamageCause.HOT_FLOOR;
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
