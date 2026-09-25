@@ -108,8 +108,27 @@ public final class TpaEventListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onEntityDamage(EntityDamageEvent event) {
-        if (event != null && event.getEntity() instanceof Player player) {
-            this.tpaService.handlePlayerDamage(player.getUniqueId());
+        if (event == null) {
+            return;
+        }
+        if (event.getEntity() instanceof Player victim) {
+            this.tpaService.handlePlayerDamage(victim.getUniqueId());
+        }
+        if (event instanceof EntityDamageByEntityEvent byEntityEvent) {
+            Entity damager = byEntityEvent.getDamager();
+            Player attacker = null;
+            if (damager instanceof Player pDamager) {
+                attacker = pDamager;
+            } else if (damager instanceof Projectile projectile && projectile.getShooter() instanceof Player pShooter) {
+                attacker = pShooter;
+            } else if (damager instanceof AreaEffectCloud cloud && cloud.getSource() instanceof Player pCloudShooter) {
+                attacker = pCloudShooter;
+            } else if (damager instanceof ThrownPotion potion && potion.getShooter() instanceof Player pPotionShooter) {
+                attacker = pPotionShooter;
+            }
+            if (attacker != null) {
+                this.tpaService.handlePlayerDamage(attacker.getUniqueId());
+            }
         }
     }
 

@@ -105,6 +105,9 @@ public final class TpaSafetyInspector {
                 if (checkY < world.getMinHeight() + 1 || checkY >= world.getMaxHeight() - 2) {
                     continue;
                 }
+                if (world.getEnvironment() == World.Environment.NETHER && checkY >= 127) {
+                    continue;
+                }
 
                 Block standOn = world.getBlockAt(checkX, checkY - 1, checkZ);
                 Block feet = world.getBlockAt(checkX, checkY, checkZ);
