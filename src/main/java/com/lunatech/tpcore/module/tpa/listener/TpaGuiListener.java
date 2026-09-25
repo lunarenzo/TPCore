@@ -11,6 +11,7 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
+import org.bukkit.event.player.PlayerDropItemEvent;
 import org.bukkit.event.player.PlayerSwapHandItemsEvent;
 
 import org.bukkit.plugin.java.JavaPlugin;
@@ -111,6 +112,16 @@ public final class TpaGuiListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onPlayerSwapHandItems(PlayerSwapHandItemsEvent event) {
+        if (event != null && event.getPlayer() != null) {
+            if (event.getPlayer().getOpenInventory() != null
+                && event.getPlayer().getOpenInventory().getTopInventory().getHolder() instanceof TpaConfirmationHolder) {
+                event.setCancelled(true);
+            }
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onPlayerDropItem(PlayerDropItemEvent event) {
         if (event != null && event.getPlayer() != null) {
             if (event.getPlayer().getOpenInventory() != null
                 && event.getPlayer().getOpenInventory().getTopInventory().getHolder() instanceof TpaConfirmationHolder) {

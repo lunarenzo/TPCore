@@ -42,6 +42,7 @@ public final class TpaSafetyInspector {
                 name.contains("WITHER_ROSE") ||
                 name.contains("POWDER_SNOW") ||
                 name.contains("WEB") ||
+                name.contains("BUBBLE") ||
                 name.startsWith("POINTED_DRIPSTONE") ||
                 name.equals("RESPAWN_ANCHOR") ||
                 name.contains("PORTAL") ||
@@ -143,6 +144,7 @@ public final class TpaSafetyInspector {
                name.contains("GRAVEL") ||
                name.contains("ANVIL") ||
                name.contains("LAVA") ||
+               name.contains("POWDER_SNOW") ||
                name.startsWith("POINTED_DRIPSTONE");
     }
 
