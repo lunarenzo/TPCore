@@ -32,6 +32,15 @@ public record TpaConfig(
     @Comment("Require destination ground safety before teleportation")
     boolean requireSafeLocation,
 
+    @Comment("Teleport protection duration in seconds after teleportation (0 to disable)")
+    int protectionSeconds,
+
+    @Comment("Cancel teleport protection if the protected player attacks another entity")
+    boolean protectionCancelOnAttack,
+
+    @Comment("Protect against all damage types (true) or PVP damage only (false)")
+    boolean protectionAllDamage,
+
     @Comment("Whether to enable confirmation menus (GUI/Dialog) for TPA requests")
     boolean enableConfirmationMenu,
 
@@ -169,7 +178,7 @@ public record TpaConfig(
 ) {
     public static TpaConfig createDefault() {
         return new TpaConfig(
-            true, 30, 10, 5, 3, true, true, false, true,
+            true, 30, 10, 5, 3, true, true, false, true, 4, true, false,
             true,
             true,
             true,
@@ -248,6 +257,8 @@ public record TpaConfig(
         String targetTpaHereReceived,
         String targetTpaReceived,
         String targetToggledOff,
+        String teleportProtectionEnded,
+        String teleportProtectionStart,
         String toggleOff,
         String toggleOn,
         String unsafeDestination,
@@ -287,6 +298,8 @@ public record TpaConfig(
                 "<prefix><yellow><sender></yellow> <gray>requests you to teleport to them.</gray>\n<prefix><green><click:run_command:'/tpaccept <sender>'><hover:show_text:'<green>Click to ACCEPT teleport request</green>'><bold>[ACCEPT]</bold></click></green>  <red><click:run_command:'/tpdeny <sender>'><hover:show_text:'<red>Click to DENY teleport request</red>'><bold>[DENY]</bold></click></red>",
                 "<prefix><yellow><sender></yellow> <gray>wants to teleport to you.</gray>\n<prefix><green><click:run_command:'/tpaccept <sender>'><hover:show_text:'<green>Click to ACCEPT teleport request</green>'><bold>[ACCEPT]</bold></click></green>  <red><click:run_command:'/tpdeny <sender>'><hover:show_text:'<red>Click to DENY teleport request</red>'><bold>[DENY]</bold></click></red>",
                 "<prefix><red>Player <yellow><target></yellow> is not accepting TPA requests right now.</red>",
+                "<prefix><yellow>Your teleport protection has ended.</yellow>",
+                "<prefix><green>You have <gold><seconds>s</gold> of teleport protection!</green>",
                 "<prefix><gray>TPA requests are now <red>DISABLED</red>.</gray>",
                 "<prefix><gray>TPA requests are now <green>ENABLED</green>.</gray>",
                 "<prefix><red>Teleportation cancelled because the target location is unsafe!</red>",

@@ -3,9 +3,11 @@ package com.lunatech.tpcore.module.tpa.listener;
 import com.lunatech.tpcore.module.tpa.service.TpaService;
 import org.bukkit.GameMode;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.Projectile;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityPortalEnterEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
@@ -37,6 +39,30 @@ public final class TpaEventListener implements Listener {
     public void onPlayerQuit(PlayerQuitEvent event) {
         if (event != null && event.getPlayer() != null) {
             this.tpaService.handlePlayerQuit(event.getPlayer());
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onEntityDamageProtection(EntityDamageEvent event) {
+        if (event == null || !(event.getEntity() instanceof Player victim)) {
+            return;
+        }
+
+        Player attacker = null;
+        boolean isPvp = false;
+        if (event instanceof EntityDamageByEntityEvent byEntityEvent) {
+            if (byEntityEvent.getDamager() instanceof Player pDamager) {
+                attacker = pDamager;
+                isPvp = true;
+            } else if (byEntityEvent.getDamager() instanceof Projectile projectile
+                    && projectile.getShooter() instanceof Player pShooter) {
+                attacker = pShooter;
+                isPvp = true;
+            }
+        }
+
+        if (this.tpaService.handlePlayerProtectionDamage(victim, attacker, isPvp)) {
+            event.setCancelled(true);
         }
     }
 

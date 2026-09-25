@@ -57,6 +57,7 @@ public final class DefaultTpaService implements TpaService {
     private final NamespacedKey keyBlockList;
 
     private final Map<UUID, ActiveWarmup> activeWarmups = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> teleportProtectionMap = new ConcurrentHashMap<>();
     private final Map<String, Key> soundKeyCache = new ConcurrentHashMap<>();
     private final ScheduledTask sweeperTask;
     private static final Title.Times WARMUP_TITLE_TIMES = Title.Times.times(Duration.ZERO, Duration.ofSeconds(1), Duration.ofMillis(200));
@@ -1119,6 +1120,7 @@ public final class DefaultTpaService implements TpaService {
         if (playerId == null) {
             return;
         }
+        this.teleportProtectionMap.remove(playerId);
         Player player = Bukkit.getPlayer(playerId);
         if (player != null) {
             this.saveUserSettingsToPdc(player);
@@ -1511,6 +1513,7 @@ public final class DefaultTpaService implements TpaService {
                         }
                         player.teleportAsync(destination).thenAccept(success -> {
                             if (success) {
+                                grantTeleportProtection(player);
                                 TpaConfig cfg = this.config();
                                 if (cfg.enableSounds()) {
                                     playSound(player, cfg.completionSound(), (float) cfg.completionSoundVolume(), (float) cfg.completionSoundPitch());
@@ -1707,7 +1710,68 @@ public final class DefaultTpaService implements TpaService {
             }
         }
         this.activeWarmups.clear();
+        this.teleportProtectionMap.clear();
         this.soundKeyCache.clear();
         this.repository.clear();
+    }
+
+    @Override
+    public void grantTeleportProtection(Player player) {
+        if (player == null || !player.isOnline() || this.config().protectionSeconds() <= 0) {
+            return;
+        }
+        int seconds = this.config().protectionSeconds();
+        long expiry = System.currentTimeMillis() + (seconds * 1000L);
+        this.teleportProtectionMap.put(player.getUniqueId(), expiry);
+        this.sendMessage(
+            player,
+            this.config().messages().teleportProtectionStart(),
+            "seconds", String.valueOf(seconds)
+        );
+    }
+
+    @Override
+    public boolean hasTeleportProtection(UUID playerId) {
+        if (playerId == null || this.teleportProtectionMap.isEmpty()) {
+            return false;
+        }
+        Long expiry = this.teleportProtectionMap.get(playerId);
+        if (expiry == null) {
+            return false;
+        }
+        if (System.currentTimeMillis() >= expiry) {
+            this.teleportProtectionMap.remove(playerId);
+            return false;
+        }
+        return true;
+    }
+
+    @Override
+    public void stripTeleportProtection(UUID playerId) {
+        if (playerId == null || this.teleportProtectionMap.isEmpty()) {
+            return;
+        }
+        Long removed = this.teleportProtectionMap.remove(playerId);
+        if (removed != null && System.currentTimeMillis() < removed) {
+            Player p = Bukkit.getPlayer(playerId);
+            if (p != null && p.isOnline()) {
+                this.sendMessage(p, this.config().messages().teleportProtectionEnded());
+            }
+        }
+    }
+
+    @Override
+    public boolean handlePlayerProtectionDamage(Player victim, Player attacker, boolean isPvp) {
+        if (attacker != null && this.config().protectionCancelOnAttack() && hasTeleportProtection(attacker.getUniqueId())) {
+            stripTeleportProtection(attacker.getUniqueId());
+        }
+
+        if (victim != null) {
+            if (!isPvp && !this.config().protectionAllDamage()) {
+                return false;
+            }
+            return hasTeleportProtection(victim.getUniqueId());
+        }
+        return false;
     }
 }

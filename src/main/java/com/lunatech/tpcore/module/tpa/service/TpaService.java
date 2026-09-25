@@ -58,6 +58,14 @@ public interface TpaService {
 
     void handlePlayerDeath(UUID playerId);
 
+    void grantTeleportProtection(Player player);
+
+    boolean hasTeleportProtection(UUID playerId);
+
+    void stripTeleportProtection(UUID playerId);
+
+    boolean handlePlayerProtectionDamage(Player victim, Player attacker, boolean isPvp);
+
     void updateConfig(TpaConfig newConfig);
 
     void shutdown();
