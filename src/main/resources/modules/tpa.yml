@@ -86,6 +86,7 @@ action-bar-format: "<gold>Teleporting in <yellow><seconds>s</yellow>... Do not m
 enable-title: true
 title-format: "<gold><bold>TELEPORTING</bold></gold>"
 subtitle-format: "<gray>in <yellow><seconds>s</yellow>... Stay still!</gray>"
+cancel-title-format: "<red><bold>TPA CANCELLED</bold></red>"
 
 enable-bossbar: true
 bossbar-format: "<gold>Teleporting in <yellow><seconds>s</yellow>...</gold>"

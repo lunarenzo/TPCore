@@ -1615,7 +1615,10 @@ public final class DefaultTpaService implements TpaService {
                             }
 
                             if (cfg.enableTitle()) {
-                                net.kyori.adventure.text.Component titleComp = this.miniMessage.deserialize("<red><bold>TPA CANCELLED</bold></red>");
+                                String cancelTitleTpl = (cfg.cancelTitleFormat() != null && !cfg.cancelTitleFormat().isBlank())
+                                    ? cfg.cancelTitleFormat()
+                                    : "<red><bold>TPA CANCELLED</bold></red>";
+                                net.kyori.adventure.text.Component titleComp = this.miniMessage.deserialize(cancelTitleTpl, combined);
                                 Title title = Title.title(
                                     titleComp,
                                     msgComp,

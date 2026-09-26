@@ -131,6 +131,9 @@ public record TpaConfig(
     @Comment("MiniMessage format for Subtitle text")
     String subtitleFormat,
 
+    @Comment("MiniMessage format for Title when teleport is cancelled")
+    String cancelTitleFormat,
+
     @Comment("Enable or disable BossBar countdown feedback")
     boolean enableBossbar,
 
@@ -207,6 +210,7 @@ public record TpaConfig(
             true,
             "<gold><bold>TELEPORTING</bold></gold>",
             "<gray>in <yellow><seconds>s</yellow>... Stay still!</gray>",
+            "<red><bold>TPA CANCELLED</bold></red>",
             true,
             "<gold>Teleporting in <yellow><seconds>s</yellow>...</gold>",
             "YELLOW",
