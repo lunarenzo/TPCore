@@ -17,6 +17,9 @@ import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.slf4j.Logger;
 
+import com.lunatech.tpcore.module.tpa.economy.TpaEconomyService;
+import com.lunatech.tpcore.module.tpa.economy.impl.NoOpTpaEconomyService;
+
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.util.Collections;
@@ -29,27 +32,33 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
 
     private final Supplier<TpaConfig> configSupplier;
     private final Supplier<TpaService> serviceSupplier;
+    private final Supplier<TpaEconomyService> economyServiceSupplier;
     private final ChestGuiConfirmationService fallbackChestGui;
     private final Logger logger;
     private final MiniMessage miniMessage = MiniMessage.miniMessage();
     private boolean loggedNotice = false;
 
     public PaperDialogConfirmationService(Supplier<TpaConfig> configSupplier, Logger logger) {
-        this(null, configSupplier, () -> null, logger);
+        this(null, configSupplier, () -> null, () -> new NoOpTpaEconomyService(), logger);
     }
 
     public PaperDialogConfirmationService(Supplier<TpaConfig> configSupplier, Supplier<TpaService> serviceSupplier, Logger logger) {
-        this(null, configSupplier, serviceSupplier, logger);
+        this(null, configSupplier, serviceSupplier, () -> new NoOpTpaEconomyService(), logger);
     }
 
     public PaperDialogConfirmationService(JavaPlugin plugin, Supplier<TpaConfig> configSupplier, Logger logger) {
-        this(plugin, configSupplier, () -> null, logger);
+        this(plugin, configSupplier, () -> null, () -> new NoOpTpaEconomyService(), logger);
     }
 
     public PaperDialogConfirmationService(JavaPlugin plugin, Supplier<TpaConfig> configSupplier, Supplier<TpaService> serviceSupplier, Logger logger) {
+        this(plugin, configSupplier, serviceSupplier, () -> new NoOpTpaEconomyService(), logger);
+    }
+
+    public PaperDialogConfirmationService(JavaPlugin plugin, Supplier<TpaConfig> configSupplier, Supplier<TpaService> serviceSupplier, Supplier<TpaEconomyService> economyServiceSupplier, Logger logger) {
         this.configSupplier = configSupplier;
         this.serviceSupplier = serviceSupplier;
-        this.fallbackChestGui = new ChestGuiConfirmationService(plugin, configSupplier);
+        this.economyServiceSupplier = (economyServiceSupplier != null) ? economyServiceSupplier : () -> new NoOpTpaEconomyService();
+        this.fallbackChestGui = new ChestGuiConfirmationService(plugin, configSupplier, this.economyServiceSupplier);
         this.logger = logger;
     }
 
@@ -172,7 +181,24 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
             TpaConfig config = (this.configSupplier != null) ? this.configSupplier.get() : null;
             int timeoutSec = (config != null) ? config.requestTimeoutSeconds() : 60;
             TagResolver secRes = Placeholder.unparsed("seconds", String.valueOf(timeoutSec));
-            Component bodyComp = this.miniMessage.deserialize(MessageFormatter.toMiniMessage(bodyText), TagResolver.resolver(senderRes, targetRes, secRes));
+
+            TpaEconomyService eco = this.economyServiceSupplier.get();
+            Player senderPlayer = (senderName != null && !senderName.isBlank()) ? Bukkit.getPlayerExact(senderName) : null;
+            double cost = 0.0;
+            double balance = 0.0;
+            if (eco != null && senderPlayer != null) {
+                cost = eco.getCost(senderPlayer, TpaType.TPA_TO);
+                balance = eco.getBalance(senderPlayer);
+            }
+            String costStr = (eco != null) ? eco.format(cost) : String.format("$%.2f", cost);
+            String balStr = (eco != null) ? eco.format(balance) : String.format("$%.2f", balance);
+            TagResolver costRes = Placeholder.unparsed("cost", costStr);
+            TagResolver balRes = Placeholder.unparsed("balance", balStr);
+
+            Component bodyComp = this.miniMessage.deserialize(
+                MessageFormatter.toMiniMessage(bodyText),
+                TagResolver.resolver(senderRes, targetRes, secRes, costRes, balRes)
+            );
             Component acceptComp = this.miniMessage.deserialize(MessageFormatter.toMiniMessage(acceptText));
             Component denyComp = this.miniMessage.deserialize(MessageFormatter.toMiniMessage(denyText));
 

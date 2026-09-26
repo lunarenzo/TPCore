@@ -110,6 +110,19 @@ cancel-sound: "entity.villager.no"
 cancel-sound-volume: 0.8
 cancel-sound-pitch: 1.0
 
+# Economy Submodule Settings for TPA (Requires Vault / VaultUnlocked)
+economy:
+  enabled: false
+  tpa-cost: 10.0
+  tpahere-cost: 15.0
+  charge-on-send: true
+  target-reward-percent: 0.0
+  refund-on-deny: true
+  refund-on-expire: true
+  refund-on-cancel-by-sender: true
+  refund-on-warmup-cancel: false
+  refund-on-unsafe-destination: true
+
 # Module message strings (Alphabetically ordered for server admin convenience)
 messages:
   already-has-pending-request: "<prefix><red>You already have an active pending teleport request with <yellow><target></yellow>!</red>"
@@ -118,7 +131,10 @@ messages:
   block-list-empty: "<prefix><gray>You have no blocked players.</gray>"
   block-list-header: "<prefix><gray>Blocked Players: <yellow><players></yellow></gray>"
   cooldown-active: "<prefix><red>Please wait <gold><seconds>s</gold> before sending another TPA request!</red>"
+  insufficient-funds: "<prefix><red>You need <gold><cost></gold> to send a teleport request! (Current balance: <yellow><balance></yellow>)</red>"
   max-pending-requests-reached: "<prefix><red>Player <yellow><target></yellow> has reached the maximum allowed pending teleport requests!</red>"
+  money-refunded: "<prefix><green>Refunded <gold><cost></gold> for cancelled teleport request.</green>"
+  money-withdrawn: "<prefix><gray>Charged <gold><cost></gold> for teleport request.</gray>"
   multiple-pending-requests: "<prefix><red>You have multiple requests! Specify the player name: <yellow>/tpaccept <player></yellow></red>"
   no-pending-requests: "<prefix><red>You have no active pending teleport requests!</red>"
   not-blocked: "<prefix><red>Player <yellow><player></yellow> is not in your block list!</red>"
@@ -138,6 +154,7 @@ messages:
   request-expired: "<prefix><red>The teleport request with <yellow><player></yellow> has expired.</red>"
   sender-tpa-sent: "<prefix><gray>Sent a teleport request to <yellow><target></yellow>. Expires in <gold><seconds>s</gold>.</gray>"
   sender-tpahere-sent: "<prefix><gray>Sent a request for <yellow><target></yellow> to teleport to you. Expires in <gold><seconds>s</gold>.</gray>"
+  target-rewarded: "<prefix><green>Received <gold><reward></gold> for accepting teleport request from <yellow><sender></yellow>!</green>"
   target-tpa-received: "<prefix><yellow><sender></yellow> <gray>wants to teleport to you.</gray>\n<prefix><green><click:run_command:'/tpaccept <sender>'><hover:show_text:'<green>Click to ACCEPT teleport request</green>'><bold>[ACCEPT]</bold></click></green>  <red><click:run_command:'/tpdeny <sender>'><hover:show_text:'<red>Click to DENY teleport request</red>'><bold>[DENY]</bold></click></red>"
   target-tpahere-received: "<prefix><yellow><sender></yellow> <gray>requests you to teleport to them.</gray>\n<prefix><green><click:run_command:'/tpaccept <sender>'><hover:show_text:'<green>Click to ACCEPT teleport request</green>'><bold>[ACCEPT]</bold></click></green>  <red><click:run_command:'/tpdeny <sender>'><hover:show_text:'<red>Click to DENY teleport request</red>'><bold>[DENY]</bold></click></red>"
   target-toggled-off: "<prefix><red>Player <yellow><target></yellow> is not accepting TPA requests right now.</red>"

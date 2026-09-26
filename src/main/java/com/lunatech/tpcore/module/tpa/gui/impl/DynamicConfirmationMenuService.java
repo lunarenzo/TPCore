@@ -10,6 +10,9 @@ import org.slf4j.Logger;
 
 import org.bukkit.plugin.java.JavaPlugin;
 
+import com.lunatech.tpcore.module.tpa.economy.TpaEconomyService;
+import com.lunatech.tpcore.module.tpa.economy.impl.NoOpTpaEconomyService;
+
 import java.util.Locale;
 import java.util.function.Supplier;
 
@@ -25,9 +28,19 @@ public final class DynamicConfirmationMenuService implements TpaConfirmationMenu
         Supplier<TpaService> serviceSupplier,
         Logger logger
     ) {
+        this(plugin, configSupplier, serviceSupplier, () -> new NoOpTpaEconomyService(), logger);
+    }
+
+    public DynamicConfirmationMenuService(
+        JavaPlugin plugin,
+        Supplier<TpaConfig> configSupplier,
+        Supplier<TpaService> serviceSupplier,
+        Supplier<TpaEconomyService> economyServiceSupplier,
+        Logger logger
+    ) {
         this.configSupplier = configSupplier;
-        this.chestGuiService = new ChestGuiConfirmationService(plugin, configSupplier);
-        this.paperDialogService = new PaperDialogConfirmationService(plugin, configSupplier, serviceSupplier, logger);
+        this.chestGuiService = new ChestGuiConfirmationService(plugin, configSupplier, economyServiceSupplier);
+        this.paperDialogService = new PaperDialogConfirmationService(plugin, configSupplier, serviceSupplier, economyServiceSupplier, logger);
     }
 
     @Override

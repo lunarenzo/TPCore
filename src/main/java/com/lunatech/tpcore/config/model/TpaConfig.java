@@ -194,6 +194,36 @@ public record TpaConfig(
     @Comment("Pitch for cancel sound")
     double cancelSoundPitch,
 
+    @Comment("Whether to enable economy submodule integration for TPA")
+    boolean economyEnabled,
+
+    @Comment("Cost charged for sending /tpa request")
+    double tpaCost,
+
+    @Comment("Cost charged for sending /tpahere request")
+    double tpahereCost,
+
+    @Comment("Charge sender immediately when sending request (true) or defer until accept (false)")
+    boolean chargeOnSend,
+
+    @Comment("Percentage of cost given to target player upon request acceptance (0.0 to 100.0)")
+    double targetRewardPercent,
+
+    @Comment("Refund sender if request is denied by target")
+    boolean refundOnDeny,
+
+    @Comment("Refund sender if request expires unaccepted")
+    boolean refundOnExpire,
+
+    @Comment("Refund sender if request is cancelled by sender")
+    boolean refundOnCancelBySender,
+
+    @Comment("Refund sender if teleport warmup is cancelled due to move/damage")
+    boolean refundOnWarmupCancel,
+
+    @Comment("Refund sender if teleportation fails due to unsafe target location")
+    boolean refundOnUnsafeDestination,
+
     @Comment("Module message strings (Alphabetically ordered)")
     TpaMessages messages
 ) {
@@ -249,6 +279,7 @@ public record TpaConfig(
             "entity.villager.no",
             0.8,
             1.0,
+            false, 10.0, 15.0, true, 0.0, true, true, true, false, true,
             TpaMessages.createDefault()
         );
     }
@@ -261,7 +292,10 @@ public record TpaConfig(
         String blockListEmpty,
         String blockListHeader,
         String cooldownActive,
+        String insufficientFunds,
         String maxPendingRequestsReached,
+        String moneyRefunded,
+        String moneyWithdrawn,
         String multiplePendingRequests,
         String noBulkPermission,
         String noPendingRequests,
@@ -282,6 +316,7 @@ public record TpaConfig(
         String requestExpired,
         String senderTpaHereSent,
         String senderTpaSent,
+        String targetRewarded,
         String targetTpaHereReceived,
         String targetTpaReceived,
         String targetToggledOff,
@@ -302,7 +337,10 @@ public record TpaConfig(
                 "<prefix><gray>You have no blocked players.</gray>",
                 "<prefix><gray>Blocked Players: <yellow><players></yellow></gray>",
                 "<prefix><red>Please wait <gold><seconds>s</gold> before sending another TPA request!</red>",
+                "<prefix><red>You need <gold><cost></gold> to send a teleport request! (Current balance: <yellow><balance></yellow>)</red>",
                 "<prefix><red>Player <yellow><target></yellow> has reached the maximum allowed pending teleport requests!</red>",
+                "<prefix><green>Refunded <gold><cost></gold> for cancelled teleport request.</green>",
+                "<prefix><gray>Charged <gold><cost></gold> for teleport request.</gray>",
                 "<prefix><red>You have multiple requests! Specify the player name: <yellow>/tpaccept <player></yellow></red>",
                 "<prefix><red>You do not have permission to send bulk TPA requests to multiple players!</red>",
                 "<prefix><red>You have no active pending teleport requests!</red>",
@@ -323,6 +361,7 @@ public record TpaConfig(
                 "<prefix><red>The teleport request with <yellow><player></yellow> has expired.</red>",
                 "<prefix><gray>Sent a request for <yellow><target></yellow> to teleport to you. Expires in <gold><seconds>s</gold>.</gray>",
                 "<prefix><gray>Sent a teleport request to <yellow><target></yellow>. Expires in <gold><seconds>s</gold>.</gray>",
+                "<prefix><green>Received <gold><reward></gold> for accepting teleport request from <yellow><sender></yellow>!</green>",
                 "<prefix><yellow><sender></yellow> <gray>requests you to teleport to them.</gray>\n<prefix><green><click:run_command:'/tpaccept <sender>'><hover:show_text:'<green>Click to ACCEPT teleport request</green>'><bold>[ACCEPT]</bold></click></green>  <red><click:run_command:'/tpdeny <sender>'><hover:show_text:'<red>Click to DENY teleport request</red>'><bold>[DENY]</bold></click></red>",
                 "<prefix><yellow><sender></yellow> <gray>wants to teleport to you.</gray>\n<prefix><green><click:run_command:'/tpaccept <sender>'><hover:show_text:'<green>Click to ACCEPT teleport request</green>'><bold>[ACCEPT]</bold></click></green>  <red><click:run_command:'/tpdeny <sender>'><hover:show_text:'<red>Click to DENY teleport request</red>'><bold>[DENY]</bold></click></red>",
                 "<prefix><red>Player <yellow><target></yellow> is not accepting TPA requests right now.</red>",

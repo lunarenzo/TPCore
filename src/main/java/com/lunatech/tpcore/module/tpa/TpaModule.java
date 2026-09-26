@@ -13,6 +13,9 @@ import com.lunatech.tpcore.module.tpa.repository.TpaRepository;
 import com.lunatech.tpcore.module.tpa.repository.impl.ConcurrentTpaRepository;
 import com.lunatech.tpcore.module.tpa.service.TpaService;
 import com.lunatech.tpcore.module.tpa.service.impl.DefaultTpaService;
+import com.lunatech.tpcore.module.tpa.economy.TpaEconomyService;
+import com.lunatech.tpcore.module.tpa.economy.impl.NoOpTpaEconomyService;
+import com.lunatech.tpcore.module.tpa.economy.impl.VaultTpaEconomyService;
 import org.bukkit.event.HandlerList;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -24,6 +27,7 @@ public final class TpaModule implements ReloadableModule {
 
     private TpaRepository repository;
     private TpaService service;
+    private TpaEconomyService economyService;
     private TpaConfirmationMenuService confirmationMenuService;
     private TpaEventListener listener;
     private TpaGuiListener guiListener;
@@ -65,8 +69,15 @@ public final class TpaModule implements ReloadableModule {
         }
 
         this.repository = new ConcurrentTpaRepository();
-        this.service = new DefaultTpaService(this.plugin, this.repository, this.config);
-        this.confirmationMenuService = new DynamicConfirmationMenuService(this.plugin, () -> this.config, () -> this.service, this.plugin.getSLF4JLogger());
+        this.economyService = new VaultTpaEconomyService(this.plugin, () -> this.config, this.plugin.getSLF4JLogger());
+        this.service = new DefaultTpaService(this.plugin, this.repository, this.config, this.economyService);
+        this.confirmationMenuService = new DynamicConfirmationMenuService(
+            this.plugin,
+            () -> this.config,
+            () -> this.service,
+            () -> this.economyService,
+            this.plugin.getSLF4JLogger()
+        );
         this.listener = new TpaEventListener(this.service);
         this.guiListener = new TpaGuiListener(this.plugin, this.service, () -> this.config);
         this.dialogListener = new TpaDialogListener(this.plugin, () -> this.service);

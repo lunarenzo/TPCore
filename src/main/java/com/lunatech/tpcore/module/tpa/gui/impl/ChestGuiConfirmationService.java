@@ -29,19 +29,28 @@ import java.util.Locale;
 import java.util.UUID;
 import java.util.function.Supplier;
 
+import com.lunatech.tpcore.module.tpa.economy.TpaEconomyService;
+import com.lunatech.tpcore.module.tpa.economy.impl.NoOpTpaEconomyService;
+
 public final class ChestGuiConfirmationService implements TpaConfirmationMenuService {
 
     private final JavaPlugin plugin;
     private final Supplier<TpaConfig> configSupplier;
+    private final Supplier<TpaEconomyService> economyServiceSupplier;
     private final MiniMessage miniMessage;
 
     public ChestGuiConfirmationService(Supplier<TpaConfig> configSupplier) {
-        this(null, configSupplier);
+        this(null, configSupplier, () -> new NoOpTpaEconomyService());
     }
 
     public ChestGuiConfirmationService(JavaPlugin plugin, Supplier<TpaConfig> configSupplier) {
+        this(plugin, configSupplier, () -> new NoOpTpaEconomyService());
+    }
+
+    public ChestGuiConfirmationService(JavaPlugin plugin, Supplier<TpaConfig> configSupplier, Supplier<TpaEconomyService> economyServiceSupplier) {
         this.plugin = plugin;
         this.configSupplier = configSupplier;
+        this.economyServiceSupplier = (economyServiceSupplier != null) ? economyServiceSupplier : () -> new NoOpTpaEconomyService();
         this.miniMessage = MiniMessage.miniMessage();
     }
 
@@ -95,10 +104,18 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
                     ? "<gray>Request Type: <gold>TPA Here (Teleport to them)</gold></gray>"
                     : "<gray>Request Type: <gold>TPA (Teleport to you)</gold></gray>");
 
+            TpaEconomyService eco = this.economyServiceSupplier.get();
+            double cost = (eco != null) ? eco.getCost(senderPlayer, request.type()) : 0.0;
+            double balance = (eco != null && senderPlayer != null) ? eco.getBalance(senderPlayer) : 0.0;
+            String costStr = (eco != null) ? eco.format(cost) : String.format("$%.2f", cost);
+            String balStr = (eco != null) ? eco.format(balance) : String.format("$%.2f", balance);
+
             List<Component> loreList = new java.util.ArrayList<>(formatComponents(reqTypeText,
                 Placeholder.unparsed("sender", finalSenderName),
                 Placeholder.unparsed("target", target.getName()),
-                Placeholder.unparsed("seconds", String.valueOf(cfg.requestTimeoutSeconds()))
+                Placeholder.unparsed("seconds", String.valueOf(cfg.requestTimeoutSeconds())),
+                Placeholder.unparsed("cost", costStr),
+                Placeholder.unparsed("balance", balStr)
             ));
             loreList.add(formatComponent("<gray>Expires in: <gold>" + cfg.requestTimeoutSeconds() + "s</gold></gray>"));
             skullMeta.lore(loreList);
@@ -193,10 +210,18 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
                     ? "<gray>Request Type: <gold>TPA Here (Ask them to teleport to you)</gold></gray>"
                     : "<gray>Request Type: <gold>TPA (Teleport to their location)</gold></gray>");
 
+            TpaEconomyService eco = this.economyServiceSupplier.get();
+            double cost = (eco != null) ? eco.getCost(sender, type) : 0.0;
+            double balance = (eco != null) ? eco.getBalance(sender) : 0.0;
+            String costStr = (eco != null) ? eco.format(cost) : String.format("$%.2f", cost);
+            String balStr = (eco != null) ? eco.format(balance) : String.format("$%.2f", balance);
+
             List<Component> loreList = new java.util.ArrayList<>(formatComponents(reqTypeText,
                 Placeholder.unparsed("sender", sender.getName()),
                 Placeholder.unparsed("target", target.getName()),
-                Placeholder.unparsed("seconds", String.valueOf(cfg.requestTimeoutSeconds()))
+                Placeholder.unparsed("seconds", String.valueOf(cfg.requestTimeoutSeconds())),
+                Placeholder.unparsed("cost", costStr),
+                Placeholder.unparsed("balance", balStr)
             ));
             loreList.add(formatComponent("<gray>Timeout: <gold>" + cfg.requestTimeoutSeconds() + "s</gold></gray>"));
             skullMeta.lore(loreList);
