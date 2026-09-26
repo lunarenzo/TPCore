@@ -307,15 +307,6 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
             } catch (Throwable ignored) {
             }
         }
-        if (uuid != null) {
-            try {
-                OfflinePlayer op = Bukkit.getOfflinePlayer(uuid);
-                if (op != null && op.getName() != null) {
-                    return op;
-                }
-            } catch (Throwable ignored) {
-            }
-        }
         return null;
     }
 }

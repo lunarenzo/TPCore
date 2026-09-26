@@ -377,9 +377,10 @@ public final class DefaultTpaService implements TpaService {
                 if (isPlayerInWarmup(target.getUniqueId())) {
                     continue;
                 }
+                boolean isAutoAccept = this.repository.isAutoAcceptEnabled(target.getUniqueId());
                 if (processSingleSendRequest(sender, target, type, false, true)) {
                     sentAny = true;
-                    if (isPlayerInWarmup(sender.getUniqueId())) {
+                    if (isAutoAccept || isPlayerInWarmup(sender.getUniqueId())) {
                         break;
                     }
                 }
@@ -876,15 +877,6 @@ public final class DefaultTpaService implements TpaService {
         if (GET_OFFLINE_PLAYER_IF_CACHED_UUID != null && uuid != null) {
             try {
                 OfflinePlayer op = (OfflinePlayer) GET_OFFLINE_PLAYER_IF_CACHED_UUID.invoke(null, uuid);
-                if (op != null && op.getName() != null) {
-                    return op;
-                }
-            } catch (Throwable ignored) {
-            }
-        }
-        if (uuid != null) {
-            try {
-                OfflinePlayer op = Bukkit.getOfflinePlayer(uuid);
                 if (op != null && op.getName() != null) {
                     return op;
                 }
@@ -1549,6 +1541,7 @@ public final class DefaultTpaService implements TpaService {
                                     compTask -> {
                                         if (success) {
                                             player.setFallDistance(0.0f);
+                                            player.setFireTicks(0);
                                             grantTeleportProtection(player);
                                             TpaConfig cfg = this.config();
                                             if (cfg.enableSounds()) {
