@@ -80,6 +80,24 @@ public record TpaConfig(
     @Comment("Display name for Deny button")
     String guiDenyName,
 
+    @Comment("Display name for Send Confirm button in Chest GUI")
+    String guiSendConfirmName,
+
+    @Comment("Display name for Send Cancel button in Chest GUI")
+    String guiSendCancelName,
+
+    @Comment("Head item lore when sender confirms /tpa in Chest GUI")
+    String guiSendTpaLore,
+
+    @Comment("Head item lore when sender confirms /tpahere in Chest GUI")
+    String guiSendTpahereLore,
+
+    @Comment("Head item lore when target accepts /tpa in Chest GUI")
+    String guiAcceptTpaLore,
+
+    @Comment("Head item lore when target accepts /tpahere in Chest GUI")
+    String guiAcceptTpahereLore,
+
     @Comment("Item material for Background filler")
     String guiFillItem,
 
@@ -193,6 +211,12 @@ public record TpaConfig(
             "<green><bold>ACCEPT REQUEST</bold></green>",
             "RED_STAINED_GLASS_PANE",
             "<red><bold>DENY REQUEST</bold></red>",
+            "<green><bold>CONFIRM & SEND</bold></green>",
+            "<red><bold>CANCEL</bold></red>",
+            "<gray>Send a teleport request to </gray><yellow><target></yellow>?\n<gray>You will be teleported to their location once accepted.</gray>",
+            "<gray>Request </gray><yellow><target></yellow><gray> to teleport to you?</gray>\n<gray>They will be teleported to your location once accepted.</gray>",
+            "<yellow><sender></yellow><gray> wants to teleport to your location.</gray>\n<gray>Do you accept?</gray>",
+            "<yellow><sender></yellow><gray> requests you to teleport to their location.</gray>\n<gray>Do you accept?</gray>",
             "GRAY_STAINED_GLASS_PANE",
             true,
             "<gradient:#00D2FF:#3A7BD5><bold>Teleport Confirmation</bold></gradient>",

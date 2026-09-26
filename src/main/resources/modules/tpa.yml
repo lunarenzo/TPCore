@@ -64,6 +64,12 @@ gui-accept-item: "LIME_STAINED_GLASS_PANE"
 gui-accept-name: "<green><bold>ACCEPT REQUEST</bold></green>"
 gui-deny-item: "RED_STAINED_GLASS_PANE"
 gui-deny-name: "<red><bold>DENY REQUEST</bold></red>"
+gui-send-confirm-name: "<green><bold>CONFIRM & SEND</bold></green>"
+gui-send-cancel-name: "<red><bold>CANCEL</bold></red>"
+gui-send-tpa-lore: "<gray>Send a teleport request to </gray><yellow><target></yellow>?\n<gray>You will be teleported to their location once accepted.</gray>"
+gui-send-tpahere-lore: "<gray>Request </gray><yellow><target></yellow><gray> to teleport to you?</gray>\n<gray>They will be teleported to your location once accepted.</gray>"
+gui-accept-tpa-lore: "<yellow><sender></yellow><gray> wants to teleport to your location.</gray>\n<gray>Do you accept?</gray>"
+gui-accept-tpahere-lore: "<yellow><sender></yellow><gray> requests you to teleport to their location.</gray>\n<gray>Do you accept?</gray>"
 gui-fill-item: "GRAY_STAINED_GLASS_PANE"
 gui-fill-empty-slots: true
 

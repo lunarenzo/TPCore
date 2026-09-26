@@ -85,7 +85,10 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
 
             skullMeta.displayName(formatComponent("<yellow><bold>" + finalSenderName + "</bold></yellow>"));
 
-            String reqTypeConfig = (request.type() == TpaType.TPA_HERE) ? cfg.dialogAcceptTpahereBodyText() : cfg.dialogAcceptTpaBodyText();
+            String reqTypeConfig = (request.type() == TpaType.TPA_HERE) ? cfg.guiAcceptTpahereLore() : cfg.guiAcceptTpaLore();
+            if (reqTypeConfig == null || reqTypeConfig.isBlank()) {
+                reqTypeConfig = (request.type() == TpaType.TPA_HERE) ? cfg.dialogAcceptTpahereBodyText() : cfg.dialogAcceptTpaBodyText();
+            }
             String reqTypeText = (reqTypeConfig != null && !reqTypeConfig.isBlank())
                 ? reqTypeConfig
                 : ((request.type() == TpaType.TPA_HERE)
@@ -180,7 +183,10 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
 
             skullMeta.displayName(formatComponent("<yellow><bold>" + target.getName() + "</bold></yellow>"));
 
-            String reqTypeConfig = (type == TpaType.TPA_HERE) ? cfg.dialogSendTpahereBodyText() : cfg.dialogSendTpaBodyText();
+            String reqTypeConfig = (type == TpaType.TPA_HERE) ? cfg.guiSendTpahereLore() : cfg.guiSendTpaLore();
+            if (reqTypeConfig == null || reqTypeConfig.isBlank()) {
+                reqTypeConfig = (type == TpaType.TPA_HERE) ? cfg.dialogSendTpahereBodyText() : cfg.dialogSendTpaBodyText();
+            }
             String reqTypeText = (reqTypeConfig != null && !reqTypeConfig.isBlank())
                 ? reqTypeConfig
                 : ((type == TpaType.TPA_HERE)
@@ -199,17 +205,21 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
 
         // Confirm Send Button
         Material acceptMat = parseMaterial(cfg.guiAcceptItem(), Material.LIME_STAINED_GLASS_PANE);
-        String sendConfirmName = (cfg.dialogSendConfirmText() != null && !cfg.dialogSendConfirmText().isBlank())
-            ? cfg.dialogSendConfirmText()
-            : "<green><bold>CONFIRM & SEND</bold></green>";
+        String sendConfirmName = (cfg.guiSendConfirmName() != null && !cfg.guiSendConfirmName().isBlank())
+            ? cfg.guiSendConfirmName()
+            : ((cfg.dialogSendConfirmText() != null && !cfg.dialogSendConfirmText().isBlank())
+                ? cfg.dialogSendConfirmText()
+                : "<green><bold>CONFIRM & SEND</bold></green>");
         ItemStack acceptItem = createItem(acceptMat, sendConfirmName);
         inventory.setItem(acceptSlot, acceptItem);
 
         // Cancel Button
         Material denyMat = parseMaterial(cfg.guiDenyItem(), Material.RED_STAINED_GLASS_PANE);
-        String sendCancelName = (cfg.dialogSendCancelText() != null && !cfg.dialogSendCancelText().isBlank())
-            ? cfg.dialogSendCancelText()
-            : "<red><bold>CANCEL</bold></red>";
+        String sendCancelName = (cfg.guiSendCancelName() != null && !cfg.guiSendCancelName().isBlank())
+            ? cfg.guiSendCancelName()
+            : ((cfg.dialogSendCancelText() != null && !cfg.dialogSendCancelText().isBlank())
+                ? cfg.dialogSendCancelText()
+                : "<red><bold>CANCEL</bold></red>");
         ItemStack denyItem = createItem(denyMat, sendCancelName);
         inventory.setItem(denySlot, denyItem);
 
