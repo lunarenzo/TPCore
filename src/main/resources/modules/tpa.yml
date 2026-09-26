@@ -115,6 +115,11 @@ economy:
   enabled: false
   tpa-cost: 10.0
   tpahere-cost: 15.0
+  # Charge Timing Mode: CHARGE_ON_SEND, CHARGE_ON_ACCEPT, or CHARGE_ON_SUCCESS
+  # CHARGE_ON_SEND = Charge up-front when sending request. Refunded if denied/expired/cancelled based on refund settings.
+  # CHARGE_ON_ACCEPT = Charge when target accepts request, before teleport warmup.
+  # CHARGE_ON_SUCCESS = Charge ONLY after player successfully teleports and arrives at destination. Zero refunds needed.
+  charge-timing: "CHARGE_ON_SEND"
   charge-on-send: true
   target-reward-percent: 0.0
   refund-on-deny: true

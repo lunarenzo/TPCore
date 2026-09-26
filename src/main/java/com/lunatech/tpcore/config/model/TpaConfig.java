@@ -203,6 +203,9 @@ public record TpaConfig(
     @Comment("Cost charged for sending /tpahere request")
     double tpahereCost,
 
+    @Comment("Charge timing mode: CHARGE_ON_SEND, CHARGE_ON_ACCEPT, or CHARGE_ON_SUCCESS")
+    String chargeTiming,
+
     @Comment("Charge sender immediately when sending request (true) or defer until accept (false)")
     boolean chargeOnSend,
 
@@ -279,9 +282,16 @@ public record TpaConfig(
             "entity.villager.no",
             0.8,
             1.0,
-            false, 10.0, 15.0, true, 0.0, true, true, true, false, true,
+            false, 10.0, 15.0, "CHARGE_ON_SEND", true, 0.0, true, true, true, false, true,
             TpaMessages.createDefault()
         );
+    }
+
+    public String getNormalizedChargeTiming() {
+        if (this.chargeTiming != null && !this.chargeTiming.isBlank()) {
+            return this.chargeTiming.trim().toUpperCase(java.util.Locale.ROOT);
+        }
+        return this.chargeOnSend ? "CHARGE_ON_SEND" : "CHARGE_ON_ACCEPT";
     }
 
     @ConfigSerializable
