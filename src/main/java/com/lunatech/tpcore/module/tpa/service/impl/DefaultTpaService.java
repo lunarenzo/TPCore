@@ -65,6 +65,7 @@ public final class DefaultTpaService implements TpaService {
     private static final class ActiveWarmup {
         private final UUID teleportingPlayerId;
         private final UUID destinationPlayerId;
+        private final String destinationPlayerName;
         private final String worldName;
         private final double startX;
         private final double startY;
@@ -78,6 +79,7 @@ public final class DefaultTpaService implements TpaService {
         ActiveWarmup(
             UUID teleportingPlayerId,
             UUID destinationPlayerId,
+            String destinationPlayerName,
             String worldName,
             double startX,
             double startY,
@@ -87,6 +89,7 @@ public final class DefaultTpaService implements TpaService {
         ) {
             this.teleportingPlayerId = teleportingPlayerId;
             this.destinationPlayerId = destinationPlayerId;
+            this.destinationPlayerName = destinationPlayerName;
             this.worldName = worldName;
             this.startX = startX;
             this.startY = startY;
@@ -98,6 +101,7 @@ public final class DefaultTpaService implements TpaService {
 
         public UUID teleportingPlayerId() { return teleportingPlayerId; }
         public UUID destinationPlayerId() { return destinationPlayerId; }
+        public String destinationPlayerName() { return destinationPlayerName; }
         public BossBar bossBar() { return bossBar; }
         public int remainingSeconds() { return remainingSeconds; }
         public int decrementRemainingSeconds() { return --remainingSeconds; }
@@ -1311,6 +1315,7 @@ public final class DefaultTpaService implements TpaService {
         ActiveWarmup warmup = new ActiveWarmup(
             player.getUniqueId(),
             destinationPlayer.getUniqueId(),
+            destinationPlayer.getName(),
             currentLoc.getWorld().getName(),
             currentLoc.getX(),
             currentLoc.getY(),
@@ -1583,31 +1588,50 @@ public final class DefaultTpaService implements TpaService {
             }
             Player player = Bukkit.getPlayer(playerId);
             if (player != null && player.isOnline()) {
-                if (warmup.bossBar() != null) {
-                    player.hideBossBar(warmup.bossBar());
-                }
-                if (this.config().enableTitle()) {
-                    player.clearTitle();
-                }
-                if (this.config().enableSounds()) {
-                    TpaConfig cfg = this.config();
-                    playSound(player, cfg.cancelSound(), (float) cfg.cancelSoundVolume(), (float) cfg.cancelSoundPitch());
-                }
-                if (cancelMessageTemplate != null) {
-                    String dName = null;
-                    if (warmup.destinationPlayerId() != null) {
-                        Player dp = Bukkit.getPlayer(warmup.destinationPlayerId());
-                        dName = (dp != null && dp.getName() != null) ? dp.getName() : null;
-                        if (dName == null) {
-                            OfflinePlayer op = resolveOfflinePlayerIfCached(warmup.destinationPlayerId());
-                            dName = (op != null && op.getName() != null) ? op.getName() : "Player";
+                final String dName = (warmup.destinationPlayerName() != null && !warmup.destinationPlayerName().isBlank())
+                    ? warmup.destinationPlayerName()
+                    : "Player";
+                player.getScheduler().run(
+                    this.plugin,
+                    pTask -> {
+                        if (!player.isOnline()) {
+                            return;
                         }
-                    }
-                    if (dName == null) {
-                        dName = "Player";
-                    }
-                    this.sendMessage(player, cancelMessageTemplate, "player", dName, "target", dName);
-                }
+                        if (warmup.bossBar() != null) {
+                            player.hideBossBar(warmup.bossBar());
+                        }
+                        TpaConfig cfg = this.config();
+                        if (cfg.enableSounds()) {
+                            playSound(player, cfg.cancelSound(), (float) cfg.cancelSoundVolume(), (float) cfg.cancelSoundPitch());
+                        }
+                        if (cancelMessageTemplate != null && !cancelMessageTemplate.isBlank()) {
+                            TagResolver prefixResolver = Placeholder.parsed("prefix", cfg.messages().prefix());
+                            TagResolver playerResolver = Placeholder.unparsed("player", dName);
+                            TagResolver targetResolver = Placeholder.unparsed("target", dName);
+                            TagResolver combined = TagResolver.resolver(prefixResolver, playerResolver, targetResolver);
+
+                            net.kyori.adventure.text.Component msgComp = this.miniMessage.deserialize(cancelMessageTemplate, combined);
+                            player.sendMessage(msgComp);
+
+                            if (cfg.enableActionBar()) {
+                                player.sendActionBar(msgComp);
+                            }
+
+                            if (cfg.enableTitle()) {
+                                net.kyori.adventure.text.Component titleComp = this.miniMessage.deserialize("<red><bold>TPA CANCELLED</bold></red>");
+                                Title title = Title.title(
+                                    titleComp,
+                                    msgComp,
+                                    Title.Times.times(Duration.ZERO, Duration.ofSeconds(2), Duration.ofMillis(500))
+                                );
+                                player.showTitle(title);
+                            }
+                        } else if (cfg.enableTitle()) {
+                            player.clearTitle();
+                        }
+                    },
+                    null
+                );
             }
             if (warmup.destinationPlayerId() != null) {
                 Player dest = Bukkit.getPlayer(warmup.destinationPlayerId());
