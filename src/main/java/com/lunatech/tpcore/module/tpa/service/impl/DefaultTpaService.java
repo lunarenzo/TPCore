@@ -9,6 +9,7 @@ import com.lunatech.tpcore.module.tpa.model.TpaUserSettings;
 import com.lunatech.tpcore.module.tpa.repository.TpaRepository;
 import com.lunatech.tpcore.module.tpa.service.TpaService;
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
+import com.lunatech.tpcore.util.MessageFormatter;
 import net.kyori.adventure.bossbar.BossBar;
 import net.kyori.adventure.key.Key;
 import net.kyori.adventure.sound.Sound.Source;
@@ -1298,10 +1299,10 @@ public final class DefaultTpaService implements TpaService {
         if (cfg.enableBossbar()) {
             BossBar.Color color = parseBossBarColor(cfg.bossbarColor());
             BossBar.Overlay overlay = parseBossBarOverlay(cfg.bossbarOverlay());
-            TagResolver prefixResolver = Placeholder.parsed("prefix", cfg.messages().prefix());
+            TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
             TagResolver secResolver = Placeholder.unparsed("seconds", String.valueOf(warmupSeconds));
             bossBar = BossBar.bossBar(
-                this.miniMessage.deserialize(cfg.bossbarFormat(), TagResolver.resolver(prefixResolver, secResolver)),
+                this.miniMessage.deserialize(MessageFormatter.toMiniMessage(cfg.bossbarFormat()), TagResolver.resolver(prefixResolver, secResolver)),
                 1.0f,
                 color,
                 overlay
@@ -1347,9 +1348,9 @@ public final class DefaultTpaService implements TpaService {
                     if (finalBossBar != null) {
                         float progress = Math.max(0.0f, Math.min(1.0f, (float) rem / (float) warmupSeconds));
                         finalBossBar.progress(progress);
-                        TagResolver prefixResolver = Placeholder.parsed("prefix", cfg.messages().prefix());
+                        TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
                         TagResolver secResolver = Placeholder.unparsed("seconds", String.valueOf(rem));
-                        finalBossBar.name(this.miniMessage.deserialize(cfg.bossbarFormat(), TagResolver.resolver(prefixResolver, secResolver)));
+                        finalBossBar.name(this.miniMessage.deserialize(MessageFormatter.toMiniMessage(cfg.bossbarFormat()), TagResolver.resolver(prefixResolver, secResolver)));
                     }
                 } else {
                     scheduledTask.cancel();
@@ -1382,18 +1383,18 @@ public final class DefaultTpaService implements TpaService {
 
     private void updateWarmupFeedback(Player player, int remainingSeconds, int totalWarmupSeconds) {
         TpaConfig cfg = this.config();
-        TagResolver prefixResolver = Placeholder.parsed("prefix", cfg.messages().prefix());
+        TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
         TagResolver secResolver = Placeholder.unparsed("seconds", String.valueOf(remainingSeconds));
         TagResolver combined = TagResolver.resolver(prefixResolver, secResolver);
 
         if (cfg.enableActionBar()) {
-            player.sendActionBar(this.miniMessage.deserialize(cfg.actionBarFormat(), combined));
+            player.sendActionBar(this.miniMessage.deserialize(MessageFormatter.toMiniMessage(cfg.actionBarFormat()), combined));
         }
 
         if (cfg.enableTitle()) {
             Title title = Title.title(
-                this.miniMessage.deserialize(cfg.titleFormat(), combined),
-                this.miniMessage.deserialize(cfg.subtitleFormat(), combined),
+                this.miniMessage.deserialize(MessageFormatter.toMiniMessage(cfg.titleFormat()), combined),
+                this.miniMessage.deserialize(MessageFormatter.toMiniMessage(cfg.subtitleFormat()), combined),
                 WARMUP_TITLE_TIMES
             );
             player.showTitle(title);
@@ -1602,12 +1603,12 @@ public final class DefaultTpaService implements TpaService {
                             playSound(player, cfg.cancelSound(), (float) cfg.cancelSoundVolume(), (float) cfg.cancelSoundPitch());
                         }
                         if (cancelMessageTemplate != null && !cancelMessageTemplate.isBlank()) {
-                            TagResolver prefixResolver = Placeholder.parsed("prefix", cfg.messages().prefix());
+                            TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
                             TagResolver playerResolver = Placeholder.unparsed("player", dName);
                             TagResolver targetResolver = Placeholder.unparsed("target", dName);
                             TagResolver combined = TagResolver.resolver(prefixResolver, playerResolver, targetResolver);
 
-                            net.kyori.adventure.text.Component msgComp = this.miniMessage.deserialize(cancelMessageTemplate, combined);
+                            net.kyori.adventure.text.Component msgComp = this.miniMessage.deserialize(MessageFormatter.toMiniMessage(cancelMessageTemplate), combined);
                             player.sendMessage(msgComp);
 
                             if (cfg.enableActionBar()) {
@@ -1618,7 +1619,7 @@ public final class DefaultTpaService implements TpaService {
                                 String cancelTitleTpl = (cfg.cancelTitleFormat() != null && !cfg.cancelTitleFormat().isBlank())
                                     ? cfg.cancelTitleFormat()
                                     : "<red><bold>TPA CANCELLED</bold></red>";
-                                net.kyori.adventure.text.Component titleComp = this.miniMessage.deserialize(cancelTitleTpl, combined);
+                                net.kyori.adventure.text.Component titleComp = this.miniMessage.deserialize(MessageFormatter.toMiniMessage(cancelTitleTpl), combined);
                                 Title title = Title.title(
                                     titleComp,
                                     msgComp,
@@ -1707,8 +1708,8 @@ public final class DefaultTpaService implements TpaService {
         if (player == null || !player.isOnline() || template == null || template.isBlank()) {
             return;
         }
-        TagResolver prefixResolver = Placeholder.parsed("prefix", this.config().messages().prefix());
-        player.sendMessage(this.miniMessage.deserialize(template, prefixResolver));
+        TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(this.config().messages().prefix()));
+        player.sendMessage(this.miniMessage.deserialize(MessageFormatter.toMiniMessage(template), prefixResolver));
     }
 
     private void sendMessage(Player player, String template, String key, String value) {
@@ -1716,9 +1717,9 @@ public final class DefaultTpaService implements TpaService {
             return;
         }
         String safeValue = value != null ? value : "";
-        TagResolver prefixResolver = Placeholder.parsed("prefix", this.config().messages().prefix());
+        TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(this.config().messages().prefix()));
         TagResolver valueResolver = Placeholder.unparsed(key, safeValue);
-        player.sendMessage(this.miniMessage.deserialize(template, TagResolver.resolver(prefixResolver, valueResolver)));
+        player.sendMessage(this.miniMessage.deserialize(MessageFormatter.toMiniMessage(template), TagResolver.resolver(prefixResolver, valueResolver)));
     }
 
     private void sendMessage(Player player, String template, String key1, String value1, String key2, String value2) {
@@ -1727,9 +1728,9 @@ public final class DefaultTpaService implements TpaService {
         }
         String safe1 = value1 != null ? value1 : "";
         String safe2 = value2 != null ? value2 : "";
-        TagResolver prefixResolver = Placeholder.parsed("prefix", this.config().messages().prefix());
+        TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(this.config().messages().prefix()));
         player.sendMessage(this.miniMessage.deserialize(
-            template,
+            MessageFormatter.toMiniMessage(template),
             TagResolver.resolver(
                 prefixResolver,
                 Placeholder.unparsed(key1, safe1),

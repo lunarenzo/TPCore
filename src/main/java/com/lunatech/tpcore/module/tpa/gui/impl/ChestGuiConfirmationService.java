@@ -5,6 +5,7 @@ import com.lunatech.tpcore.module.tpa.gui.TpaConfirmationHolder;
 import com.lunatech.tpcore.module.tpa.gui.TpaConfirmationMenuService;
 import com.lunatech.tpcore.module.tpa.model.TpaRequest;
 import com.lunatech.tpcore.module.tpa.model.TpaType;
+import com.lunatech.tpcore.util.MessageFormatter;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.text.minimessage.MiniMessage;
@@ -231,13 +232,14 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
         if (miniMessageText == null || miniMessageText.isBlank()) {
             return Component.empty().decoration(TextDecoration.ITALIC, false);
         }
+        String normalized = MessageFormatter.toMiniMessage(miniMessageText);
         try {
             if (resolvers == null || resolvers.length == 0) {
-                return this.miniMessage.deserialize(miniMessageText).decoration(TextDecoration.ITALIC, false);
+                return this.miniMessage.deserialize(normalized).decoration(TextDecoration.ITALIC, false);
             }
-            return this.miniMessage.deserialize(miniMessageText, TagResolver.resolver(resolvers)).decoration(TextDecoration.ITALIC, false);
+            return this.miniMessage.deserialize(normalized, TagResolver.resolver(resolvers)).decoration(TextDecoration.ITALIC, false);
         } catch (Throwable ignored) {
-            String cleanText = miniMessageText.replaceAll("<[^>]*>", "");
+            String cleanText = normalized.replaceAll("<[^>]*>", "");
             return Component.text(cleanText).decoration(TextDecoration.ITALIC, false);
         }
     }

@@ -6,6 +6,7 @@ import com.lunatech.tpcore.module.tpa.model.TpaRequest;
 import com.lunatech.tpcore.module.tpa.model.TpaType;
 import com.lunatech.tpcore.module.tpa.service.TpaService;
 import com.lunatech.tpcore.platform.ServerVersion;
+import com.lunatech.tpcore.util.MessageFormatter;
 import net.kyori.adventure.key.Key;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
@@ -165,15 +166,15 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
         }
 
         try {
-            Component titleComp = this.miniMessage.deserialize(titleText);
+            Component titleComp = this.miniMessage.deserialize(MessageFormatter.toMiniMessage(titleText));
             TagResolver senderRes = Placeholder.unparsed("sender", senderName != null ? senderName : "");
             TagResolver targetRes = Placeholder.unparsed("target", targetName != null ? targetName : "");
             TpaConfig config = (this.configSupplier != null) ? this.configSupplier.get() : null;
             int timeoutSec = (config != null) ? config.requestTimeoutSeconds() : 60;
             TagResolver secRes = Placeholder.unparsed("seconds", String.valueOf(timeoutSec));
-            Component bodyComp = this.miniMessage.deserialize(bodyText, TagResolver.resolver(senderRes, targetRes, secRes));
-            Component acceptComp = this.miniMessage.deserialize(acceptText);
-            Component denyComp = this.miniMessage.deserialize(denyText);
+            Component bodyComp = this.miniMessage.deserialize(MessageFormatter.toMiniMessage(bodyText), TagResolver.resolver(senderRes, targetRes, secRes));
+            Component acceptComp = this.miniMessage.deserialize(MessageFormatter.toMiniMessage(acceptText));
+            Component denyComp = this.miniMessage.deserialize(MessageFormatter.toMiniMessage(denyText));
 
             // DialogBase
             Object baseBuilder = DialogReflectionCache.DIALOG_BASE_BUILDER.invoke(null, titleComp);
