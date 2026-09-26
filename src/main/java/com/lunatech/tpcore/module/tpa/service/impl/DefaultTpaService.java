@@ -1362,9 +1362,6 @@ public final class DefaultTpaService implements TpaService {
                         if (cfg.enableTitle()) {
                             player.clearTitle();
                         }
-                        if (cfg.enableSounds()) {
-                            playSound(player, cfg.completionSound(), (float) cfg.completionSoundVolume(), (float) cfg.completionSoundPitch());
-                        }
                         performFinalTeleport(player, destinationPlayer);
                     }
                 }
