@@ -73,15 +73,27 @@ public final class TpaEventListener implements Listener {
                 isPvp = (victim != null);
             } else if (damager instanceof Projectile projectile
                     && projectile.getShooter() instanceof Player pShooter) {
-                attacker = pShooter;
+                long launchTime = System.currentTimeMillis() - (projectile.getTicksLived() * 50L);
+                long protectionStart = this.tpaService.getTeleportProtectionStartTime(pShooter.getUniqueId());
+                if (protectionStart == 0L || launchTime >= protectionStart) {
+                    attacker = pShooter;
+                }
                 isPvp = (victim != null);
             } else if (damager instanceof AreaEffectCloud cloud
                     && cloud.getSource() instanceof Player pCloudShooter) {
-                attacker = pCloudShooter;
+                long launchTime = System.currentTimeMillis() - (cloud.getTicksLived() * 50L);
+                long protectionStart = this.tpaService.getTeleportProtectionStartTime(pCloudShooter.getUniqueId());
+                if (protectionStart == 0L || launchTime >= protectionStart) {
+                    attacker = pCloudShooter;
+                }
                 isPvp = (victim != null);
             } else if (damager instanceof ThrownPotion potion
                     && potion.getShooter() instanceof Player pPotionShooter) {
-                attacker = pPotionShooter;
+                long launchTime = System.currentTimeMillis() - (potion.getTicksLived() * 50L);
+                long protectionStart = this.tpaService.getTeleportProtectionStartTime(pPotionShooter.getUniqueId());
+                if (protectionStart == 0L || launchTime >= protectionStart) {
+                    attacker = pPotionShooter;
+                }
                 isPvp = (victim != null);
             }
         }
@@ -143,7 +155,7 @@ public final class TpaEventListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlayerMove(PlayerMoveEvent event) {
-        if (event == null || event.getPlayer() == null || !event.hasChangedPosition()) {
+        if (!this.tpaService.hasActiveWarmups() || event == null || event.getPlayer() == null || !event.hasChangedPosition()) {
             return;
         }
         this.tpaService.handlePlayerMove(event.getPlayer(), event.getTo());

@@ -1822,6 +1822,24 @@ public final class DefaultTpaService implements TpaService {
     }
 
     @Override
+    public boolean hasActiveWarmups() {
+        return !this.activeWarmups.isEmpty();
+    }
+
+    @Override
+    public long getTeleportProtectionStartTime(UUID playerId) {
+        if (playerId == null || this.teleportProtectionMap.isEmpty()) {
+            return 0L;
+        }
+        Long expiry = this.teleportProtectionMap.get(playerId);
+        if (expiry == null || System.currentTimeMillis() >= expiry) {
+            return 0L;
+        }
+        int seconds = this.config().protectionSeconds();
+        return expiry - (seconds * 1000L);
+    }
+
+    @Override
     public void stripTeleportProtection(UUID playerId) {
         if (playerId == null || this.teleportProtectionMap.isEmpty()) {
             return;

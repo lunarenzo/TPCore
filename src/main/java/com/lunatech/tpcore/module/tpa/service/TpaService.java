@@ -66,6 +66,10 @@ public interface TpaService {
 
     boolean handlePlayerProtectionDamage(Player victim, Player attacker, boolean isPvp);
 
+    boolean hasActiveWarmups();
+
+    long getTeleportProtectionStartTime(UUID playerId);
+
     void updateConfig(TpaConfig newConfig);
 
     void shutdown();
