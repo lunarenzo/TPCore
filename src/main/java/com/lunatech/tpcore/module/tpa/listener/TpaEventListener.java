@@ -203,15 +203,15 @@ public final class TpaEventListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onVehicleEnter(VehicleEnterEvent event) {
-        if (event != null && event.getEntered() instanceof Player player) {
-            this.tpaService.handlePlayerTeleport(player.getUniqueId());
+        if (this.tpaService.hasActiveWarmups() && event != null && event.getEntered() instanceof Player player) {
+            this.tpaService.handlePlayerMove(player);
         }
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onVehicleExit(VehicleExitEvent event) {
-        if (event != null && event.getExited() instanceof Player player) {
-            this.tpaService.handlePlayerTeleport(player.getUniqueId());
+        if (this.tpaService.hasActiveWarmups() && event != null && event.getExited() instanceof Player player) {
+            this.tpaService.handlePlayerMove(player);
         }
     }
 

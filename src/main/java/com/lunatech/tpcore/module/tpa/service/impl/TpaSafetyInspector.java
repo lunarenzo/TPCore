@@ -29,6 +29,10 @@ public final class TpaSafetyInspector {
         try {
             m = Bukkit.class.getMethod("isOwnedByCurrentRegion", Location.class);
         } catch (Throwable ignored) {
+            try {
+                m = Location.class.getMethod("isOwnedByCurrentRegion");
+            } catch (Throwable ignored2) {
+            }
         }
         IS_OWNED_BY_CURRENT_REGION = m;
 
@@ -93,12 +97,14 @@ public final class TpaSafetyInspector {
                 continue;
             }
 
-            if (probeLoc != null) {
+            if (probeLoc != null && IS_OWNED_BY_CURRENT_REGION != null) {
                 try {
                     probeLoc.setX(checkX);
                     probeLoc.setY(targetY);
                     probeLoc.setZ(checkZ);
-                    Boolean owned = (Boolean) IS_OWNED_BY_CURRENT_REGION.invoke(null, probeLoc);
+                    Boolean owned = (IS_OWNED_BY_CURRENT_REGION.getDeclaringClass().equals(Bukkit.class))
+                        ? (Boolean) IS_OWNED_BY_CURRENT_REGION.invoke(null, probeLoc)
+                        : (Boolean) IS_OWNED_BY_CURRENT_REGION.invoke(probeLoc);
                     if (owned != null && !owned) {
                         continue;
                     }

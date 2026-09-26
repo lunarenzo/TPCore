@@ -824,15 +824,8 @@ public final class DefaultTpaService implements TpaService {
 
         if (newStatus) {
             this.sendMessage(player, this.config().messages().autoAcceptOn());
-            int prevSize = -1;
-            while (this.repository.isAutoAcceptEnabled(player.getUniqueId())
-                    && !this.repository.getIncomingRequests(player.getUniqueId()).isEmpty()
+            if (!this.repository.getIncomingRequests(player.getUniqueId()).isEmpty()
                     && !this.isPlayerInWarmup(player.getUniqueId())) {
-                int size = this.repository.getIncomingRequests(player.getUniqueId()).size();
-                if (size == prevSize) {
-                    break;
-                }
-                prevSize = size;
                 this.acceptRequestInternal(player, null, false);
             }
             if (this.isPlayerInWarmup(player.getUniqueId())) {
@@ -1580,6 +1573,12 @@ public final class DefaultTpaService implements TpaService {
                 warmup.task().cancel();
             }
             Player player = Bukkit.getPlayer(playerId);
+            if (player != null && warmup.bossBar() != null) {
+                try {
+                    player.hideBossBar(warmup.bossBar());
+                } catch (Throwable ignored) {
+                }
+            }
             if (player != null && player.isOnline()) {
                 final String dName = (warmup.destinationPlayerName() != null && !warmup.destinationPlayerName().isBlank())
                     ? warmup.destinationPlayerName()
@@ -1589,9 +1588,6 @@ public final class DefaultTpaService implements TpaService {
                     pTask -> {
                         if (!player.isOnline()) {
                             return;
-                        }
-                        if (warmup.bossBar() != null) {
-                            player.hideBossBar(warmup.bossBar());
                         }
                         TpaConfig cfg = this.config();
                         if (cfg.enableSounds()) {
