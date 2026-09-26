@@ -28,6 +28,7 @@ import org.bukkit.inventory.InventoryView;
 import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.util.Vector;
 
 import static net.kyori.adventure.sound.Sound.sound;
 
@@ -62,6 +63,7 @@ public final class DefaultTpaService implements TpaService {
     private final Map<String, Key> soundKeyCache = new ConcurrentHashMap<>();
     private final ScheduledTask sweeperTask;
     private static final Title.Times WARMUP_TITLE_TIMES = Title.Times.times(Duration.ZERO, Duration.ofSeconds(1), Duration.ofMillis(200));
+    private static final Vector ZERO_VECTOR = new Vector(0, 0, 0);
 
     private static final class ActiveWarmup {
         private final UUID teleportingPlayerId;
@@ -419,8 +421,7 @@ public final class DefaultTpaService implements TpaService {
         }
 
         if (this.repository.isAutoAcceptEnabled(target.getUniqueId())) {
-            if ((type == TpaType.TPA_TO && this.activeWarmups.containsKey(sender.getUniqueId()))
-                || (type == TpaType.TPA_HERE && this.activeWarmups.containsKey(target.getUniqueId()))) {
+            if (isPlayerInWarmup(sender.getUniqueId()) || isPlayerInWarmup(target.getUniqueId())) {
                 return false;
             }
             int cooldownSecs = this.config().requestCooldownSeconds();
@@ -1276,7 +1277,7 @@ public final class DefaultTpaService implements TpaService {
     }
 
     private void executeTeleportSequence(Player player, Player destinationPlayer) {
-        if (player == null || !player.isOnline() || destinationPlayer == null || !destinationPlayer.isOnline()) {
+        if (player == null || !player.isOnline() || player.isDead() || destinationPlayer == null || !destinationPlayer.isOnline() || destinationPlayer.isDead()) {
             return;
         }
 
@@ -1480,10 +1481,10 @@ public final class DefaultTpaService implements TpaService {
     }
 
     private void performFinalTeleport(Player player, Player destinationPlayer) {
-        if (player == null || !player.isOnline()) {
+        if (player == null || !player.isOnline() || player.isDead()) {
             return;
         }
-        if (destinationPlayer == null || !destinationPlayer.isOnline()) {
+        if (destinationPlayer == null || !destinationPlayer.isOnline() || destinationPlayer.isDead()) {
             this.repository.setCooldownEnd(player.getUniqueId(), 0L);
             String dName = (destinationPlayer != null && destinationPlayer.getName() != null) ? destinationPlayer.getName() : "Player";
             this.sendMessage(player, this.config().messages().playerNotOnline(), "player", dName);
@@ -1493,7 +1494,7 @@ public final class DefaultTpaService implements TpaService {
         destinationPlayer.getScheduler().run(
             this.plugin,
             destTask -> {
-                if (!player.isOnline() || !destinationPlayer.isOnline()) {
+                if (!player.isOnline() || player.isDead() || !destinationPlayer.isOnline() || destinationPlayer.isDead()) {
                     return;
                 }
 
@@ -1520,7 +1521,7 @@ public final class DefaultTpaService implements TpaService {
                 player.getScheduler().run(
                     this.plugin,
                     playerTask -> {
-                        if (!player.isOnline()) {
+                        if (!player.isOnline() || player.isDead()) {
                             this.repository.setCooldownEnd(destinationPlayer.getUniqueId(), 0L);
                             if (destinationPlayer.isOnline()) {
                                 OfflinePlayer op = resolveOfflinePlayerIfCached(player.getUniqueId());
@@ -1533,13 +1534,14 @@ public final class DefaultTpaService implements TpaService {
                             }
                             return;
                         }
-                        if (!destinationPlayer.isOnline() || destination.getWorld() == null) {
+                        if (!destinationPlayer.isOnline() || destinationPlayer.isDead() || destination.getWorld() == null) {
                             return;
                         }
                         if (player.isInsideVehicle()) {
                             player.leaveVehicle();
                         }
                         player.eject();
+                        player.setVelocity(ZERO_VECTOR);
                         player.teleportAsync(destination).thenAccept(success -> {
                             if (player.isOnline()) {
                                 player.getScheduler().run(

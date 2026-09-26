@@ -163,7 +163,7 @@ public final class TpaEventListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onVehicleMove(VehicleMoveEvent event) {
-        if (event == null || event.getVehicle() == null || event.getTo() == null) {
+        if (!this.tpaService.hasActiveWarmups() || event == null || event.getVehicle() == null || event.getTo() == null) {
             return;
         }
         for (Entity passenger : event.getVehicle().getPassengers()) {
