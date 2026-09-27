@@ -13,6 +13,7 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
 import org.bukkit.Bukkit;
+import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.slf4j.Logger;
@@ -71,7 +72,7 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
         Player senderPlayer = Bukkit.getPlayer(request.senderId());
         String senderName = (senderPlayer != null) ? senderPlayer.getName() : "Player";
         if (senderPlayer == null) {
-            org.bukkit.OfflinePlayer offlineSender = resolveOfflinePlayerIfCached(request.senderId());
+            OfflinePlayer offlineSender = resolveOfflinePlayerIfCached(request.senderId());
             if (offlineSender != null && offlineSender.getName() != null) {
                 senderName = offlineSender.getName();
             }
@@ -109,7 +110,8 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
                 acceptKey,
                 denyKey,
                 senderName,
-                target.getName()
+                target.getName(),
+                request.cost()
             );
             if (success) {
                 return;
@@ -149,6 +151,9 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
                 ? config.dialogTitle()
                 : "<gradient:#00D2FF:#3A7BD5><bold>Send Teleport Request</bold></gradient>";
 
+            TpaEconomyService eco = this.economyServiceSupplier.get();
+            double cost = (eco != null) ? eco.getCost(sender, type) : 0.0;
+
             boolean success = this.tryShowDialog(
                 sender,
                 title,
@@ -158,7 +163,8 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
                 acceptKey,
                 denyKey,
                 sender.getName(),
-                target.getName()
+                target.getName(),
+                cost
             );
             if (success) {
                 return;
@@ -169,7 +175,7 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
         this.fallbackChestGui.openSendConfirmation(sender, target, type);
     }
 
-    private boolean tryShowDialog(Player player, String titleText, String bodyText, String acceptText, String denyText, String acceptKey, String denyKey, String senderName, String targetName) {
+    private boolean tryShowDialog(Player player, String titleText, String bodyText, String acceptText, String denyText, String acceptKey, String denyKey, String senderName, String targetName, double cost) {
         if (!DialogReflectionCache.SUPPORTED) {
             return false;
         }
@@ -183,13 +189,7 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
             TagResolver secRes = Placeholder.unparsed("seconds", String.valueOf(timeoutSec));
 
             TpaEconomyService eco = this.economyServiceSupplier.get();
-            Player senderPlayer = (senderName != null && !senderName.isBlank()) ? Bukkit.getPlayerExact(senderName) : null;
-            double cost = 0.0;
-            double balance = 0.0;
-            if (eco != null && senderPlayer != null) {
-                cost = eco.getCost(senderPlayer, TpaType.TPA_TO);
-                balance = eco.getBalance(senderPlayer);
-            }
+            double balance = (eco != null) ? eco.getBalance(player) : 0.0;
             String costStr = (eco != null) ? eco.format(cost) : String.format("$%.2f", cost);
             String balStr = (eco != null) ? eco.format(balance) : String.format("$%.2f", balance);
             TagResolver costRes = Placeholder.unparsed("cost", costStr);

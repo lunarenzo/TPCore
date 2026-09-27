@@ -105,10 +105,10 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
                     : "<gray>Request Type: <gold>TPA (Teleport to you)</gold></gray>");
 
             TpaEconomyService eco = this.economyServiceSupplier.get();
-            double cost = (eco != null) ? eco.getCost(senderPlayer, request.type()) : 0.0;
-            double balance = (eco != null && senderPlayer != null) ? eco.getBalance(senderPlayer) : 0.0;
+            double cost = request.cost();
+            double viewerBalance = (eco != null) ? eco.getBalance(target) : 0.0;
             String costStr = (eco != null) ? eco.format(cost) : String.format("$%.2f", cost);
-            String balStr = (eco != null) ? eco.format(balance) : String.format("$%.2f", balance);
+            String balStr = (eco != null) ? eco.format(viewerBalance) : String.format("$%.2f", viewerBalance);
 
             List<Component> loreList = new java.util.ArrayList<>(formatComponents(reqTypeText,
                 Placeholder.unparsed("sender", finalSenderName),
