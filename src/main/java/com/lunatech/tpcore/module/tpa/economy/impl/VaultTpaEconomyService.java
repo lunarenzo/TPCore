@@ -185,7 +185,12 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
             return true;
         }
         double cost = getCost(player, type);
-        if (cost <= 0.0) {
+        return processSendCost(player, cost);
+    }
+
+    @Override
+    public boolean processSendCost(Player player, double cost) {
+        if (player == null || !isAvailable() || cost <= 0.0) {
             return true;
         }
 
@@ -217,6 +222,65 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
             return true;
         }
         return false;
+    }
+
+    @Override
+    public CompletableFuture<Boolean> processSendCostAsync(Player player, double cost) {
+        if (player == null || !isAvailable() || cost <= 0.0) {
+            return CompletableFuture.completedFuture(true);
+        }
+        return CompletableFuture.supplyAsync(() -> {
+            if (!has(player, cost)) {
+                double balance = 0.0;
+                try {
+                    balance = this.vaultEconomy.getBalance(player);
+                } catch (Throwable ignored) {
+                }
+                TpaConfig cfg = this.configSupplier.get();
+                final double finalBal = balance;
+                if (player.isOnline()) {
+                    player.getScheduler().run(this.plugin, t -> {
+                        if (player.isOnline()) {
+                            TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
+                            TagResolver costResolver = Placeholder.unparsed("cost", format(cost));
+                            TagResolver balResolver = Placeholder.unparsed("balance", format(finalBal));
+                            player.sendMessage(this.miniMessage.deserialize(
+                                MessageFormatter.toMiniMessage(cfg.messages().insufficientFunds()),
+                                TagResolver.resolver(prefixResolver, costResolver, balResolver)
+                            ));
+                        }
+                    }, null);
+                }
+                return false;
+            }
+
+            if (withdraw(player, cost)) {
+                TpaConfig cfg = this.configSupplier.get();
+                if (player.isOnline()) {
+                    player.getScheduler().run(this.plugin, t -> {
+                        if (player.isOnline()) {
+                            TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
+                            TagResolver costResolver = Placeholder.unparsed("cost", format(cost));
+                            player.sendMessage(this.miniMessage.deserialize(
+                                MessageFormatter.toMiniMessage(cfg.messages().moneyWithdrawn()),
+                                TagResolver.resolver(prefixResolver, costResolver)
+                            ));
+                        }
+                    }, null);
+                }
+                return true;
+            }
+            return false;
+        }, this.ioExecutor);
+    }
+
+    @Override
+    public CompletableFuture<Boolean> processSendCostAsync(Player player, TpaType type) {
+        if (player == null || !isAvailable()) {
+            return CompletableFuture.completedFuture(true);
+        }
+        double cost = getCost(player, type);
+        return processSendCostAsync(player, cost);
     }
 
     @Override

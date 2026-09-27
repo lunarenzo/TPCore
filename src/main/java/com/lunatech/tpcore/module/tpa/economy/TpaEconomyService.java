@@ -34,6 +34,16 @@ public interface TpaEconomyService {
 
     boolean processSendCost(Player player, TpaType type);
 
+    boolean processSendCost(Player player, double cost);
+
+    default CompletableFuture<Boolean> processSendCostAsync(Player player, double cost) {
+        return CompletableFuture.supplyAsync(() -> processSendCost(player, cost));
+    }
+
+    default CompletableFuture<Boolean> processSendCostAsync(Player player, TpaType type) {
+        return CompletableFuture.supplyAsync(() -> processSendCost(player, type));
+    }
+
     void processRefund(OfflinePlayer player, double amount, String reason);
 
     void processReward(Player target, Player sender, double cost);

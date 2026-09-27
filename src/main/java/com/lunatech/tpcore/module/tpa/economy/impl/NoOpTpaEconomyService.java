@@ -51,6 +51,11 @@ public final class NoOpTpaEconomyService implements TpaEconomyService {
     }
 
     @Override
+    public boolean processSendCost(Player player, double cost) {
+        return true;
+    }
+
+    @Override
     public void processRefund(OfflinePlayer player, double amount, String reason) {
         // No-Op
     }

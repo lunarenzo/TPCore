@@ -494,18 +494,18 @@ public final class DefaultTpaService implements TpaService {
             if (isPlayerInWarmup(sender.getUniqueId()) || isPlayerInWarmup(target.getUniqueId())) {
                 return false;
             }
+            double sendCost = this.economyService.getCost(sender, type);
             String timing = this.config().getNormalizedChargeTiming();
             if ("CHARGE_ON_SEND".equals(timing)) {
-                if (!this.economyService.processSendCost(sender, type)) {
+                if (!this.economyService.processSendCost(sender, sendCost)) {
                     return false;
                 }
-            } else if ("CHARGE_ON_SUCCESS".equals(timing)) {
-                double cost = this.economyService.getCost(sender, type);
-                if (cost > 0.0 && !this.economyService.has(sender, cost)) {
+            } else if ("CHARGE_ON_ACCEPT".equals(timing) || "CHARGE_ON_SUCCESS".equals(timing)) {
+                if (sendCost > 0.0 && !this.economyService.has(sender, sendCost)) {
                     double balance = this.economyService.getBalance(sender);
                     TpaConfig cfg = this.config();
                     TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
-                    TagResolver costResolver = Placeholder.unparsed("cost", this.economyService.format(cost));
+                    TagResolver costResolver = Placeholder.unparsed("cost", this.economyService.format(sendCost));
                     TagResolver balResolver = Placeholder.unparsed("balance", this.economyService.format(balance));
                     sender.sendMessage(this.miniMessage.deserialize(
                         MessageFormatter.toMiniMessage(cfg.messages().insufficientFunds()),
@@ -518,7 +518,6 @@ public final class DefaultTpaService implements TpaService {
             if (applyCooldown && cooldownSecs > 0 && !sender.hasPermission(Permissions.TPA_BYPASS_COOLDOWN)) {
                 this.repository.setCooldownEnd(sender.getUniqueId(), System.currentTimeMillis() + cooldownSecs * 1000L);
             }
-            double sendCost = this.economyService.getCost(sender, type);
             TpaRequest req = new TpaRequest(sender.getUniqueId(), target.getUniqueId(), type, System.currentTimeMillis(), sendCost);
             this.repository.addRequest(req);
             this.sendMessage(sender, this.config().messages().requestAutoAcceptedSender(), "target", target.getName());
@@ -580,19 +579,19 @@ public final class DefaultTpaService implements TpaService {
             }
         }
 
+        double sendCost = this.economyService.getCost(sender, type);
         String timing = this.config().getNormalizedChargeTiming();
         if ("CHARGE_ON_SEND".equals(timing)) {
-            if (!this.economyService.processSendCost(sender, type)) {
+            if (!this.economyService.processSendCost(sender, sendCost)) {
                 return false;
             }
-        } else if ("CHARGE_ON_SUCCESS".equals(timing)) {
-            double cost = this.economyService.getCost(sender, type);
-            if (cost > 0.0 && !this.economyService.has(sender, cost)) {
+        } else if ("CHARGE_ON_ACCEPT".equals(timing) || "CHARGE_ON_SUCCESS".equals(timing)) {
+            if (sendCost > 0.0 && !this.economyService.has(sender, sendCost)) {
                 if (!isBulk) {
                     double balance = this.economyService.getBalance(sender);
                     TpaConfig cfg = this.config();
                     TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
-                    TagResolver costResolver = Placeholder.unparsed("cost", this.economyService.format(cost));
+                    TagResolver costResolver = Placeholder.unparsed("cost", this.economyService.format(sendCost));
                     TagResolver balResolver = Placeholder.unparsed("balance", this.economyService.format(balance));
                     sender.sendMessage(this.miniMessage.deserialize(
                         MessageFormatter.toMiniMessage(cfg.messages().insufficientFunds()),
@@ -603,7 +602,6 @@ public final class DefaultTpaService implements TpaService {
             }
         }
 
-        double sendCost = this.economyService.getCost(sender, type);
         TpaRequest request = new TpaRequest(
             sender.getUniqueId(),
             target.getUniqueId(),
@@ -738,7 +736,14 @@ public final class DefaultTpaService implements TpaService {
         }
 
         if ("CHARGE_ON_ACCEPT".equals(timing)) {
-            if (!this.economyService.processSendCost(sender, targetRequest.type())) {
+            if (!this.economyService.processSendCost(sender, targetRequest.cost())) {
+                if (notifyMessages) {
+                    this.sendMessage(
+                        target,
+                        this.config().messages().targetAcceptFailedInsufficientFunds(),
+                        "sender", sender.getName()
+                    );
+                }
                 return;
             }
         } else if ("CHARGE_ON_SUCCESS".equals(timing)) {
@@ -754,6 +759,11 @@ public final class DefaultTpaService implements TpaService {
                         MessageFormatter.toMiniMessage(cfg.messages().insufficientFunds()),
                         TagResolver.resolver(prefixResolver, costResolver, balResolver)
                     ));
+                    this.sendMessage(
+                        target,
+                        this.config().messages().targetAcceptFailedInsufficientFunds(),
+                        "sender", sender.getName()
+                    );
                 }
                 return;
             }
@@ -1632,12 +1642,31 @@ public final class DefaultTpaService implements TpaService {
         }
     }
 
+    private void refundSenderIfCharged(UUID senderId, double cost, String reason) {
+        if (senderId == null || cost <= 0.0) {
+            return;
+        }
+        String timing = this.config().getNormalizedChargeTiming();
+        if ("CHARGE_ON_SEND".equals(timing) || "CHARGE_ON_ACCEPT".equals(timing)) {
+            OfflinePlayer senderOp = Bukkit.getPlayer(senderId);
+            if (senderOp == null) {
+                senderOp = resolveOfflinePlayerIfCached(senderId);
+            }
+            if (senderOp == null) {
+                senderOp = Bukkit.getOfflinePlayer(senderId);
+            }
+            this.economyService.processRefund(senderOp, cost, reason);
+        }
+    }
+
     private void performFinalTeleport(Player player, Player destinationPlayer, TpaType requestType, UUID senderId, double cost) {
         if (player == null || !player.isOnline() || player.isDead()) {
+            refundSenderIfCharged(senderId, cost, "Teleporting player offline or dead");
             return;
         }
         if (destinationPlayer == null || !destinationPlayer.isOnline() || destinationPlayer.isDead()) {
             this.repository.setCooldownEnd(player.getUniqueId(), 0L);
+            refundSenderIfCharged(senderId, cost, "Destination player offline or dead");
             String dName = (destinationPlayer != null && destinationPlayer.getName() != null) ? destinationPlayer.getName() : "Player";
             this.sendMessage(player, this.config().messages().playerNotOnline(), "player", dName);
             return;
@@ -1647,6 +1676,9 @@ public final class DefaultTpaService implements TpaService {
             this.plugin,
             destTask -> {
                 if (!player.isOnline() || player.isDead() || !destinationPlayer.isOnline() || destinationPlayer.isDead()) {
+                    this.repository.setCooldownEnd(player.getUniqueId(), 0L);
+                    this.repository.setCooldownEnd(destinationPlayer.getUniqueId(), 0L);
+                    refundSenderIfCharged(senderId, cost, "Player offline or dead before destination check");
                     return;
                 }
 
@@ -1658,16 +1690,8 @@ public final class DefaultTpaService implements TpaService {
                     if (safeLoc == null) {
                         this.repository.setCooldownEnd(player.getUniqueId(), 0L);
                         this.repository.setCooldownEnd(destinationPlayer.getUniqueId(), 0L);
-                        String timing = this.config().getNormalizedChargeTiming();
-                        if (("CHARGE_ON_SEND".equals(timing) || "CHARGE_ON_ACCEPT".equals(timing)) && this.config().refundOnUnsafeDestination() && senderId != null && cost > 0.0) {
-                            OfflinePlayer senderOp = Bukkit.getPlayer(senderId);
-                            if (senderOp == null) {
-                                senderOp = resolveOfflinePlayerIfCached(senderId);
-                            }
-                            if (senderOp == null) {
-                                senderOp = Bukkit.getOfflinePlayer(senderId);
-                            }
-                            this.economyService.processRefund(senderOp, cost, "Unsafe destination");
+                        if (this.config().refundOnUnsafeDestination()) {
+                            refundSenderIfCharged(senderId, cost, "Unsafe destination");
                         }
                         player.getScheduler().run(
                             this.plugin,
@@ -1686,6 +1710,7 @@ public final class DefaultTpaService implements TpaService {
                     playerTask -> {
                         if (!player.isOnline() || player.isDead()) {
                             this.repository.setCooldownEnd(destinationPlayer.getUniqueId(), 0L);
+                            refundSenderIfCharged(senderId, cost, "Teleporting player offline or dead");
                             if (destinationPlayer.isOnline()) {
                                 OfflinePlayer op = resolveOfflinePlayerIfCached(player.getUniqueId());
                                 String pName = (op != null && op.getName() != null) ? op.getName() : "Player";
@@ -1698,6 +1723,12 @@ public final class DefaultTpaService implements TpaService {
                             return;
                         }
                         if (!destinationPlayer.isOnline() || destinationPlayer.isDead() || destination.getWorld() == null) {
+                            this.repository.setCooldownEnd(player.getUniqueId(), 0L);
+                            this.repository.setCooldownEnd(destinationPlayer.getUniqueId(), 0L);
+                            refundSenderIfCharged(senderId, cost, "Destination player offline or world unloaded");
+                            if (player.isOnline()) {
+                                this.sendMessage(player, this.config().messages().playerNotOnline(), "player", destinationPlayer.getName());
+                            }
                             return;
                         }
 
@@ -1747,17 +1778,22 @@ public final class DefaultTpaService implements TpaService {
                         player.eject();
                         player.setVelocity(ZERO_VECTOR);
                         player.teleportAsync(destination).thenAccept(success -> {
-                            if (player.isOnline()) {
-                                player.getScheduler().run(
-                                    this.plugin,
-                                    compTask -> {
-                                        if (success) {
+                            if (Boolean.TRUE.equals(success)) {
+                                if (player.isOnline()) {
+                                    player.getScheduler().run(
+                                        this.plugin,
+                                        compTask -> {
                                             player.setFallDistance(0.0f);
                                             player.setFireTicks(0);
                                             grantTeleportProtection(player);
                                             TpaConfig cfg = this.config();
                                             if (cfg.enableSounds()) {
                                                 playSound(player, cfg.completionSound(), (float) cfg.completionSoundVolume(), (float) cfg.completionSoundPitch());
+                                            }
+                                            Player rewardRecipient = (requestType == TpaType.TPA_TO) ? destinationPlayer : player;
+                                            Player payerPlayer = (requestType == TpaType.TPA_TO) ? player : destinationPlayer;
+                                            if (payerPlayer == null && senderId != null) {
+                                                payerPlayer = Bukkit.getPlayer(senderId);
                                             }
                                             if ("CHARGE_ON_SUCCESS".equals(cfg.getNormalizedChargeTiming()) && senderId != null && cost > 0.0) {
                                                 OfflinePlayer rawSenderOp = Bukkit.getPlayer(senderId);
@@ -1768,6 +1804,8 @@ public final class DefaultTpaService implements TpaService {
                                                     rawSenderOp = Bukkit.getOfflinePlayer(senderId);
                                                 }
                                                 final OfflinePlayer finalSenderOp = rawSenderOp;
+                                                final Player finalRewardRecipient = rewardRecipient;
+                                                final Player finalPayer = payerPlayer;
                                                 this.economyService.withdrawAsync(finalSenderOp, cost).thenAccept(withdrawn -> {
                                                     if (withdrawn) {
                                                         Player senderPlayer = Bukkit.getPlayer(senderId);
@@ -1783,42 +1821,38 @@ public final class DefaultTpaService implements TpaService {
                                                                 }
                                                             }, null);
                                                         }
-                                                        Player senderP = (senderPlayer != null) ? senderPlayer : Bukkit.getPlayer(senderId);
-                                                        this.economyService.processReward(destinationPlayer, senderP, cost);
+                                                        this.economyService.processReward(finalRewardRecipient, finalPayer, cost);
                                                     } else {
                                                         this.plugin.getSLF4JLogger().warn("Failed to charge {} for teleport to sender {}", this.economyService.format(cost), finalSenderOp.getName());
                                                     }
                                                 });
                                             } else if (cost > 0.0) {
-                                                Player senderPlayer = Bukkit.getPlayer(senderId);
-                                                this.economyService.processReward(destinationPlayer, senderPlayer, cost);
+                                                this.economyService.processReward(rewardRecipient, payerPlayer, cost);
                                             }
-                                        } else {
-                                            this.repository.setCooldownEnd(player.getUniqueId(), 0L);
-                                            this.repository.setCooldownEnd(destinationPlayer.getUniqueId(), 0L);
-                                            String timingMode = this.config().getNormalizedChargeTiming();
-                                            if (("CHARGE_ON_SEND".equals(timingMode) || "CHARGE_ON_ACCEPT".equals(timingMode)) && this.config().refundOnUnsafeDestination() && senderId != null && cost > 0.0) {
-                                                OfflinePlayer senderOp = Bukkit.getPlayer(senderId);
-                                                if (senderOp == null) {
-                                                    senderOp = resolveOfflinePlayerIfCached(senderId);
-                                                }
-                                                if (senderOp == null) {
-                                                    senderOp = Bukkit.getOfflinePlayer(senderId);
-                                                }
-                                                this.economyService.processRefund(senderOp, cost, "Unsafe destination");
-                                            }
-                                            this.sendMessage(player, this.config().messages().unsafeDestination());
-                                            if (destinationPlayer.isOnline()) {
-                                                destinationPlayer.getScheduler().run(
-                                                    this.plugin,
-                                                    dTask -> this.sendMessage(destinationPlayer, this.config().messages().unsafeDestination()),
-                                                    null
-                                                );
-                                            }
-                                        }
-                                    },
-                                    null
-                                );
+                                        },
+                                        null
+                                    );
+                                }
+                            } else {
+                                this.repository.setCooldownEnd(player.getUniqueId(), 0L);
+                                this.repository.setCooldownEnd(destinationPlayer.getUniqueId(), 0L);
+                                if (this.config().refundOnUnsafeDestination()) {
+                                    refundSenderIfCharged(senderId, cost, "Teleportation cancelled or destination unsafe");
+                                }
+                                if (player.isOnline()) {
+                                    player.getScheduler().run(
+                                        this.plugin,
+                                        pTask -> this.sendMessage(player, this.config().messages().unsafeDestination()),
+                                        null
+                                    );
+                                }
+                                if (destinationPlayer.isOnline()) {
+                                    destinationPlayer.getScheduler().run(
+                                        this.plugin,
+                                        dTask -> this.sendMessage(destinationPlayer, this.config().messages().unsafeDestination()),
+                                        null
+                                    );
+                                }
                             }
                         });
                     },

@@ -159,6 +159,7 @@ messages:
   request-expired: "<prefix><red>The teleport request with <yellow><player></yellow> has expired.</red>"
   sender-tpa-sent: "<prefix><gray>Sent a teleport request to <yellow><target></yellow>. Expires in <gold><seconds>s</gold>.</gray>"
   sender-tpahere-sent: "<prefix><gray>Sent a request for <yellow><target></yellow> to teleport to you. Expires in <gold><seconds>s</gold>.</gray>"
+  target-accept-failed-insufficient-funds: "<prefix><red>Teleport request failed: <yellow><sender></yellow> has insufficient funds to proceed.</red>"
   target-rewarded: "<prefix><green>Received <gold><reward></gold> for accepting teleport request from <yellow><sender></yellow>!</green>"
   target-tpa-received: "<prefix><yellow><sender></yellow> <gray>wants to teleport to you.</gray>\n<prefix><green><click:run_command:'/tpaccept <sender>'><hover:show_text:'<green>Click to ACCEPT teleport request</green>'><bold>[ACCEPT]</bold></click></green>  <red><click:run_command:'/tpdeny <sender>'><hover:show_text:'<red>Click to DENY teleport request</red>'><bold>[DENY]</bold></click></red>"
   target-tpahere-received: "<prefix><yellow><sender></yellow> <gray>requests you to teleport to them.</gray>\n<prefix><green><click:run_command:'/tpaccept <sender>'><hover:show_text:'<green>Click to ACCEPT teleport request</green>'><bold>[ACCEPT]</bold></click></green>  <red><click:run_command:'/tpdeny <sender>'><hover:show_text:'<red>Click to DENY teleport request</red>'><bold>[DENY]</bold></click></red>"
