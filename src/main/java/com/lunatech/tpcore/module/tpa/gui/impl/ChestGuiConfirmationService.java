@@ -107,15 +107,19 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
             TpaEconomyService eco = this.economyServiceSupplier.get();
             double cost = request.cost();
             double viewerBalance = (eco != null) ? eco.getBalance(target) : 0.0;
-            String costStr = (eco != null) ? eco.format(cost) : String.format("$%.2f", cost);
-            String balStr = (eco != null) ? eco.format(viewerBalance) : String.format("$%.2f", viewerBalance);
+            double rewardPercent = Math.max(0.0, Math.min(100.0, cfg.targetRewardPercent()));
+            double rewardAmount = (rewardPercent > 0.0 && cost > 0.0) ? (Math.round(((cost * rewardPercent) / 100.0) * 100.0) / 100.0) : 0.0;
+            String costStr = (eco != null) ? eco.format(cost) : String.format(Locale.ROOT, "$%.2f", cost);
+            String balStr = (eco != null) ? eco.format(viewerBalance) : String.format(Locale.ROOT, "$%.2f", viewerBalance);
+            String rewardStr = (eco != null) ? eco.format(rewardAmount) : String.format(Locale.ROOT, "$%.2f", rewardAmount);
 
             List<Component> loreList = new java.util.ArrayList<>(formatComponents(reqTypeText,
                 Placeholder.unparsed("sender", finalSenderName),
                 Placeholder.unparsed("target", target.getName()),
                 Placeholder.unparsed("seconds", String.valueOf(cfg.requestTimeoutSeconds())),
                 Placeholder.unparsed("cost", costStr),
-                Placeholder.unparsed("balance", balStr)
+                Placeholder.unparsed("balance", balStr),
+                Placeholder.unparsed("reward", rewardStr)
             ));
             loreList.add(formatComponent("<gray>Expires in: <gold>" + cfg.requestTimeoutSeconds() + "s</gold></gray>"));
             skullMeta.lore(loreList);
@@ -213,15 +217,19 @@ public final class ChestGuiConfirmationService implements TpaConfirmationMenuSer
             TpaEconomyService eco = this.economyServiceSupplier.get();
             double cost = (eco != null) ? eco.getCost(sender, type) : 0.0;
             double balance = (eco != null) ? eco.getBalance(sender) : 0.0;
-            String costStr = (eco != null) ? eco.format(cost) : String.format("$%.2f", cost);
-            String balStr = (eco != null) ? eco.format(balance) : String.format("$%.2f", balance);
+            double rewardPercent = Math.max(0.0, Math.min(100.0, cfg.targetRewardPercent()));
+            double rewardAmount = (rewardPercent > 0.0 && cost > 0.0) ? (Math.round(((cost * rewardPercent) / 100.0) * 100.0) / 100.0) : 0.0;
+            String costStr = (eco != null) ? eco.format(cost) : String.format(Locale.ROOT, "$%.2f", cost);
+            String balStr = (eco != null) ? eco.format(balance) : String.format(Locale.ROOT, "$%.2f", balance);
+            String rewardStr = (eco != null) ? eco.format(rewardAmount) : String.format(Locale.ROOT, "$%.2f", rewardAmount);
 
             List<Component> loreList = new java.util.ArrayList<>(formatComponents(reqTypeText,
                 Placeholder.unparsed("sender", sender.getName()),
                 Placeholder.unparsed("target", target.getName()),
                 Placeholder.unparsed("seconds", String.valueOf(cfg.requestTimeoutSeconds())),
                 Placeholder.unparsed("cost", costStr),
-                Placeholder.unparsed("balance", balStr)
+                Placeholder.unparsed("balance", balStr),
+                Placeholder.unparsed("reward", rewardStr)
             ));
             loreList.add(formatComponent("<gray>Timeout: <gold>" + cfg.requestTimeoutSeconds() + "s</gold></gray>"));
             skullMeta.lore(loreList);

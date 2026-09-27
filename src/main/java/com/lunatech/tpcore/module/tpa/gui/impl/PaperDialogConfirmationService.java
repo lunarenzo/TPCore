@@ -190,14 +190,18 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
 
             TpaEconomyService eco = this.economyServiceSupplier.get();
             double balance = (eco != null) ? eco.getBalance(player) : 0.0;
-            String costStr = (eco != null) ? eco.format(cost) : String.format("$%.2f", cost);
-            String balStr = (eco != null) ? eco.format(balance) : String.format("$%.2f", balance);
+            double rewardPercent = (config != null) ? Math.max(0.0, Math.min(100.0, config.targetRewardPercent())) : 0.0;
+            double rewardAmount = (rewardPercent > 0.0 && cost > 0.0) ? (Math.round(((cost * rewardPercent) / 100.0) * 100.0) / 100.0) : 0.0;
+            String costStr = (eco != null) ? eco.format(cost) : String.format(Locale.ROOT, "$%.2f", cost);
+            String balStr = (eco != null) ? eco.format(balance) : String.format(Locale.ROOT, "$%.2f", balance);
+            String rewardStr = (eco != null) ? eco.format(rewardAmount) : String.format(Locale.ROOT, "$%.2f", rewardAmount);
             TagResolver costRes = Placeholder.unparsed("cost", costStr);
             TagResolver balRes = Placeholder.unparsed("balance", balStr);
+            TagResolver rewardRes = Placeholder.unparsed("reward", rewardStr);
 
             Component bodyComp = this.miniMessage.deserialize(
                 MessageFormatter.toMiniMessage(bodyText),
-                TagResolver.resolver(senderRes, targetRes, secRes, costRes, balRes)
+                TagResolver.resolver(senderRes, targetRes, secRes, costRes, balRes, rewardRes)
             );
             Component acceptComp = this.miniMessage.deserialize(MessageFormatter.toMiniMessage(acceptText));
             Component denyComp = this.miniMessage.deserialize(MessageFormatter.toMiniMessage(denyText));

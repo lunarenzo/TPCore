@@ -264,6 +264,25 @@ public final class DefaultTpaService implements TpaService {
         );
     }
 
+    private void pruneExpiredRequest(TpaRequest req) {
+        if (req == null) {
+            return;
+        }
+        if (this.repository.removeRequest(req.targetId(), req.senderId())) {
+            this.repository.setCooldownEnd(req.senderId(), 0L);
+            if ("CHARGE_ON_SEND".equals(this.config().getNormalizedChargeTiming()) && this.config().refundOnExpire() && req.cost() > 0.0) {
+                OfflinePlayer senderOp = Bukkit.getPlayer(req.senderId());
+                if (senderOp == null) {
+                    senderOp = resolveOfflinePlayerIfCached(req.senderId());
+                }
+                if (senderOp == null) {
+                    senderOp = Bukkit.getOfflinePlayer(req.senderId());
+                }
+                this.economyService.processRefund(senderOp, req.cost(), "Request expired");
+            }
+        }
+    }
+
     @Override
     public void handlePlayerJoin(Player player) {
         if (player == null || !player.isOnline()) {
@@ -462,6 +481,19 @@ public final class DefaultTpaService implements TpaService {
 
         if (sentAny && cooldownSeconds > 0 && !sender.hasPermission(Permissions.TPA_BYPASS_COOLDOWN)) {
             this.repository.setCooldownEnd(sender.getUniqueId(), System.currentTimeMillis() + cooldownSeconds * 1000L);
+        } else if (!sentAny) {
+            double cost = this.economyService.getCost(sender, type);
+            if (cost > 0.0 && !this.economyService.has(sender, cost)) {
+                double balance = this.economyService.getBalance(sender);
+                TpaConfig cfg = this.config();
+                TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
+                TagResolver costResolver = Placeholder.unparsed("cost", this.economyService.format(cost));
+                TagResolver balResolver = Placeholder.unparsed("balance", this.economyService.format(balance));
+                sender.sendMessage(this.miniMessage.deserialize(
+                    MessageFormatter.toMiniMessage(cfg.messages().insufficientFunds()),
+                    TagResolver.resolver(prefixResolver, costResolver, balResolver)
+                ));
+            }
         }
     }
 
@@ -516,6 +548,9 @@ public final class DefaultTpaService implements TpaService {
             double sendCost = this.economyService.getCost(sender, type);
             String timing = this.config().getNormalizedChargeTiming();
             if ("CHARGE_ON_SEND".equals(timing)) {
+                if (isBulk && !this.economyService.has(sender, sendCost)) {
+                    return false;
+                }
                 if (!this.economyService.processSendCost(sender, sendCost)) {
                     return false;
                 }
@@ -549,15 +584,19 @@ public final class DefaultTpaService implements TpaService {
         }
 
         Optional<TpaRequest> existing = this.repository.getRequest(target.getUniqueId(), sender.getUniqueId());
-        if (existing.isPresent() && !existing.get().isExpired(this.config().requestTimeoutSeconds())) {
-            if (!isBulk) {
-                this.sendMessage(
-                    sender,
-                    this.config().messages().alreadyHasPendingRequest(),
-                    "target", target.getName()
-                );
+        if (existing.isPresent()) {
+            if (!existing.get().isExpired(this.config().requestTimeoutSeconds())) {
+                if (!isBulk) {
+                    this.sendMessage(
+                        sender,
+                        this.config().messages().alreadyHasPendingRequest(),
+                        "target", target.getName()
+                    );
+                }
+                return false;
+            } else {
+                pruneExpiredRequest(existing.get());
             }
-            return false;
         }
 
         int maxRequests = this.config().maxPendingRequestsPerPlayer();
@@ -585,6 +624,9 @@ public final class DefaultTpaService implements TpaService {
         double sendCost = this.economyService.getCost(sender, type);
         String timing = this.config().getNormalizedChargeTiming();
         if ("CHARGE_ON_SEND".equals(timing)) {
+            if (isBulk && !this.economyService.has(sender, sendCost)) {
+                return false;
+            }
             if (!this.economyService.processSendCost(sender, sendCost)) {
                 return false;
             }
@@ -670,7 +712,7 @@ public final class DefaultTpaService implements TpaService {
             if (req != null && !req.isExpired(timeoutSeconds)) {
                 incoming.add(req);
             } else if (req != null) {
-                this.repository.removeRequest(req.targetId(), req.senderId());
+                pruneExpiredRequest(req);
             }
         }
 
@@ -699,7 +741,7 @@ public final class DefaultTpaService implements TpaService {
                 this.sendMessage(target, this.config().messages().noPendingRequests());
             }
             if (targetRequest != null) {
-                this.repository.removeRequest(targetRequest.targetId(), targetRequest.senderId());
+                pruneExpiredRequest(targetRequest);
             }
             return;
         }
@@ -740,6 +782,9 @@ public final class DefaultTpaService implements TpaService {
 
         if ("CHARGE_ON_ACCEPT".equals(timing)) {
             if (!this.economyService.processSendCost(sender, targetRequest.cost())) {
+                this.repository.setCooldownEnd(targetRequest.senderId(), 0L);
+                this.closeConfirmationMenuIfOpen(sender, target.getUniqueId());
+                this.closeConfirmationMenuIfOpen(target, targetRequest.senderId());
                 if (notifyMessages) {
                     this.sendMessage(
                         target,
@@ -752,6 +797,9 @@ public final class DefaultTpaService implements TpaService {
         } else if ("CHARGE_ON_SUCCESS".equals(timing)) {
             double cost = targetRequest.cost();
             if (cost > 0.0 && !this.economyService.has(sender, cost)) {
+                this.repository.setCooldownEnd(targetRequest.senderId(), 0L);
+                this.closeConfirmationMenuIfOpen(sender, target.getUniqueId());
+                this.closeConfirmationMenuIfOpen(target, targetRequest.senderId());
                 if (notifyMessages) {
                     double balance = this.economyService.getBalance(sender);
                     TpaConfig cfg = this.config();
@@ -806,8 +854,11 @@ public final class DefaultTpaService implements TpaService {
             for (TpaRequest otherReq : new ArrayList<>(otherOutgoing)) {
                 if (otherReq != null && !otherReq.targetId().equals(targetRequest.targetId())) {
                     if (this.repository.removeRequest(otherReq.targetId(), otherReq.senderId())) {
-                        if ("CHARGE_ON_SEND".equals(timing) && this.config().refundOnCancelBySender() && otherReq.cost() > 0.0) {
-                            OfflinePlayer senderOp = resolveOfflinePlayerIfCached(otherReq.senderId());
+                        if ("CHARGE_ON_SEND".equals(timing) && otherReq.cost() > 0.0) {
+                            OfflinePlayer senderOp = Bukkit.getPlayer(otherReq.senderId());
+                            if (senderOp == null) {
+                                senderOp = resolveOfflinePlayerIfCached(otherReq.senderId());
+                            }
                             if (senderOp == null) {
                                 senderOp = Bukkit.getOfflinePlayer(otherReq.senderId());
                             }
@@ -854,7 +905,7 @@ public final class DefaultTpaService implements TpaService {
             if (req != null && !req.isExpired(timeoutSeconds)) {
                 incoming.add(req);
             } else if (req != null) {
-                this.repository.removeRequest(req.targetId(), req.senderId());
+                pruneExpiredRequest(req);
             }
         }
 
@@ -942,7 +993,7 @@ public final class DefaultTpaService implements TpaService {
             if (req != null && !req.isExpired(timeoutSeconds)) {
                 outgoing.add(req);
             } else if (req != null) {
-                this.repository.removeRequest(req.targetId(), req.senderId());
+                pruneExpiredRequest(req);
             }
         }
 
@@ -1495,9 +1546,7 @@ public final class DefaultTpaService implements TpaService {
         Collection<TpaRequest> outgoing = this.repository.getOutgoingRequests(playerId);
         if (outgoing != null && !outgoing.isEmpty()) {
             for (TpaRequest req : outgoing) {
-                if (this.config().refundOnCancelBySender()) {
-                    refundRequestSenderIfCharged(req, "Sender died");
-                }
+                refundRequestSenderIfCharged(req, "Sender died");
             }
         }
         Collection<TpaRequest> incoming = this.repository.getIncomingRequests(playerId);
@@ -1507,6 +1556,7 @@ public final class DefaultTpaService implements TpaService {
             }
         }
         this.repository.removeAllRequestsForPlayer(playerId);
+        this.repository.setCooldownEnd(playerId, 0L);
         this.teleportProtectionMap.remove(playerId);
         this.cancelWarmup(playerId, null);
         this.cancelWarmupsForDestination(playerId, this.config().messages().playerNotOnline());
@@ -1757,7 +1807,10 @@ public final class DefaultTpaService implements TpaService {
         }
         String timing = this.config().getNormalizedChargeTiming();
         if ("CHARGE_ON_SEND".equals(timing)) {
-            OfflinePlayer senderOp = resolveOfflinePlayerIfCached(req.senderId());
+            OfflinePlayer senderOp = Bukkit.getPlayer(req.senderId());
+            if (senderOp == null) {
+                senderOp = resolveOfflinePlayerIfCached(req.senderId());
+            }
             if (senderOp == null) {
                 senderOp = Bukkit.getOfflinePlayer(req.senderId());
             }
@@ -1864,108 +1917,130 @@ public final class DefaultTpaService implements TpaService {
                             if (senderOp == null) {
                                 senderOp = Bukkit.getOfflinePlayer(senderId);
                             }
-                            if (!this.economyService.withdraw(senderOp, cost)) {
-                                this.repository.setCooldownEnd(player.getUniqueId(), 0L);
-                                this.repository.setCooldownEnd(destinationPlayer.getUniqueId(), 0L);
-                                TpaConfig cfg = this.config();
-                                if (player.isOnline()) {
-                                    TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
-                                    TagResolver costResolver = Placeholder.unparsed("cost", this.economyService.format(cost));
-                                    player.sendMessage(this.miniMessage.deserialize(
-                                        MessageFormatter.toMiniMessage(cfg.messages().teleportCancelledInsufficientFunds()),
-                                        TagResolver.resolver(prefixResolver, costResolver)
-                                    ));
-                                    if (cfg.enableSounds()) {
-                                        playSound(player, cfg.cancelSound(), (float) cfg.cancelSoundVolume(), (float) cfg.cancelSoundPitch());
-                                    }
-                                }
-                                if (destinationPlayer.isOnline() && !destinationPlayer.getUniqueId().equals(player.getUniqueId())) {
-                                    destinationPlayer.getScheduler().run(
-                                        this.plugin,
-                                        dTask -> {
-                                            this.sendMessage(destinationPlayer, cfg.messages().requestCancelledTarget(), "sender", player.getName());
-                                            if (cfg.enableSounds()) {
-                                                playSound(destinationPlayer, cfg.cancelSound(), (float) cfg.cancelSoundVolume(), (float) cfg.cancelSoundPitch());
+                            final OfflinePlayer finalSenderOp = senderOp;
+                            this.economyService.withdrawAsync(finalSenderOp, cost).thenAccept(charged -> {
+                                player.getScheduler().run(
+                                    this.plugin,
+                                    payTask -> {
+                                        if (!Boolean.TRUE.equals(charged)) {
+                                            this.repository.setCooldownEnd(player.getUniqueId(), 0L);
+                                            this.repository.setCooldownEnd(destinationPlayer.getUniqueId(), 0L);
+                                            TpaConfig cfg = this.config();
+                                            if (player.isOnline()) {
+                                                TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
+                                                TagResolver costResolver = Placeholder.unparsed("cost", this.economyService.format(cost));
+                                                player.sendMessage(this.miniMessage.deserialize(
+                                                    MessageFormatter.toMiniMessage(cfg.messages().teleportCancelledInsufficientFunds()),
+                                                    TagResolver.resolver(prefixResolver, costResolver)
+                                                ));
+                                                if (cfg.enableSounds()) {
+                                                    playSound(player, cfg.cancelSound(), (float) cfg.cancelSoundVolume(), (float) cfg.cancelSoundPitch());
+                                                }
                                             }
-                                        },
-                                        null
-                                    );
-                                }
-                                return;
-                            }
+                                            if (destinationPlayer.isOnline() && !destinationPlayer.getUniqueId().equals(player.getUniqueId())) {
+                                                destinationPlayer.getScheduler().run(
+                                                    this.plugin,
+                                                    dTask -> {
+                                                        this.sendMessage(destinationPlayer, cfg.messages().requestCancelledTarget(), "sender", player.getName());
+                                                        if (cfg.enableSounds()) {
+                                                            playSound(destinationPlayer, cfg.cancelSound(), (float) cfg.cancelSoundVolume(), (float) cfg.cancelSoundPitch());
+                                                        }
+                                                    },
+                                                    null
+                                                );
+                                            }
+                                            return;
+                                        }
+                                        executeTeleportFinalization(player, destinationPlayer, destination, requestType, senderId, cost);
+                                    },
+                                    null
+                                );
+                            });
+                            return;
                         }
 
-                        if (player.isInsideVehicle()) {
-                            player.leaveVehicle();
-                        }
-                        player.eject();
-                        player.setVelocity(ZERO_VECTOR);
-                        player.teleportAsync(destination).thenAccept(success -> {
-                            if (Boolean.TRUE.equals(success)) {
-                                if (player.isOnline()) {
-                                    player.getScheduler().run(
-                                        this.plugin,
-                                        compTask -> {
-                                            player.setFallDistance(0.0f);
-                                            player.setFireTicks(0);
-                                            grantTeleportProtection(player);
-                                            TpaConfig cfg = this.config();
-                                            if (cfg.enableSounds()) {
-                                                playSound(player, cfg.completionSound(), (float) cfg.completionSoundVolume(), (float) cfg.completionSoundPitch());
-                                            }
-                                            Player rewardRecipient = (requestType == TpaType.TPA_TO) ? destinationPlayer : player;
-                                            Player payerPlayer = (requestType == TpaType.TPA_TO) ? player : destinationPlayer;
-                                            if (payerPlayer == null && senderId != null) {
-                                                payerPlayer = Bukkit.getPlayer(senderId);
-                                            }
-                                            if ("CHARGE_ON_SUCCESS".equals(cfg.getNormalizedChargeTiming()) && senderId != null && cost > 0.0) {
-                                                Player senderPlayer = Bukkit.getPlayer(senderId);
-                                                if (senderPlayer != null && senderPlayer.isOnline()) {
-                                                    senderPlayer.getScheduler().run(this.plugin, t -> {
-                                                        if (senderPlayer.isOnline()) {
-                                                            TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
-                                                            TagResolver costResolver = Placeholder.unparsed("cost", this.economyService.format(cost));
-                                                            senderPlayer.sendMessage(this.miniMessage.deserialize(
-                                                                MessageFormatter.toMiniMessage(cfg.messages().moneyWithdrawn()),
-                                                                TagResolver.resolver(prefixResolver, costResolver)
-                                                            ));
-                                                        }
-                                                    }, null);
-                                                }
-                                                this.economyService.processReward(rewardRecipient, payerPlayer, cost);
-                                            } else if (cost > 0.0) {
-                                                this.economyService.processReward(rewardRecipient, payerPlayer, cost);
-                                            }
-                                        },
-                                        null
-                                    );
-                                }
-                            } else {
-                                this.repository.setCooldownEnd(player.getUniqueId(), 0L);
-                                this.repository.setCooldownEnd(destinationPlayer.getUniqueId(), 0L);
-                                refundSenderIfCharged(senderId, cost, "Teleportation cancelled or destination unsafe");
-                                if (player.isOnline()) {
-                                    player.getScheduler().run(
-                                        this.plugin,
-                                        pTask -> this.sendMessage(player, this.config().messages().unsafeDestination()),
-                                        null
-                                    );
-                                }
-                                if (destinationPlayer.isOnline()) {
-                                    destinationPlayer.getScheduler().run(
-                                        this.plugin,
-                                        dTask -> this.sendMessage(destinationPlayer, this.config().messages().unsafeDestination()),
-                                        null
-                                    );
-                                }
-                            }
-                        });
+                        executeTeleportFinalization(player, destinationPlayer, destination, requestType, senderId, cost);
                     },
                     null
                 );
             },
             null
         );
+    }
+
+    private void executeTeleportFinalization(Player player, Player destinationPlayer, Location destination, TpaType requestType, UUID senderId, double cost) {
+        if (!player.isOnline() || player.isDead() || !destinationPlayer.isOnline() || destinationPlayer.isDead()) {
+            this.repository.setCooldownEnd(player.getUniqueId(), 0L);
+            this.repository.setCooldownEnd(destinationPlayer.getUniqueId(), 0L);
+            refundSenderIfCharged(senderId, cost, "Player offline or dead before teleport dispatch");
+            return;
+        }
+
+        if (player.isInsideVehicle()) {
+            player.leaveVehicle();
+        }
+        player.eject();
+        player.setVelocity(ZERO_VECTOR);
+        player.teleportAsync(destination).thenAccept(success -> {
+            if (Boolean.TRUE.equals(success)) {
+                if (player.isOnline()) {
+                    player.getScheduler().run(
+                        this.plugin,
+                        compTask -> {
+                            player.setFallDistance(0.0f);
+                            player.setFireTicks(0);
+                            grantTeleportProtection(player);
+                            TpaConfig cfg = this.config();
+                            if (cfg.enableSounds()) {
+                                playSound(player, cfg.completionSound(), (float) cfg.completionSoundVolume(), (float) cfg.completionSoundPitch());
+                            }
+                            Player rewardRecipient = (requestType == TpaType.TPA_TO) ? destinationPlayer : player;
+                            Player payerPlayer = (requestType == TpaType.TPA_TO) ? player : destinationPlayer;
+                            if (payerPlayer == null && senderId != null) {
+                                payerPlayer = Bukkit.getPlayer(senderId);
+                            }
+                            if ("CHARGE_ON_SUCCESS".equals(cfg.getNormalizedChargeTiming()) && senderId != null && cost > 0.0) {
+                                Player senderPlayer = Bukkit.getPlayer(senderId);
+                                if (senderPlayer != null && senderPlayer.isOnline()) {
+                                    senderPlayer.getScheduler().run(this.plugin, t -> {
+                                        if (senderPlayer.isOnline()) {
+                                            TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
+                                            TagResolver costResolver = Placeholder.unparsed("cost", this.economyService.format(cost));
+                                            senderPlayer.sendMessage(this.miniMessage.deserialize(
+                                                MessageFormatter.toMiniMessage(cfg.messages().moneyWithdrawn()),
+                                                TagResolver.resolver(prefixResolver, costResolver)
+                                            ));
+                                        }
+                                    }, null);
+                                }
+                                this.economyService.processReward(rewardRecipient, payerPlayer, cost);
+                            } else if (cost > 0.0) {
+                                this.economyService.processReward(rewardRecipient, payerPlayer, cost);
+                            }
+                        },
+                        null
+                    );
+                }
+            } else {
+                this.repository.setCooldownEnd(player.getUniqueId(), 0L);
+                this.repository.setCooldownEnd(destinationPlayer.getUniqueId(), 0L);
+                refundSenderIfCharged(senderId, cost, "Teleportation cancelled or destination unsafe");
+                if (player.isOnline()) {
+                    player.getScheduler().run(
+                        this.plugin,
+                        pTask -> this.sendMessage(player, this.config().messages().unsafeDestination()),
+                        null
+                    );
+                }
+                if (destinationPlayer.isOnline()) {
+                    destinationPlayer.getScheduler().run(
+                        this.plugin,
+                        dTask -> this.sendMessage(destinationPlayer, this.config().messages().unsafeDestination()),
+                        null
+                    );
+                }
+            }
+        });
     }
 
     private void cancelWarmup(UUID playerId, String cancelMessageTemplate) {

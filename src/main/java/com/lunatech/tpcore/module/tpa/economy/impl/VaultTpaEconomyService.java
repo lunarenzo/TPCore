@@ -21,6 +21,7 @@ import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.slf4j.Logger;
 
+import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -310,6 +311,20 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
                 }
                 return true;
             }
+
+            TpaConfig cfg = this.configSupplier.get();
+            if (player.isOnline()) {
+                player.getScheduler().run(this.plugin, t -> {
+                    if (player.isOnline()) {
+                        TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
+                        TagResolver costResolver = Placeholder.unparsed("cost", format(cost));
+                        player.sendMessage(this.miniMessage.deserialize(
+                            MessageFormatter.toMiniMessage(cfg.messages().teleportCancelledInsufficientFunds()),
+                            TagResolver.resolver(prefixResolver, costResolver)
+                        ));
+                    }
+                }, null);
+            }
             return false;
         }, this.ioExecutor);
     }
@@ -333,7 +348,12 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
             return;
         }
         this.ioExecutor.submit(() -> {
-            boolean success = deposit(player, cleanAmount);
+            boolean success = false;
+            try {
+                success = deposit(player, cleanAmount);
+            } catch (Throwable t) {
+                this.logger.error("Vault economy deposit error during refund for {}", player.getName(), t);
+            }
             if (success) {
                 if (player.isOnline() && player.getPlayer() != null) {
                     Player p = player.getPlayer();
@@ -412,8 +432,11 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
     public void shutdown() {
         this.ioExecutor.shutdown();
         try {
-            if (!this.ioExecutor.awaitTermination(2, TimeUnit.SECONDS)) {
-                this.ioExecutor.shutdownNow();
+            if (!this.ioExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                List<Runnable> dropped = this.ioExecutor.shutdownNow();
+                if (dropped != null && !dropped.isEmpty()) {
+                    this.logger.warn("Economy I/O executor forced shutdown; {} pending tasks dropped.", dropped.size());
+                }
             }
         } catch (InterruptedException e) {
             this.ioExecutor.shutdownNow();
