@@ -48,5 +48,11 @@ public interface TpaRepository {
 
     void clearExpiredCooldowns();
 
+    void addPendingRefund(UUID playerId, double amount);
+
+    double consumePendingRefund(UUID playerId);
+
+    boolean hasPendingRefund(UUID playerId);
+
     void clear();
 }

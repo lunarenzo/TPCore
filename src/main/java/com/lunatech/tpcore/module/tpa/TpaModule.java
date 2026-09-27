@@ -68,8 +68,8 @@ public final class TpaModule implements ReloadableModule {
             return;
         }
 
-        this.repository = new ConcurrentTpaRepository();
-        this.economyService = new VaultTpaEconomyService(this.plugin, () -> this.config, this.plugin.getSLF4JLogger());
+        this.repository = new ConcurrentTpaRepository(this.plugin.getDataFolder().toPath());
+        this.economyService = new VaultTpaEconomyService(this.plugin, () -> this.config, () -> this.repository, this.plugin.getSLF4JLogger());
         this.service = new DefaultTpaService(this.plugin, this.repository, this.config, this.economyService);
         this.confirmationMenuService = new DynamicConfirmationMenuService(
             this.plugin,
@@ -109,6 +109,10 @@ public final class TpaModule implements ReloadableModule {
         if (this.service != null) {
             this.service.shutdown();
             this.service = null;
+        }
+        if (this.economyService != null) {
+            this.economyService.shutdown();
+            this.economyService = null;
         }
         if (this.repository != null) {
             this.repository.clear();

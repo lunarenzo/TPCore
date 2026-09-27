@@ -4,6 +4,7 @@ import com.lunatech.tpcore.config.model.TpaConfig;
 import com.lunatech.tpcore.constant.Permissions;
 import com.lunatech.tpcore.module.tpa.economy.TpaEconomyService;
 import com.lunatech.tpcore.module.tpa.model.TpaType;
+import com.lunatech.tpcore.module.tpa.repository.TpaRepository;
 import com.lunatech.tpcore.util.MessageFormatter;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
@@ -20,6 +21,10 @@ import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.slf4j.Logger;
 
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 /**
@@ -29,14 +34,21 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
 
     private final JavaPlugin plugin;
     private final Supplier<TpaConfig> configSupplier;
+    private final Supplier<TpaRepository> repositorySupplier;
     private final Logger logger;
     private final MiniMessage miniMessage;
     private final NamespacedKey keyPendingRefund;
+    private final ExecutorService ioExecutor = Executors.newVirtualThreadPerTaskExecutor();
     private Economy vaultEconomy;
 
     public VaultTpaEconomyService(JavaPlugin plugin, Supplier<TpaConfig> configSupplier, Logger logger) {
+        this(plugin, configSupplier, null, logger);
+    }
+
+    public VaultTpaEconomyService(JavaPlugin plugin, Supplier<TpaConfig> configSupplier, Supplier<TpaRepository> repositorySupplier, Logger logger) {
         this.plugin = plugin;
         this.configSupplier = configSupplier;
+        this.repositorySupplier = repositorySupplier;
         this.logger = logger;
         this.miniMessage = MiniMessage.miniMessage();
         this.keyPendingRefund = (plugin != null) ? new NamespacedKey(plugin, "tpa_pending_refund") : null;
@@ -123,6 +135,16 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
     }
 
     @Override
+    public CompletableFuture<Boolean> withdrawAsync(OfflinePlayer player, double amount) {
+        return CompletableFuture.supplyAsync(() -> withdraw(player, amount), this.ioExecutor);
+    }
+
+    @Override
+    public CompletableFuture<Boolean> depositAsync(OfflinePlayer player, double amount) {
+        return CompletableFuture.supplyAsync(() -> deposit(player, amount), this.ioExecutor);
+    }
+
+    @Override
     public double getBalance(OfflinePlayer player) {
         if (player == null || !isAvailable()) {
             return 0.0;
@@ -202,24 +224,35 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
         if (player == null || amount <= 0.0 || !isAvailable()) {
             return;
         }
-        boolean success = deposit(player, amount);
-        if (!success && player.isOnline() && player.getPlayer() != null) {
-            // Queue pending refund in PDC if online deposit failed
-            queuePendingRefund(player.getPlayer(), amount);
-        } else if (!success && keyPendingRefund != null) {
-            this.logger.warn("Failed to deposit refund of {} for offline player {}. Will attempt upon join.", format(amount), player.getName());
-        }
-
-        if (success && player.isOnline() && player.getPlayer() != null) {
-            Player p = player.getPlayer();
-            TpaConfig cfg = this.configSupplier.get();
-            TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
-            TagResolver costResolver = Placeholder.unparsed("cost", format(amount));
-            p.sendMessage(this.miniMessage.deserialize(
-                MessageFormatter.toMiniMessage(cfg.messages().moneyRefunded()),
-                TagResolver.resolver(prefixResolver, costResolver)
-            ));
-        }
+        this.ioExecutor.submit(() -> {
+            boolean success = deposit(player, amount);
+            if (success) {
+                if (player.isOnline() && player.getPlayer() != null) {
+                    Player p = player.getPlayer();
+                    p.getScheduler().run(this.plugin, t -> {
+                        if (p.isOnline()) {
+                            TpaConfig cfg = this.configSupplier.get();
+                            TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
+                            TagResolver costResolver = Placeholder.unparsed("cost", format(amount));
+                            p.sendMessage(this.miniMessage.deserialize(
+                                MessageFormatter.toMiniMessage(cfg.messages().moneyRefunded()),
+                                TagResolver.resolver(prefixResolver, costResolver)
+                            ));
+                        }
+                    }, null);
+                }
+            } else {
+                TpaRepository repo = (this.repositorySupplier != null) ? this.repositorySupplier.get() : null;
+                if (repo != null) {
+                    repo.addPendingRefund(player.getUniqueId(), amount);
+                    this.logger.warn("Offline deposit of {} failed for {}. Queued into repository pending refunds.", format(amount), player.getName());
+                } else if (player.isOnline() && player.getPlayer() != null) {
+                    queuePendingRefund(player.getPlayer(), amount);
+                } else {
+                    this.logger.warn("Failed to deposit refund of {} for offline player {}. No repository available to queue refund.", format(amount), player.getName());
+                }
+            }
+        });
     }
 
     @Override
@@ -233,15 +266,24 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
         }
         double pct = Math.max(0.0, Math.min(100.0, cfg.targetRewardPercent()));
         double reward = (cost * pct) / 100.0;
-        if (reward > 0.0 && deposit(target, reward)) {
-            TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
-            TagResolver rewardResolver = Placeholder.unparsed("reward", format(reward));
-            TagResolver senderResolver = Placeholder.unparsed("sender", (sender != null) ? sender.getName() : "Player");
-            target.sendMessage(this.miniMessage.deserialize(
-                MessageFormatter.toMiniMessage(cfg.messages().targetRewarded()),
-                TagResolver.resolver(prefixResolver, rewardResolver, senderResolver)
-            ));
+        if (reward <= 0.0) {
+            return;
         }
+        this.ioExecutor.submit(() -> {
+            if (deposit(target, reward)) {
+                target.getScheduler().run(this.plugin, t -> {
+                    if (target.isOnline()) {
+                        TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
+                        TagResolver rewardResolver = Placeholder.unparsed("reward", format(reward));
+                        TagResolver senderResolver = Placeholder.unparsed("sender", (sender != null) ? sender.getName() : "Player");
+                        target.sendMessage(this.miniMessage.deserialize(
+                            MessageFormatter.toMiniMessage(cfg.messages().targetRewarded()),
+                            TagResolver.resolver(prefixResolver, rewardResolver, senderResolver)
+                        ));
+                    }
+                }, null);
+            }
+        });
     }
 
     private void queuePendingRefund(Player player, double amount) {
@@ -254,6 +296,19 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
             double newTotal = (existing != null ? existing : 0.0) + amount;
             pdc.set(keyPendingRefund, PersistentDataType.DOUBLE, newTotal);
         } catch (Throwable ignored) {
+        }
+    }
+
+    @Override
+    public void shutdown() {
+        this.ioExecutor.shutdown();
+        try {
+            if (!this.ioExecutor.awaitTermination(2, TimeUnit.SECONDS)) {
+                this.ioExecutor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            this.ioExecutor.shutdownNow();
+            Thread.currentThread().interrupt();
         }
     }
 }

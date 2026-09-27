@@ -1,6 +1,7 @@
 package com.lunatech.tpcore.module.tpa.economy;
 
 import com.lunatech.tpcore.module.tpa.model.TpaType;
+import java.util.concurrent.CompletableFuture;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
 
@@ -17,6 +18,14 @@ public interface TpaEconomyService {
 
     boolean deposit(OfflinePlayer player, double amount);
 
+    default CompletableFuture<Boolean> withdrawAsync(OfflinePlayer player, double amount) {
+        return CompletableFuture.supplyAsync(() -> withdraw(player, amount));
+    }
+
+    default CompletableFuture<Boolean> depositAsync(OfflinePlayer player, double amount) {
+        return CompletableFuture.supplyAsync(() -> deposit(player, amount));
+    }
+
     double getBalance(OfflinePlayer player);
 
     String format(double amount);
@@ -28,4 +37,6 @@ public interface TpaEconomyService {
     void processRefund(OfflinePlayer player, double amount, String reason);
 
     void processReward(Player target, Player sender, double cost);
+
+    default void shutdown() {}
 }

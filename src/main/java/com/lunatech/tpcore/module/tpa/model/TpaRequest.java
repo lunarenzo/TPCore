@@ -6,8 +6,12 @@ public record TpaRequest(
     UUID senderId,
     UUID targetId,
     TpaType type,
-    long createdAtEpochMs
+    long createdAtEpochMs,
+    double cost
 ) {
+    public TpaRequest(UUID senderId, UUID targetId, TpaType type, long createdAtEpochMs) {
+        this(senderId, targetId, type, createdAtEpochMs, 0.0);
+    }
     public boolean isExpired(int timeoutSeconds) {
         if (timeoutSeconds <= 0) {
             return false;

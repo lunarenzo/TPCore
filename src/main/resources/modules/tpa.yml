@@ -165,6 +165,7 @@ messages:
   target-toggled-off: "<prefix><red>Player <yellow><target></yellow> is not accepting TPA requests right now.</red>"
   teleport-protection-ended: "<prefix><yellow>Your teleport protection has ended.</yellow>"
   teleport-protection-start: "<prefix><green>You have <gold><seconds>s</gold> of teleport protection!</green>"
+  teleport-cancelled-insufficient-funds: "<prefix><red>Teleport cancelled: You have insufficient funds! (Required: <gold><cost></gold>)</red>"
   toggle-off: "<prefix><gray>TPA requests are now <red>DISABLED</red>.</gray>"
   toggle-on: "<prefix><gray>TPA requests are now <green>ENABLED</green>.</gray>"
   unsafe-destination: "<prefix><red>Teleportation cancelled because the target location is unsafe!</red>"

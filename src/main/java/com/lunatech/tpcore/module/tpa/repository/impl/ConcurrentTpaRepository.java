@@ -3,7 +3,12 @@ package com.lunatech.tpcore.module.tpa.repository.impl;
 import com.lunatech.tpcore.module.tpa.model.TpaRequest;
 import com.lunatech.tpcore.module.tpa.model.TpaUserSettings;
 import com.lunatech.tpcore.module.tpa.repository.TpaRepository;
+import org.spongepowered.configurate.CommentedConfigurationNode;
+import org.spongepowered.configurate.yaml.NodeStyle;
+import org.spongepowered.configurate.yaml.YamlConfigurationLoader;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -14,6 +19,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.function.Consumer;
 
 public final class ConcurrentTpaRepository implements TpaRepository {
@@ -22,6 +29,79 @@ public final class ConcurrentTpaRepository implements TpaRepository {
     private final Map<UUID, Map<UUID, TpaRequest>> outgoing = new ConcurrentHashMap<>();
     private final Map<UUID, TpaUserSettings> userSettingsMap = new ConcurrentHashMap<>();
     private final Map<UUID, Long> cooldownsMap = new ConcurrentHashMap<>();
+
+    private final Path dataFile;
+    private final YamlConfigurationLoader loader;
+    private final Object fileLock = new Object();
+    private final ExecutorService ioExecutor = Executors.newVirtualThreadPerTaskExecutor();
+    private final Map<UUID, Double> pendingRefunds = new ConcurrentHashMap<>();
+
+    public ConcurrentTpaRepository() {
+        this(null);
+    }
+
+    public ConcurrentTpaRepository(Path dataDirectory) {
+        if (dataDirectory != null) {
+            this.dataFile = dataDirectory.resolve("modules").resolve("tpa_pending_refunds.yml");
+            this.loader = YamlConfigurationLoader.builder()
+                .path(this.dataFile)
+                .nodeStyle(NodeStyle.BLOCK)
+                .build();
+            this.loadPendingRefunds();
+        } else {
+            this.dataFile = null;
+            this.loader = null;
+        }
+    }
+
+    private void loadPendingRefunds() {
+        if (this.dataFile == null || !Files.exists(this.dataFile)) {
+            return;
+        }
+        synchronized (this.fileLock) {
+            try {
+                CommentedConfigurationNode root = this.loader.load();
+                CommentedConfigurationNode refundsNode = root.node("pending-refunds");
+                if (!refundsNode.virtual() && refundsNode.isMap()) {
+                    for (Map.Entry<Object, ? extends CommentedConfigurationNode> entry : refundsNode.childrenMap().entrySet()) {
+                        try {
+                            UUID uuid = UUID.fromString(String.valueOf(entry.getKey()));
+                            double amount = entry.getValue().getDouble(0.0);
+                            if (amount > 0.0) {
+                                this.pendingRefunds.put(uuid, amount);
+                            }
+                        } catch (Throwable ignored) {
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    private void savePendingRefundsAsync() {
+        if (this.dataFile == null || this.loader == null) {
+            return;
+        }
+        this.ioExecutor.submit(() -> {
+            synchronized (this.fileLock) {
+                try {
+                    if (this.dataFile.getParent() != null && !Files.exists(this.dataFile.getParent())) {
+                        Files.createDirectories(this.dataFile.getParent());
+                    }
+                    CommentedConfigurationNode root = this.loader.createNode();
+                    CommentedConfigurationNode refundsNode = root.node("pending-refunds");
+                    for (Map.Entry<UUID, Double> entry : this.pendingRefunds.entrySet()) {
+                        if (entry.getValue() > 0.0) {
+                            refundsNode.node(entry.getKey().toString()).set(entry.getValue());
+                        }
+                    }
+                    this.loader.save(root);
+                } catch (Throwable ignored) {
+                }
+            }
+        });
+    }
 
     @Override
     public void addRequest(TpaRequest request) {
@@ -251,10 +331,43 @@ public final class ConcurrentTpaRepository implements TpaRepository {
     }
 
     @Override
+    public void addPendingRefund(UUID playerId, double amount) {
+        if (playerId == null || amount <= 0.0) {
+            return;
+        }
+        this.pendingRefunds.merge(playerId, amount, Double::sum);
+        this.savePendingRefundsAsync();
+    }
+
+    @Override
+    public double consumePendingRefund(UUID playerId) {
+        if (playerId == null) {
+            return 0.0;
+        }
+        Double amount = this.pendingRefunds.remove(playerId);
+        if (amount != null && amount > 0.0) {
+            this.savePendingRefundsAsync();
+            return amount;
+        }
+        return 0.0;
+    }
+
+    @Override
+    public boolean hasPendingRefund(UUID playerId) {
+        if (playerId == null) {
+            return false;
+        }
+        Double amount = this.pendingRefunds.get(playerId);
+        return amount != null && amount > 0.0;
+    }
+
+    @Override
     public void clear() {
         this.incoming.clear();
         this.outgoing.clear();
         this.userSettingsMap.clear();
         this.cooldownsMap.clear();
+        this.pendingRefunds.clear();
+        this.savePendingRefundsAsync();
     }
 }
