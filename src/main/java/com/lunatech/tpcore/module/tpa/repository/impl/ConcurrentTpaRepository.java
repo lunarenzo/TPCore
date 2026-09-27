@@ -330,12 +330,38 @@ public final class ConcurrentTpaRepository implements TpaRepository {
         this.cooldownsMap.values().removeIf(end -> end <= now);
     }
 
-    @Override
-    public void addPendingRefund(UUID playerId, double amount) {
-        if (playerId == null || amount <= 0.0) {
+    private void flushPendingRefundsSync() {
+        if (this.dataFile == null || this.loader == null) {
             return;
         }
-        this.pendingRefunds.merge(playerId, amount, Double::sum);
+        synchronized (this.fileLock) {
+            try {
+                if (this.dataFile.getParent() != null && !Files.exists(this.dataFile.getParent())) {
+                    Files.createDirectories(this.dataFile.getParent());
+                }
+                CommentedConfigurationNode root = this.loader.createNode();
+                CommentedConfigurationNode refundsNode = root.node("pending-refunds");
+                for (Map.Entry<UUID, Double> entry : this.pendingRefunds.entrySet()) {
+                    if (entry.getValue() > 0.0) {
+                        refundsNode.node(entry.getKey().toString()).set(entry.getValue());
+                    }
+                }
+                this.loader.save(root);
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    @Override
+    public void addPendingRefund(UUID playerId, double amount) {
+        if (playerId == null || Double.isNaN(amount) || Double.isInfinite(amount) || amount <= 0.0) {
+            return;
+        }
+        double cleanAmount = Math.round(amount * 100.0) / 100.0;
+        if (cleanAmount <= 0.0) {
+            return;
+        }
+        this.pendingRefunds.merge(playerId, cleanAmount, (a, b) -> Math.round((a + b) * 100.0) / 100.0);
         this.savePendingRefundsAsync();
     }
 
@@ -345,9 +371,9 @@ public final class ConcurrentTpaRepository implements TpaRepository {
             return 0.0;
         }
         Double amount = this.pendingRefunds.remove(playerId);
-        if (amount != null && amount > 0.0) {
+        if (amount != null && !Double.isNaN(amount) && !Double.isInfinite(amount) && amount > 0.0) {
             this.savePendingRefundsAsync();
-            return amount;
+            return Math.round(amount * 100.0) / 100.0;
         }
         return 0.0;
     }
@@ -367,7 +393,6 @@ public final class ConcurrentTpaRepository implements TpaRepository {
         this.outgoing.clear();
         this.userSettingsMap.clear();
         this.cooldownsMap.clear();
-        this.pendingRefunds.clear();
-        this.savePendingRefundsAsync();
+        this.flushPendingRefundsSync();
     }
 }

@@ -55,10 +55,19 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
         setupVault();
     }
 
+    private static double roundCurrency(double amount) {
+        if (Double.isNaN(amount) || Double.isInfinite(amount) || amount <= 0.0) {
+            return 0.0;
+        }
+        return Math.round(amount * 100.0) / 100.0;
+    }
+
     private synchronized void setupVault() {
         try {
-            if (Bukkit.getServer() == null || Bukkit.getPluginManager() == null || Bukkit.getPluginManager().getPlugin("Vault") == null) {
-                this.logger.info("Vault plugin not found. TPA economy features will be disabled/free.");
+            if (Bukkit.getServer() == null || Bukkit.getPluginManager() == null || 
+                (Bukkit.getPluginManager().getPlugin("Vault") == null && Bukkit.getPluginManager().getPlugin("VaultUnlocked") == null)) {
+                this.logger.info("Vault/VaultUnlocked plugin not found. TPA economy features will be disabled/free.");
+                this.vaultEconomy = null;
                 return;
             }
             RegisteredServiceProvider<Economy> rsp = Bukkit.getServicesManager().getRegistration(Economy.class);
@@ -66,9 +75,11 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
                 this.vaultEconomy = rsp.getProvider();
                 this.logger.info("Successfully hooked into Vault Economy provider for TPA: {}", this.vaultEconomy.getName());
             } else {
+                this.vaultEconomy = null;
                 this.logger.warn("Vault plugin found, but no Economy provider (e.g. VaultUnlocked) is registered.");
             }
         } catch (Throwable t) {
+            this.vaultEconomy = null;
             this.logger.info("Vault plugin environment not active. TPA economy features will be disabled/free.");
         }
     }
@@ -79,7 +90,7 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
         if (cfg == null || !cfg.economyEnabled()) {
             return false;
         }
-        if (this.vaultEconomy == null) {
+        if (this.vaultEconomy == null || !this.vaultEconomy.isEnabled()) {
             setupVault();
         }
         return this.vaultEconomy != null && this.vaultEconomy.isEnabled();
@@ -87,29 +98,37 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
 
     @Override
     public boolean has(OfflinePlayer player, double amount) {
-        if (amount <= 0.0) {
+        if (Double.isNaN(amount) || Double.isInfinite(amount) || amount <= 0.0) {
+            return true;
+        }
+        TpaConfig cfg = this.configSupplier.get();
+        if (cfg == null || !cfg.economyEnabled()) {
             return true;
         }
         if (!isAvailable()) {
-            return true;
+            return false;
         }
         try {
-            return this.vaultEconomy.has(player, amount);
+            return this.vaultEconomy.has(player, roundCurrency(amount));
         } catch (Throwable ignored) {
-            return true;
+            return false;
         }
     }
 
     @Override
     public boolean withdraw(OfflinePlayer player, double amount) {
-        if (amount <= 0.0) {
+        if (Double.isNaN(amount) || Double.isInfinite(amount) || amount <= 0.0) {
+            return true;
+        }
+        TpaConfig cfg = this.configSupplier.get();
+        if (cfg == null || !cfg.economyEnabled()) {
             return true;
         }
         if (!isAvailable()) {
-            return true;
+            return false;
         }
         try {
-            EconomyResponse resp = this.vaultEconomy.withdrawPlayer(player, amount);
+            EconomyResponse resp = this.vaultEconomy.withdrawPlayer(player, roundCurrency(amount));
             return resp != null && resp.transactionSuccess();
         } catch (Throwable t) {
             this.logger.error("Vault economy withdraw failed for player {}", player.getName(), t);
@@ -119,14 +138,18 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
 
     @Override
     public boolean deposit(OfflinePlayer player, double amount) {
-        if (amount <= 0.0) {
+        if (Double.isNaN(amount) || Double.isInfinite(amount) || amount <= 0.0) {
+            return true;
+        }
+        TpaConfig cfg = this.configSupplier.get();
+        if (cfg == null || !cfg.economyEnabled()) {
             return true;
         }
         if (!isAvailable()) {
-            return true;
+            return false;
         }
         try {
-            EconomyResponse resp = this.vaultEconomy.depositPlayer(player, amount);
+            EconomyResponse resp = this.vaultEconomy.depositPlayer(player, roundCurrency(amount));
             return resp != null && resp.transactionSuccess();
         } catch (Throwable t) {
             this.logger.error("Vault economy deposit failed for player {}", player.getName(), t);
@@ -285,11 +308,15 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
 
     @Override
     public void processRefund(OfflinePlayer player, double amount, String reason) {
-        if (player == null || amount <= 0.0 || !isAvailable()) {
+        if (player == null || Double.isNaN(amount) || Double.isInfinite(amount) || amount <= 0.0) {
+            return;
+        }
+        final double cleanAmount = roundCurrency(amount);
+        if (cleanAmount <= 0.0) {
             return;
         }
         this.ioExecutor.submit(() -> {
-            boolean success = deposit(player, amount);
+            boolean success = deposit(player, cleanAmount);
             if (success) {
                 if (player.isOnline() && player.getPlayer() != null) {
                     Player p = player.getPlayer();
@@ -297,7 +324,7 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
                         if (p.isOnline()) {
                             TpaConfig cfg = this.configSupplier.get();
                             TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
-                            TagResolver costResolver = Placeholder.unparsed("cost", format(amount));
+                            TagResolver costResolver = Placeholder.unparsed("cost", format(cleanAmount));
                             p.sendMessage(this.miniMessage.deserialize(
                                 MessageFormatter.toMiniMessage(cfg.messages().moneyRefunded()),
                                 TagResolver.resolver(prefixResolver, costResolver)
@@ -308,12 +335,12 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
             } else {
                 TpaRepository repo = (this.repositorySupplier != null) ? this.repositorySupplier.get() : null;
                 if (repo != null) {
-                    repo.addPendingRefund(player.getUniqueId(), amount);
-                    this.logger.warn("Offline deposit of {} failed for {}. Queued into repository pending refunds.", format(amount), player.getName());
+                    repo.addPendingRefund(player.getUniqueId(), cleanAmount);
+                    this.logger.warn("Offline deposit of {} failed for {}. Queued into repository pending refunds.", format(cleanAmount), player.getName());
                 } else if (player.isOnline() && player.getPlayer() != null) {
-                    queuePendingRefund(player.getPlayer(), amount);
+                    queuePendingRefund(player.getPlayer(), cleanAmount);
                 } else {
-                    this.logger.warn("Failed to deposit refund of {} for offline player {}. No repository available to queue refund.", format(amount), player.getName());
+                    this.logger.warn("Failed to deposit refund of {} for offline player {}. No repository available to queue refund.", format(cleanAmount), player.getName());
                 }
             }
         });
@@ -321,7 +348,7 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
 
     @Override
     public void processReward(Player target, Player sender, double cost) {
-        if (target == null || cost <= 0.0 || !isAvailable()) {
+        if (target == null || Double.isNaN(cost) || Double.isInfinite(cost) || cost <= 0.0 || !isAvailable()) {
             return;
         }
         TpaConfig cfg = this.configSupplier.get();
@@ -329,7 +356,8 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
             return;
         }
         double pct = Math.max(0.0, Math.min(100.0, cfg.targetRewardPercent()));
-        double reward = (cost * pct) / 100.0;
+        double rawReward = (cost * pct) / 100.0;
+        final double reward = roundCurrency(rawReward);
         if (reward <= 0.0) {
             return;
         }
@@ -351,13 +379,13 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
     }
 
     private void queuePendingRefund(Player player, double amount) {
-        if (player == null || keyPendingRefund == null) {
+        if (player == null || keyPendingRefund == null || Double.isNaN(amount) || Double.isInfinite(amount) || amount <= 0.0) {
             return;
         }
         try {
             PersistentDataContainer pdc = player.getPersistentDataContainer();
             Double existing = pdc.get(keyPendingRefund, PersistentDataType.DOUBLE);
-            double newTotal = (existing != null ? existing : 0.0) + amount;
+            double newTotal = roundCurrency((existing != null ? existing : 0.0) + amount);
             pdc.set(keyPendingRefund, PersistentDataType.DOUBLE, newTotal);
         } catch (Throwable ignored) {
         }

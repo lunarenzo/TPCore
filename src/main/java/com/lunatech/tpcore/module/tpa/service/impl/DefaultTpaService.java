@@ -269,42 +269,44 @@ public final class DefaultTpaService implements TpaService {
         }
         PersistentDataContainer pdc = player.getPersistentDataContainer();
 
-        double totalPending = 0.0;
-        if (this.keyPendingRefund != null && pdc.has(this.keyPendingRefund, PersistentDataType.DOUBLE)) {
-            Double pending = pdc.get(this.keyPendingRefund, PersistentDataType.DOUBLE);
-            if (pending != null && pending > 0.0) {
-                totalPending += pending;
-                pdc.remove(this.keyPendingRefund);
-            }
-        }
-        double repoPending = this.repository.consumePendingRefund(player.getUniqueId());
-        if (repoPending > 0.0) {
-            totalPending += repoPending;
-        }
-
-        if (totalPending > 0.0) {
-            final double finalAmount = totalPending;
-            this.economyService.depositAsync(player, finalAmount).thenAccept(success -> {
-                if (success) {
-                    player.getScheduler().run(
-                        this.plugin,
-                        t -> {
-                            if (player.isOnline()) {
-                                TpaConfig cfg = this.config();
-                                TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
-                                TagResolver costResolver = Placeholder.unparsed("cost", this.economyService.format(finalAmount));
-                                player.sendMessage(this.miniMessage.deserialize(
-                                    MessageFormatter.toMiniMessage(cfg.messages().moneyRefunded()),
-                                    TagResolver.resolver(prefixResolver, costResolver)
-                                ));
-                            }
-                        },
-                        null
-                    );
-                } else {
-                    this.repository.addPendingRefund(player.getUniqueId(), finalAmount);
+        if (this.config().economyEnabled() && this.economyService.isAvailable()) {
+            double totalPending = 0.0;
+            if (this.keyPendingRefund != null && pdc.has(this.keyPendingRefund, PersistentDataType.DOUBLE)) {
+                Double pending = pdc.get(this.keyPendingRefund, PersistentDataType.DOUBLE);
+                if (pending != null && !Double.isNaN(pending) && !Double.isInfinite(pending) && pending > 0.0) {
+                    totalPending += pending;
+                    pdc.remove(this.keyPendingRefund);
                 }
-            });
+            }
+            double repoPending = this.repository.consumePendingRefund(player.getUniqueId());
+            if (!Double.isNaN(repoPending) && !Double.isInfinite(repoPending) && repoPending > 0.0) {
+                totalPending += repoPending;
+            }
+
+            if (totalPending > 0.0) {
+                final double finalAmount = Math.round(totalPending * 100.0) / 100.0;
+                this.economyService.depositAsync(player, finalAmount).thenAccept(success -> {
+                    if (success) {
+                        player.getScheduler().run(
+                            this.plugin,
+                            t -> {
+                                if (player.isOnline()) {
+                                    TpaConfig cfg = this.config();
+                                    TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
+                                    TagResolver costResolver = Placeholder.unparsed("cost", this.economyService.format(finalAmount));
+                                    player.sendMessage(this.miniMessage.deserialize(
+                                        MessageFormatter.toMiniMessage(cfg.messages().moneyRefunded()),
+                                        TagResolver.resolver(prefixResolver, costResolver)
+                                    ));
+                                }
+                            },
+                            null
+                        );
+                    } else {
+                        this.repository.addPendingRefund(player.getUniqueId(), finalAmount);
+                    }
+                });
+            }
         }
         Byte toggledOffByte = pdc.get(this.keyToggledOff, PersistentDataType.BYTE);
         boolean toggledOff = toggledOffByte != null && toggledOffByte == (byte) 1;
@@ -778,13 +780,50 @@ public final class DefaultTpaService implements TpaService {
 
             sender.getScheduler().run(
                 this.plugin,
-                sTask -> this.sendMessage(
-                    sender,
-                    this.config().messages().requestAcceptedSender(),
-                    "target", target.getName()
-                ),
+                sTask -> {
+                    this.closeConfirmationMenuIfOpen(sender, target.getUniqueId());
+                    this.sendMessage(
+                        sender,
+                        this.config().messages().requestAcceptedSender(),
+                        "target", target.getName()
+                    );
+                },
                 null
             );
+        } else {
+            sender.getScheduler().run(
+                this.plugin,
+                sTask -> this.closeConfirmationMenuIfOpen(sender, target.getUniqueId()),
+                null
+            );
+        }
+
+        this.closeConfirmationMenuIfOpen(target, targetRequest.senderId());
+
+        Collection<TpaRequest> otherOutgoing = this.repository.getOutgoingRequests(targetRequest.senderId());
+        if (otherOutgoing != null && !otherOutgoing.isEmpty()) {
+            for (TpaRequest otherReq : new ArrayList<>(otherOutgoing)) {
+                if (otherReq != null && !otherReq.targetId().equals(targetRequest.targetId())) {
+                    if (this.repository.removeRequest(otherReq.targetId(), otherReq.senderId())) {
+                        if ("CHARGE_ON_SEND".equals(timing) && this.config().refundOnCancelBySender() && otherReq.cost() > 0.0) {
+                            OfflinePlayer senderOp = resolveOfflinePlayerIfCached(otherReq.senderId());
+                            if (senderOp == null) {
+                                senderOp = Bukkit.getOfflinePlayer(otherReq.senderId());
+                            }
+                            this.economyService.processRefund(senderOp, otherReq.cost(), "Auto-cancelled other outgoing request on accept");
+                        }
+                        Player otherTarget = Bukkit.getPlayer(otherReq.targetId());
+                        if (otherTarget != null && otherTarget.isOnline()) {
+                            UUID otherSenderId = otherReq.senderId();
+                            otherTarget.getScheduler().run(
+                                this.plugin,
+                                otTask -> this.closeConfirmationMenuIfOpen(otherTarget, otherSenderId),
+                                null
+                            );
+                        }
+                    }
+                }
+            }
         }
 
         final TpaType reqType = targetRequest.type();
