@@ -21,6 +21,7 @@ import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.slf4j.Logger;
 
+import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -173,7 +174,11 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
             return 0.0;
         }
         try {
-            return this.vaultEconomy.getBalance(player);
+            double bal = this.vaultEconomy.getBalance(player);
+            if (Double.isNaN(bal) || Double.isInfinite(bal)) {
+                return 0.0;
+            }
+            return roundCurrency(bal);
         } catch (Throwable ignored) {
             return 0.0;
         }
@@ -181,13 +186,17 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
 
     @Override
     public String format(double amount) {
+        if (Double.isNaN(amount) || Double.isInfinite(amount)) {
+            return "$0.00";
+        }
+        double clean = roundCurrency(amount);
         if (isAvailable()) {
             try {
-                return this.vaultEconomy.format(amount);
+                return this.vaultEconomy.format(clean);
             } catch (Throwable ignored) {
             }
         }
-        return String.format("$%.2f", amount);
+        return String.format(Locale.ROOT, "$%.2f", clean);
     }
 
     @Override
@@ -244,6 +253,14 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
             ));
             return true;
         }
+
+        TpaConfig cfg = this.configSupplier.get();
+        TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
+        TagResolver costResolver = Placeholder.unparsed("cost", format(cost));
+        player.sendMessage(this.miniMessage.deserialize(
+            MessageFormatter.toMiniMessage(cfg.messages().teleportCancelledInsufficientFunds()),
+            TagResolver.resolver(prefixResolver, costResolver)
+        ));
         return false;
     }
 

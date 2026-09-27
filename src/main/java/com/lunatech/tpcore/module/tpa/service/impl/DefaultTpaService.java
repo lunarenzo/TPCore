@@ -201,6 +201,8 @@ public final class DefaultTpaService implements TpaService {
                             continue;
                         }
 
+                        this.repository.setCooldownEnd(request.senderId(), 0L);
+
                         if ("CHARGE_ON_SEND".equals(this.config().getNormalizedChargeTiming()) && this.config().refundOnExpire() && request.cost() > 0.0) {
                             OfflinePlayer senderOp = resolveOfflinePlayerIfCached(request.senderId());
                             if (senderOp == null) {
@@ -492,6 +494,21 @@ public final class DefaultTpaService implements TpaService {
             return false;
         }
 
+        int cooldownSeconds = this.config().requestCooldownSeconds();
+        if (applyCooldown && cooldownSeconds > 0 && !sender.hasPermission(Permissions.TPA_BYPASS_COOLDOWN)) {
+            long cooldownEnd = this.repository.getCooldownEnd(sender.getUniqueId());
+            long now = System.currentTimeMillis();
+            if (cooldownEnd > now) {
+                long remSeconds = (cooldownEnd - now + 999L) / 1000L;
+                this.sendMessage(
+                    sender,
+                    this.config().messages().cooldownActive(),
+                    "seconds", String.valueOf(remSeconds)
+                );
+                return false;
+            }
+        }
+
         if (this.repository.isAutoAcceptEnabled(target.getUniqueId())) {
             if (isPlayerInWarmup(sender.getUniqueId()) || isPlayerInWarmup(target.getUniqueId())) {
                 return false;
@@ -516,9 +533,8 @@ public final class DefaultTpaService implements TpaService {
                     return false;
                 }
             }
-            int cooldownSecs = this.config().requestCooldownSeconds();
-            if (applyCooldown && cooldownSecs > 0 && !sender.hasPermission(Permissions.TPA_BYPASS_COOLDOWN)) {
-                this.repository.setCooldownEnd(sender.getUniqueId(), System.currentTimeMillis() + cooldownSecs * 1000L);
+            if (applyCooldown && cooldownSeconds > 0 && !sender.hasPermission(Permissions.TPA_BYPASS_COOLDOWN)) {
+                this.repository.setCooldownEnd(sender.getUniqueId(), System.currentTimeMillis() + cooldownSeconds * 1000L);
             }
             TpaRequest req = new TpaRequest(sender.getUniqueId(), target.getUniqueId(), type, System.currentTimeMillis(), sendCost);
             this.repository.addRequest(req);
@@ -530,21 +546,6 @@ public final class DefaultTpaService implements TpaService {
             );
             this.acceptRequestInternal(target, sender.getName(), false);
             return true;
-        }
-
-        int cooldownSeconds = this.config().requestCooldownSeconds();
-        if (applyCooldown && cooldownSeconds > 0 && !sender.hasPermission(Permissions.TPA_BYPASS_COOLDOWN)) {
-            long cooldownEnd = this.repository.getCooldownEnd(sender.getUniqueId());
-            long now = System.currentTimeMillis();
-            if (cooldownEnd > now) {
-                long remSeconds = (cooldownEnd - now + 999L) / 1000L;
-                this.sendMessage(
-                    sender,
-                    this.config().messages().cooldownActive(),
-                    "seconds", String.valueOf(remSeconds)
-                );
-                return false;
-            }
         }
 
         Optional<TpaRequest> existing = this.repository.getRequest(target.getUniqueId(), sender.getUniqueId());
@@ -1067,6 +1068,20 @@ public final class DefaultTpaService implements TpaService {
                 this.acceptRequestInternal(player, null, false);
             }
             if (this.isPlayerInWarmup(player.getUniqueId())) {
+                Collection<TpaRequest> outgoing = this.repository.getOutgoingRequests(player.getUniqueId());
+                if (outgoing != null && !outgoing.isEmpty()) {
+                    for (TpaRequest req : outgoing) {
+                        if (this.config().refundOnCancelBySender()) {
+                            refundRequestSenderIfCharged(req, "Sender in warmup");
+                        }
+                    }
+                }
+                Collection<TpaRequest> incoming = this.repository.getIncomingRequests(player.getUniqueId());
+                if (incoming != null && !incoming.isEmpty()) {
+                    for (TpaRequest req : incoming) {
+                        refundRequestSenderIfCharged(req, "Target in warmup");
+                    }
+                }
                 this.repository.removeAllRequestsForPlayer(player.getUniqueId());
             }
         } else {

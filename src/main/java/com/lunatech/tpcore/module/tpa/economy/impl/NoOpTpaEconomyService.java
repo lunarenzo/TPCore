@@ -2,6 +2,7 @@ package com.lunatech.tpcore.module.tpa.economy.impl;
 
 import com.lunatech.tpcore.module.tpa.economy.TpaEconomyService;
 import com.lunatech.tpcore.module.tpa.model.TpaType;
+import java.util.Locale;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
 
@@ -37,7 +38,10 @@ public final class NoOpTpaEconomyService implements TpaEconomyService {
 
     @Override
     public String format(double amount) {
-        return String.format("$%.2f", amount);
+        if (Double.isNaN(amount) || Double.isInfinite(amount) || amount <= 0.0) {
+            return "$0.00";
+        }
+        return String.format(Locale.ROOT, "$%.2f", Math.round(amount * 100.0) / 100.0);
     }
 
     @Override
