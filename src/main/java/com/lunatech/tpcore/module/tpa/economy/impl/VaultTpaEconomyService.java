@@ -419,8 +419,11 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
         }
         final UUID targetId = target.getUniqueId();
         final String senderDisplayName = (sender != null && sender.getName() != null) ? sender.getName() : "Player";
-        final OfflinePlayer offlineTarget = target;
         this.ioExecutor.submit(() -> {
+            OfflinePlayer offlineTarget = Bukkit.getPlayer(targetId);
+            if (offlineTarget == null) {
+                offlineTarget = Bukkit.getOfflinePlayer(targetId);
+            }
             if (deposit(offlineTarget, reward)) {
                 Player onlineTarget = Bukkit.getPlayer(targetId);
                 if (onlineTarget != null && onlineTarget.isOnline()) {
@@ -436,6 +439,8 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
                         }
                     }, null);
                 }
+            } else {
+                this.logger.warn("Vault economy deposit error during reward of {} for player {}", format(reward), targetId);
             }
         });
     }

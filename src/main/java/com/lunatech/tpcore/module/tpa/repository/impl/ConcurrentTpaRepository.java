@@ -21,6 +21,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 public final class ConcurrentTpaRepository implements TpaRepository {
@@ -394,5 +395,14 @@ public final class ConcurrentTpaRepository implements TpaRepository {
         this.userSettingsMap.clear();
         this.cooldownsMap.clear();
         this.flushPendingRefundsSync();
+        this.ioExecutor.shutdown();
+        try {
+            if (!this.ioExecutor.awaitTermination(3, TimeUnit.SECONDS)) {
+                this.ioExecutor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            this.ioExecutor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
 }
