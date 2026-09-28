@@ -23,6 +23,7 @@ import org.slf4j.Logger;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -42,6 +43,8 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
     private final NamespacedKey keyPendingRefund;
     private final ExecutorService ioExecutor = Executors.newVirtualThreadPerTaskExecutor();
     private Economy vaultEconomy;
+    private long lastVaultCheckTimestamp = 0L;
+    private boolean loggedVaultUnavailable = false;
 
     public VaultTpaEconomyService(JavaPlugin plugin, Supplier<TpaConfig> configSupplier, Logger logger) {
         this(plugin, configSupplier, null, logger);
@@ -65,24 +68,35 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
     }
 
     private synchronized void setupVault() {
+        this.lastVaultCheckTimestamp = System.currentTimeMillis();
         try {
             if (Bukkit.getServer() == null || Bukkit.getPluginManager() == null || 
                 (Bukkit.getPluginManager().getPlugin("Vault") == null && Bukkit.getPluginManager().getPlugin("VaultUnlocked") == null)) {
-                this.logger.info("Vault/VaultUnlocked plugin not found. TPA economy features will be disabled/free.");
+                if (!this.loggedVaultUnavailable) {
+                    this.logger.info("Vault/VaultUnlocked plugin not found. TPA economy features will be disabled/free.");
+                    this.loggedVaultUnavailable = true;
+                }
                 this.vaultEconomy = null;
                 return;
             }
             RegisteredServiceProvider<Economy> rsp = Bukkit.getServicesManager().getRegistration(Economy.class);
             if (rsp != null) {
                 this.vaultEconomy = rsp.getProvider();
+                this.loggedVaultUnavailable = false;
                 this.logger.info("Successfully hooked into Vault Economy provider for TPA: {}", this.vaultEconomy.getName());
             } else {
                 this.vaultEconomy = null;
-                this.logger.warn("Vault plugin found, but no Economy provider (e.g. VaultUnlocked) is registered.");
+                if (!this.loggedVaultUnavailable) {
+                    this.logger.warn("Vault plugin found, but no Economy provider (e.g. VaultUnlocked) is registered.");
+                    this.loggedVaultUnavailable = true;
+                }
             }
         } catch (Throwable t) {
             this.vaultEconomy = null;
-            this.logger.info("Vault plugin environment not active. TPA economy features will be disabled/free.");
+            if (!this.loggedVaultUnavailable) {
+                this.logger.info("Vault plugin environment not active. TPA economy features will be disabled/free.");
+                this.loggedVaultUnavailable = true;
+            }
         }
     }
 
@@ -93,7 +107,10 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
             return false;
         }
         if (this.vaultEconomy == null || !this.vaultEconomy.isEnabled()) {
-            setupVault();
+            long now = System.currentTimeMillis();
+            if (now - this.lastVaultCheckTimestamp > 10_000L) {
+                setupVault();
+            }
         }
         return this.vaultEconomy != null && this.vaultEconomy.isEnabled();
     }
@@ -375,7 +392,8 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
                     repo.addPendingRefund(player.getUniqueId(), cleanAmount);
                     this.logger.warn("Offline deposit of {} failed for {}. Queued into repository pending refunds.", format(cleanAmount), player.getName());
                 } else if (player.isOnline() && player.getPlayer() != null) {
-                    queuePendingRefund(player.getPlayer(), cleanAmount);
+                    Player onlinePlayer = player.getPlayer();
+                    onlinePlayer.getScheduler().run(this.plugin, t -> queuePendingRefund(onlinePlayer, cleanAmount), null);
                 } else {
                     this.logger.warn("Failed to deposit refund of {} for offline player {}. No repository available to queue refund.", format(cleanAmount), player.getName());
                 }
@@ -398,25 +416,31 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
         if (reward <= 0.0) {
             return;
         }
+        final UUID targetId = target.getUniqueId();
+        final String senderDisplayName = (sender != null && sender.getName() != null) ? sender.getName() : "Player";
+        final OfflinePlayer offlineTarget = target;
         this.ioExecutor.submit(() -> {
-            if (deposit(target, reward)) {
-                target.getScheduler().run(this.plugin, t -> {
-                    if (target.isOnline()) {
-                        TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
-                        TagResolver rewardResolver = Placeholder.unparsed("reward", format(reward));
-                        TagResolver senderResolver = Placeholder.unparsed("sender", (sender != null) ? sender.getName() : "Player");
-                        target.sendMessage(this.miniMessage.deserialize(
-                            MessageFormatter.toMiniMessage(cfg.messages().targetRewarded()),
-                            TagResolver.resolver(prefixResolver, rewardResolver, senderResolver)
-                        ));
-                    }
-                }, null);
+            if (deposit(offlineTarget, reward)) {
+                Player onlineTarget = Bukkit.getPlayer(targetId);
+                if (onlineTarget != null && onlineTarget.isOnline()) {
+                    onlineTarget.getScheduler().run(this.plugin, t -> {
+                        if (onlineTarget.isOnline()) {
+                            TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
+                            TagResolver rewardResolver = Placeholder.unparsed("reward", format(reward));
+                            TagResolver senderResolver = Placeholder.unparsed("sender", senderDisplayName);
+                            onlineTarget.sendMessage(this.miniMessage.deserialize(
+                                MessageFormatter.toMiniMessage(cfg.messages().targetRewarded()),
+                                TagResolver.resolver(prefixResolver, rewardResolver, senderResolver)
+                            ));
+                        }
+                    }, null);
+                }
             }
         });
     }
 
     private void queuePendingRefund(Player player, double amount) {
-        if (player == null || keyPendingRefund == null || Double.isNaN(amount) || Double.isInfinite(amount) || amount <= 0.0) {
+        if (player == null || !player.isOnline() || keyPendingRefund == null || Double.isNaN(amount) || Double.isInfinite(amount) || amount <= 0.0) {
             return;
         }
         try {

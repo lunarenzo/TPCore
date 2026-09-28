@@ -1825,16 +1825,23 @@ public final class DefaultTpaService implements TpaService {
             return;
         }
         String timing = this.config().getNormalizedChargeTiming();
-        if ("CHARGE_ON_SEND".equals(timing) || "CHARGE_ON_ACCEPT".equals(timing) || "CHARGE_ON_SUCCESS".equals(timing)) {
-            OfflinePlayer senderOp = Bukkit.getPlayer(senderId);
-            if (senderOp == null) {
-                senderOp = resolveOfflinePlayerIfCached(senderId);
-            }
-            if (senderOp == null) {
-                senderOp = Bukkit.getOfflinePlayer(senderId);
-            }
-            this.economyService.processRefund(senderOp, cost, reason);
+        if ("CHARGE_ON_SEND".equals(timing) || "CHARGE_ON_ACCEPT".equals(timing)) {
+            refundSenderAfterCharge(senderId, cost, reason);
         }
+    }
+
+    private void refundSenderAfterCharge(UUID senderId, double cost, String reason) {
+        if (senderId == null || cost <= 0.0) {
+            return;
+        }
+        OfflinePlayer senderOp = Bukkit.getPlayer(senderId);
+        if (senderOp == null) {
+            senderOp = resolveOfflinePlayerIfCached(senderId);
+        }
+        if (senderOp == null) {
+            senderOp = Bukkit.getOfflinePlayer(senderId);
+        }
+        this.economyService.processRefund(senderOp, cost, reason);
     }
 
     private void performFinalTeleport(Player player, Player destinationPlayer, TpaType requestType, UUID senderId, double cost) {
@@ -1928,28 +1935,56 @@ public final class DefaultTpaService implements TpaService {
                                             this.repository.setCooldownEnd(player.getUniqueId(), 0L);
                                             this.repository.setCooldownEnd(destinationPlayer.getUniqueId(), 0L);
                                             TpaConfig cfg = this.config();
-                                            if (player.isOnline()) {
-                                                TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
-                                                TagResolver costResolver = Placeholder.unparsed("cost", this.economyService.format(cost));
-                                                player.sendMessage(this.miniMessage.deserialize(
-                                                    MessageFormatter.toMiniMessage(cfg.messages().teleportCancelledInsufficientFunds()),
-                                                    TagResolver.resolver(prefixResolver, costResolver)
-                                                ));
-                                                if (cfg.enableSounds()) {
-                                                    playSound(player, cfg.cancelSound(), (float) cfg.cancelSoundVolume(), (float) cfg.cancelSoundPitch());
+                                            boolean isSenderTeleporting = senderId.equals(player.getUniqueId());
+
+                                            TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
+                                            TagResolver costResolver = Placeholder.unparsed("cost", this.economyService.format(cost));
+
+                                            if (isSenderTeleporting) {
+                                                if (player.isOnline()) {
+                                                    player.sendMessage(this.miniMessage.deserialize(
+                                                        MessageFormatter.toMiniMessage(cfg.messages().teleportCancelledInsufficientFunds()),
+                                                        TagResolver.resolver(prefixResolver, costResolver)
+                                                    ));
+                                                    if (cfg.enableSounds()) {
+                                                        playSound(player, cfg.cancelSound(), (float) cfg.cancelSoundVolume(), (float) cfg.cancelSoundPitch());
+                                                    }
                                                 }
-                                            }
-                                            if (destinationPlayer.isOnline() && !destinationPlayer.getUniqueId().equals(player.getUniqueId())) {
-                                                destinationPlayer.getScheduler().run(
-                                                    this.plugin,
-                                                    dTask -> {
-                                                        this.sendMessage(destinationPlayer, cfg.messages().requestCancelledTarget(), "sender", player.getName());
-                                                        if (cfg.enableSounds()) {
-                                                            playSound(destinationPlayer, cfg.cancelSound(), (float) cfg.cancelSoundVolume(), (float) cfg.cancelSoundPitch());
-                                                        }
-                                                    },
-                                                    null
-                                                );
+                                                if (destinationPlayer.isOnline() && !destinationPlayer.getUniqueId().equals(player.getUniqueId())) {
+                                                    destinationPlayer.getScheduler().run(
+                                                        this.plugin,
+                                                        dTask -> {
+                                                            this.sendMessage(destinationPlayer, cfg.messages().requestCancelledTarget(), "sender", player.getName());
+                                                            if (cfg.enableSounds()) {
+                                                                playSound(destinationPlayer, cfg.cancelSound(), (float) cfg.cancelSoundVolume(), (float) cfg.cancelSoundPitch());
+                                                            }
+                                                        },
+                                                        null
+                                                    );
+                                                }
+                                            } else {
+                                                if (player.isOnline()) {
+                                                    String dName = (destinationPlayer != null && destinationPlayer.getName() != null) ? destinationPlayer.getName() : "Player";
+                                                    this.sendMessage(player, cfg.messages().requestCancelledTarget(), "sender", dName);
+                                                    if (cfg.enableSounds()) {
+                                                        playSound(player, cfg.cancelSound(), (float) cfg.cancelSoundVolume(), (float) cfg.cancelSoundPitch());
+                                                    }
+                                                }
+                                                if (destinationPlayer.isOnline()) {
+                                                    destinationPlayer.getScheduler().run(
+                                                        this.plugin,
+                                                        dTask -> {
+                                                            destinationPlayer.sendMessage(this.miniMessage.deserialize(
+                                                                MessageFormatter.toMiniMessage(cfg.messages().teleportCancelledInsufficientFunds()),
+                                                                TagResolver.resolver(prefixResolver, costResolver)
+                                                            ));
+                                                            if (cfg.enableSounds()) {
+                                                                playSound(destinationPlayer, cfg.cancelSound(), (float) cfg.cancelSoundVolume(), (float) cfg.cancelSoundPitch());
+                                                            }
+                                                        },
+                                                        null
+                                                    );
+                                                }
                                             }
                                             return;
                                         }
@@ -1974,7 +2009,7 @@ public final class DefaultTpaService implements TpaService {
         if (!player.isOnline() || player.isDead() || !destinationPlayer.isOnline() || destinationPlayer.isDead()) {
             this.repository.setCooldownEnd(player.getUniqueId(), 0L);
             this.repository.setCooldownEnd(destinationPlayer.getUniqueId(), 0L);
-            refundSenderIfCharged(senderId, cost, "Player offline or dead before teleport dispatch");
+            refundSenderAfterCharge(senderId, cost, "Player offline or dead before teleport dispatch");
             return;
         }
 
@@ -2026,7 +2061,7 @@ public final class DefaultTpaService implements TpaService {
             } else {
                 this.repository.setCooldownEnd(player.getUniqueId(), 0L);
                 this.repository.setCooldownEnd(destinationPlayer.getUniqueId(), 0L);
-                refundSenderIfCharged(senderId, cost, "Teleportation cancelled or destination unsafe");
+                refundSenderAfterCharge(senderId, cost, "Teleportation cancelled or destination unsafe");
                 if (player.isOnline()) {
                     player.getScheduler().run(
                         this.plugin,
@@ -2235,12 +2270,15 @@ public final class DefaultTpaService implements TpaService {
             }
         }
         if (this.config().economyEnabled()) {
-            for (ActiveWarmup warmup : this.activeWarmups.values()) {
-                if (warmup.cost() > 0.0 && warmup.senderId() != null) {
-                    this.repository.addPendingRefund(warmup.senderId(), warmup.cost());
+            String timing = this.config().getNormalizedChargeTiming();
+            if ("CHARGE_ON_SEND".equals(timing) || "CHARGE_ON_ACCEPT".equals(timing)) {
+                for (ActiveWarmup warmup : this.activeWarmups.values()) {
+                    if (warmup.cost() > 0.0 && warmup.senderId() != null) {
+                        this.repository.addPendingRefund(warmup.senderId(), warmup.cost());
+                    }
                 }
             }
-            if ("CHARGE_ON_SEND".equals(this.config().getNormalizedChargeTiming())) {
+            if ("CHARGE_ON_SEND".equals(timing)) {
                 this.repository.forEachRequest(req -> {
                     if (req.cost() > 0.0 && req.senderId() != null) {
                         this.repository.addPendingRefund(req.senderId(), req.cost());

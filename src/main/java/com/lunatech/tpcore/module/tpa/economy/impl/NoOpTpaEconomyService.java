@@ -3,6 +3,7 @@ package com.lunatech.tpcore.module.tpa.economy.impl;
 import com.lunatech.tpcore.module.tpa.economy.TpaEconomyService;
 import com.lunatech.tpcore.module.tpa.model.TpaType;
 import java.util.Locale;
+import java.util.concurrent.CompletableFuture;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
 
@@ -55,8 +56,28 @@ public final class NoOpTpaEconomyService implements TpaEconomyService {
     }
 
     @Override
+    public CompletableFuture<Boolean> withdrawAsync(OfflinePlayer player, double amount) {
+        return CompletableFuture.completedFuture(true);
+    }
+
+    @Override
+    public CompletableFuture<Boolean> depositAsync(OfflinePlayer player, double amount) {
+        return CompletableFuture.completedFuture(true);
+    }
+
+    @Override
     public boolean processSendCost(Player player, double cost) {
         return true;
+    }
+
+    @Override
+    public CompletableFuture<Boolean> processSendCostAsync(Player player, double cost) {
+        return CompletableFuture.completedFuture(true);
+    }
+
+    @Override
+    public CompletableFuture<Boolean> processSendCostAsync(Player player, TpaType type) {
+        return CompletableFuture.completedFuture(true);
     }
 
     @Override
