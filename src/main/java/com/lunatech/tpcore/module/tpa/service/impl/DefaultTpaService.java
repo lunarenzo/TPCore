@@ -466,6 +466,7 @@ public final class DefaultTpaService implements TpaService {
             }
         }
 
+        boolean isBulk = targets.size() > 1;
         boolean sentAny = false;
         for (Player target : targets) {
             if (target != null && target.isOnline()) {
@@ -476,7 +477,7 @@ public final class DefaultTpaService implements TpaService {
                     continue;
                 }
                 boolean isAutoAccept = this.repository.isAutoAcceptEnabled(target.getUniqueId());
-                if (processSingleSendRequest(sender, target, type, false, true)) {
+                if (processSingleSendRequest(sender, target, type, false, isBulk)) {
                     sentAny = true;
                     if (isAutoAccept || isPlayerInWarmup(sender.getUniqueId())) {
                         break;
@@ -487,7 +488,7 @@ public final class DefaultTpaService implements TpaService {
 
         if (sentAny && cooldownSeconds > 0 && !sender.hasPermission(Permissions.TPA_BYPASS_COOLDOWN)) {
             this.repository.setCooldownEnd(sender.getUniqueId(), System.currentTimeMillis() + cooldownSeconds * 1000L);
-        } else if (!sentAny) {
+        } else if (!sentAny && isBulk) {
             double cost = this.economyService.getCost(sender, type);
             if (cost > 0.0 && !this.economyService.has(sender, cost)) {
                 double balance = this.economyService.getBalance(sender);
@@ -562,15 +563,17 @@ public final class DefaultTpaService implements TpaService {
                 }
             } else if ("CHARGE_ON_ACCEPT".equals(timing) || "CHARGE_ON_SUCCESS".equals(timing)) {
                 if (sendCost > 0.0 && !this.economyService.has(sender, sendCost)) {
-                    double balance = this.economyService.getBalance(sender);
-                    TpaConfig cfg = this.config();
-                    TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
-                    TagResolver costResolver = Placeholder.unparsed("cost", this.economyService.format(sendCost));
-                    TagResolver balResolver = Placeholder.unparsed("balance", this.economyService.format(balance));
-                    sender.sendMessage(this.miniMessage.deserialize(
-                        MessageFormatter.toMiniMessage(cfg.messages().insufficientFunds()),
-                        TagResolver.resolver(prefixResolver, costResolver, balResolver)
-                    ));
+                    if (!isBulk) {
+                        double balance = this.economyService.getBalance(sender);
+                        TpaConfig cfg = this.config();
+                        TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
+                        TagResolver costResolver = Placeholder.unparsed("cost", this.economyService.format(sendCost));
+                        TagResolver balResolver = Placeholder.unparsed("balance", this.economyService.format(balance));
+                        sender.sendMessage(this.miniMessage.deserialize(
+                            MessageFormatter.toMiniMessage(cfg.messages().insufficientFunds()),
+                            TagResolver.resolver(prefixResolver, costResolver, balResolver)
+                        ));
+                    }
                     return false;
                 }
             }
@@ -853,9 +856,14 @@ public final class DefaultTpaService implements TpaService {
             );
         }
 
-        this.closeConfirmationMenuIfOpen(target, targetRequest.senderId());
+        final UUID reqSenderId = targetRequest.senderId();
+        target.getScheduler().run(
+            this.plugin,
+            tTask -> this.closeConfirmationMenuIfOpen(target, reqSenderId),
+            null
+        );
 
-        Collection<TpaRequest> otherOutgoing = this.repository.getOutgoingRequests(targetRequest.senderId());
+        Collection<TpaRequest> otherOutgoing = this.repository.getOutgoingRequests(reqSenderId);
         if (otherOutgoing != null && !otherOutgoing.isEmpty()) {
             for (TpaRequest otherReq : new ArrayList<>(otherOutgoing)) {
                 if (otherReq != null && !otherReq.targetId().equals(targetRequest.targetId())) {
@@ -885,7 +893,6 @@ public final class DefaultTpaService implements TpaService {
         }
 
         final TpaType reqType = targetRequest.type();
-        final UUID reqSenderId = targetRequest.senderId();
         final double reqCost = targetRequest.cost();
         Player teleportingPlayer = (reqType == TpaType.TPA_TO) ? sender : target;
         Player destinationPlayer = (reqType == TpaType.TPA_TO) ? target : sender;
@@ -893,7 +900,11 @@ public final class DefaultTpaService implements TpaService {
         teleportingPlayer.getScheduler().run(
             this.plugin,
             tTask -> this.executeTeleportSequence(teleportingPlayer, destinationPlayer, reqType, reqSenderId, reqCost),
-            null
+            () -> {
+                this.repository.setCooldownEnd(reqSenderId, 0L);
+                this.repository.setCooldownEnd(destinationPlayer.getUniqueId(), 0L);
+                refundSenderIfCharged(reqSenderId, reqCost, "Teleport sequence aborted: player retired/disconnected");
+            }
         );
     }
 
@@ -2055,8 +2066,16 @@ public final class DefaultTpaService implements TpaService {
                                 this.economyService.processReward(rewardRecipient, payerPlayer, cost);
                             }
                         },
-                        null
+                        () -> {
+                            this.repository.setCooldownEnd(player.getUniqueId(), 0L);
+                            this.repository.setCooldownEnd(destinationPlayer.getUniqueId(), 0L);
+                            refundSenderAfterCharge(senderId, cost, "Player retired before teleport finalization");
+                        }
                     );
+                } else {
+                    this.repository.setCooldownEnd(player.getUniqueId(), 0L);
+                    this.repository.setCooldownEnd(destinationPlayer.getUniqueId(), 0L);
+                    refundSenderAfterCharge(senderId, cost, "Player offline after teleport completion");
                 }
             } else {
                 this.repository.setCooldownEnd(player.getUniqueId(), 0L);

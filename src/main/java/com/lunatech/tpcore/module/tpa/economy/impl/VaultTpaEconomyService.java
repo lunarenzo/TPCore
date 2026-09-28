@@ -120,6 +120,9 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
         if (Double.isNaN(amount) || Double.isInfinite(amount) || amount <= 0.0) {
             return true;
         }
+        if (player == null) {
+            return false;
+        }
         TpaConfig cfg = this.configSupplier.get();
         if (cfg == null || !cfg.economyEnabled()) {
             return true;
@@ -138,6 +141,9 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
     public boolean withdraw(OfflinePlayer player, double amount) {
         if (Double.isNaN(amount) || Double.isInfinite(amount) || amount <= 0.0) {
             return true;
+        }
+        if (player == null) {
+            return false;
         }
         TpaConfig cfg = this.configSupplier.get();
         if (cfg == null || !cfg.economyEnabled()) {
@@ -159,6 +165,9 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
     public boolean deposit(OfflinePlayer player, double amount) {
         if (Double.isNaN(amount) || Double.isInfinite(amount) || amount <= 0.0) {
             return true;
+        }
+        if (player == null) {
+            return false;
         }
         TpaConfig cfg = this.configSupplier.get();
         if (cfg == null || !cfg.economyEnabled()) {
@@ -245,11 +254,7 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
         }
 
         if (!has(player, cost)) {
-            double balance = 0.0;
-            try {
-                balance = this.vaultEconomy.getBalance(player);
-            } catch (Throwable ignored) {
-            }
+            double balance = getBalance(player);
             TpaConfig cfg = this.configSupplier.get();
             TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
             TagResolver costResolver = Placeholder.unparsed("cost", format(cost));
@@ -289,11 +294,7 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
         }
         return CompletableFuture.supplyAsync(() -> {
             if (!has(player, cost)) {
-                double balance = 0.0;
-                try {
-                    balance = this.vaultEconomy.getBalance(player);
-                } catch (Throwable ignored) {
-                }
+                double balance = getBalance(player);
                 TpaConfig cfg = this.configSupplier.get();
                 final double finalBal = balance;
                 if (player.isOnline()) {
