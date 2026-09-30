@@ -283,6 +283,16 @@ public final class DefaultTpaService implements TpaService {
                 }
                 this.economyService.processRefund(senderOp, req.cost(), "Request expired");
             }
+            Player sender = Bukkit.getPlayer(req.senderId());
+            if (sender != null && sender.isOnline()) {
+                final UUID targetId = req.targetId();
+                sender.getScheduler().run(this.plugin, t -> this.closeConfirmationMenuIfOpen(sender, targetId), null);
+            }
+            Player target = Bukkit.getPlayer(req.targetId());
+            if (target != null && target.isOnline()) {
+                final UUID senderId = req.senderId();
+                target.getScheduler().run(this.plugin, t -> this.closeConfirmationMenuIfOpen(target, senderId), null);
+            }
         }
     }
 
@@ -584,12 +594,17 @@ public final class DefaultTpaService implements TpaService {
             TpaRequest req = new TpaRequest(sender.getUniqueId(), target.getUniqueId(), type, System.currentTimeMillis(), sendCost);
             this.repository.addRequest(req);
             this.sendMessage(sender, this.config().messages().requestAutoAcceptedSender(), "target", target.getName());
+            final String senderName = sender.getName();
             target.getScheduler().run(
                 this.plugin,
-                tTask -> this.sendMessage(target, this.config().messages().requestAutoAcceptedTarget(), "sender", sender.getName()),
+                tTask -> {
+                    if (target.isOnline()) {
+                        this.sendMessage(target, this.config().messages().requestAutoAcceptedTarget(), "sender", senderName);
+                        this.acceptRequestInternal(target, senderName, false);
+                    }
+                },
                 null
             );
-            this.acceptRequestInternal(target, sender.getName(), false);
             return true;
         }
 
@@ -778,6 +793,7 @@ public final class DefaultTpaService implements TpaService {
         }
 
         if (sender == null || !sender.isOnline()) {
+            this.repository.setCooldownEnd(targetRequest.senderId(), 0L);
             if (notifyMessages) {
                 OfflinePlayer op = resolveOfflinePlayerIfCached(targetRequest.senderId());
                 String senderName = (op != null && op.getName() != null) ? op.getName() : "Player";
@@ -812,18 +828,23 @@ public final class DefaultTpaService implements TpaService {
                 final UUID reqSenderId = targetRequest.senderId();
                 final UUID targetId = target.getUniqueId();
                 this.repository.setCooldownEnd(reqSenderId, 0L);
-                sender.getScheduler().run(this.plugin, sTask -> this.closeConfirmationMenuIfOpen(sender, targetId), null);
+                final boolean notify = notifyMessages;
+                sender.getScheduler().run(this.plugin, sTask -> {
+                    this.closeConfirmationMenuIfOpen(sender, targetId);
+                    if (notify && sender.isOnline()) {
+                        double balance = this.economyService.getBalance(sender);
+                        TpaConfig cfg = this.config();
+                        TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
+                        TagResolver costResolver = Placeholder.unparsed("cost", this.economyService.format(cost));
+                        TagResolver balResolver = Placeholder.unparsed("balance", this.economyService.format(balance));
+                        sender.sendMessage(this.miniMessage.deserialize(
+                            MessageFormatter.toMiniMessage(cfg.messages().insufficientFunds()),
+                            TagResolver.resolver(prefixResolver, costResolver, balResolver)
+                        ));
+                    }
+                }, null);
                 target.getScheduler().run(this.plugin, tTask -> this.closeConfirmationMenuIfOpen(target, reqSenderId), null);
                 if (notifyMessages) {
-                    double balance = this.economyService.getBalance(sender);
-                    TpaConfig cfg = this.config();
-                    TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
-                    TagResolver costResolver = Placeholder.unparsed("cost", this.economyService.format(cost));
-                    TagResolver balResolver = Placeholder.unparsed("balance", this.economyService.format(balance));
-                    sender.sendMessage(this.miniMessage.deserialize(
-                        MessageFormatter.toMiniMessage(cfg.messages().insufficientFunds()),
-                        TagResolver.resolver(prefixResolver, costResolver, balResolver)
-                    ));
                     this.sendMessage(
                         target,
                         this.config().messages().targetAcceptFailedInsufficientFunds(),

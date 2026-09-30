@@ -418,11 +418,12 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
             return;
         }
         final UUID targetId = target.getUniqueId();
+        final OfflinePlayer initialTarget = target;
         final String senderDisplayName = (sender != null && sender.getName() != null) ? sender.getName() : "Player";
         this.ioExecutor.submit(() -> {
             OfflinePlayer offlineTarget = Bukkit.getPlayer(targetId);
             if (offlineTarget == null) {
-                offlineTarget = Bukkit.getOfflinePlayer(targetId);
+                offlineTarget = initialTarget;
             }
             if (deposit(offlineTarget, reward)) {
                 Player onlineTarget = Bukkit.getPlayer(targetId);
