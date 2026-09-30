@@ -9,6 +9,7 @@ import com.lunatech.tpcore.module.tpa.repository.TpaRepository;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
 import org.bukkit.Bukkit;
+import org.bukkit.GameMode;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -88,6 +89,11 @@ final class TpaSendRequestHandler {
         }
 
         boolean isBulk = targets.size() > 1;
+        if (isBulk && !sender.hasPermission(Permissions.TPA_ALL)) {
+            this.messenger.sendMessage(sender, config().messages().noBulkPermission());
+            return;
+        }
+
         List<String> disabledWorlds = config().disabledWorlds();
         if (disabledWorlds != null && !disabledWorlds.isEmpty() && !sender.hasPermission(Permissions.TPA_BYPASS_WORLD)) {
             String sWorld = sender.getWorld().getName();
@@ -105,6 +111,7 @@ final class TpaSendRequestHandler {
                 .filter(t -> {
                     if (t == null || !t.isOnline()) return false;
                     if (!config().allowSelfTpa() && sender.getUniqueId().equals(t.getUniqueId())) return false;
+                    if (t.getGameMode() == GameMode.SPECTATOR && type == TpaType.TPA_TO) return false;
                     if (disabledWorlds != null && !disabledWorlds.isEmpty() && !sender.hasPermission(Permissions.TPA_BYPASS_WORLD)
                         && disabledWorlds.stream().anyMatch(t.getWorld().getName()::equalsIgnoreCase)) return false;
                     if (this.warmupManager.isPlayerInWarmup(t.getUniqueId())) return false;
@@ -173,6 +180,13 @@ final class TpaSendRequestHandler {
         if (!config().allowSelfTpa() && sender.getUniqueId().equals(target.getUniqueId())) {
             if (!isBulk) {
                 this.messenger.sendMessage(sender, config().messages().rejectSelfTpa());
+            }
+            return false;
+        }
+
+        if (target.getGameMode() == GameMode.SPECTATOR && type == TpaType.TPA_TO) {
+            if (!isBulk) {
+                this.messenger.sendMessage(sender, config().messages().playerNotOnline(), "player", target.getName());
             }
             return false;
         }
@@ -268,30 +282,14 @@ final class TpaSendRequestHandler {
 
         this.escrowManager.claimPendingRefunds(sender);
 
+        double sendCost = this.economyService.getCost(sender, type);
+        if (!checkAndProcessSendCost(sender, sendCost, isBulk)) {
+            return false;
+        }
+
         if (this.repository.isAutoAcceptEnabled(target.getUniqueId())) {
             if (this.warmupManager.isPlayerInWarmup(sender.getUniqueId()) || this.warmupManager.isPlayerInWarmup(target.getUniqueId())) {
                 return false;
-            }
-            double sendCost = this.economyService.getCost(sender, type);
-            String timing = config().getNormalizedChargeTiming();
-            if ("CHARGE_ON_SEND".equals(timing)) {
-                if (isBulk && !this.economyService.has(sender, sendCost)) {
-                    return false;
-                }
-                if (!this.economyService.processSendCost(sender, sendCost)) {
-                    return false;
-                }
-            } else if ("CHARGE_ON_ACCEPT".equals(timing) || "CHARGE_ON_SUCCESS".equals(timing)) {
-                if (sendCost > 0.0 && !this.economyService.has(sender, sendCost)) {
-                    if (!isBulk) {
-                        double balance = this.economyService.getBalance(sender);
-                        TpaConfig cfg = config();
-                        TagResolver costResolver = Placeholder.unparsed("cost", this.economyService.format(sendCost));
-                        TagResolver balResolver = Placeholder.unparsed("balance", this.economyService.format(balance));
-                        this.messenger.sendMessage(sender, cfg.messages().insufficientFunds(), costResolver, balResolver);
-                    }
-                    return false;
-                }
             }
             if (applyCooldown && cooldownSeconds > 0 && !sender.hasPermission(Permissions.TPA_BYPASS_COOLDOWN)) {
                 this.repository.setCooldownEnd(sender.getUniqueId(), System.currentTimeMillis() + cooldownSeconds * 1000L);
@@ -327,28 +325,6 @@ final class TpaSendRequestHandler {
                 null
             );
             return true;
-        }
-
-        double sendCost = this.economyService.getCost(sender, type);
-        String timing = config().getNormalizedChargeTiming();
-        if ("CHARGE_ON_SEND".equals(timing)) {
-            if (isBulk && !this.economyService.has(sender, sendCost)) {
-                return false;
-            }
-            if (!this.economyService.processSendCost(sender, sendCost)) {
-                return false;
-            }
-        } else if ("CHARGE_ON_ACCEPT".equals(timing) || "CHARGE_ON_SUCCESS".equals(timing)) {
-            if (sendCost > 0.0 && !this.economyService.has(sender, sendCost)) {
-                if (!isBulk) {
-                    double balance = this.economyService.getBalance(sender);
-                    TpaConfig cfg = config();
-                    TagResolver costResolver = Placeholder.unparsed("cost", this.economyService.format(sendCost));
-                    TagResolver balResolver = Placeholder.unparsed("balance", this.economyService.format(balance));
-                    this.messenger.sendMessage(sender, cfg.messages().insufficientFunds(), costResolver, balResolver);
-                }
-                return false;
-            }
         }
 
         TpaRequest request = new TpaRequest(
@@ -391,6 +367,28 @@ final class TpaSendRequestHandler {
                 config().messages().targetTpaHereReceived(),
                 "sender", sender.getName()
             );
+        }
+        return true;
+    }
+
+    private boolean checkAndProcessSendCost(Player sender, double sendCost, boolean isBulk) {
+        String timing = config().getNormalizedChargeTiming();
+        if ("CHARGE_ON_SEND".equals(timing)) {
+            if (isBulk && !this.economyService.has(sender, sendCost)) {
+                return false;
+            }
+            return this.economyService.processSendCost(sender, sendCost);
+        } else if ("CHARGE_ON_ACCEPT".equals(timing) || "CHARGE_ON_SUCCESS".equals(timing)) {
+            if (sendCost > 0.0 && !this.economyService.has(sender, sendCost)) {
+                if (!isBulk) {
+                    double balance = this.economyService.getBalance(sender);
+                    TpaConfig cfg = config();
+                    TagResolver costResolver = Placeholder.unparsed("cost", this.economyService.format(sendCost));
+                    TagResolver balResolver = Placeholder.unparsed("balance", this.economyService.format(balance));
+                    this.messenger.sendMessage(sender, cfg.messages().insufficientFunds(), costResolver, balResolver);
+                }
+                return false;
+            }
         }
         return true;
     }

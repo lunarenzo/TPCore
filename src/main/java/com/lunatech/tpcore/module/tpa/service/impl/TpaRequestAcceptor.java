@@ -9,6 +9,7 @@ import com.lunatech.tpcore.module.tpa.repository.TpaRepository;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
 import org.bukkit.Bukkit;
+import org.bukkit.GameMode;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -161,6 +162,17 @@ final class TpaRequestAcceptor {
                     return;
                 }
             }
+        }
+
+        Player destinationPlayer = (targetRequest.type() == TpaType.TPA_TO) ? target : sender;
+        if (destinationPlayer.getGameMode() == GameMode.SPECTATOR) {
+            this.repository.setCooldownEnd(targetRequest.senderId(), 0L);
+            this.escrowManager.refundSenderIfCharged(targetRequest.senderId(), targetRequest.cost(), "Destination player in spectator mode");
+            if (notifyMessages) {
+                this.messenger.sendMessage(target, config().messages().unsafeDestination());
+            }
+            this.messenger.sendMessage(sender, config().messages().unsafeDestination());
+            return;
         }
 
         if ("CHARGE_ON_ACCEPT".equals(timing) && targetRequest.cost() > 0.0) {
