@@ -114,7 +114,7 @@ public final class TpaSafetyInspector {
 
             for (int dy : PROBE_DY) {
                 int checkY = targetY + dy;
-                if (checkY < world.getMinHeight() + 1 || checkY >= world.getMaxHeight() - 2) {
+                if (checkY < world.getMinHeight() + 1 || checkY >= world.getMaxHeight() - 4) {
                     continue;
                 }
                 if (world.getEnvironment() == World.Environment.NETHER && checkY >= 127) {

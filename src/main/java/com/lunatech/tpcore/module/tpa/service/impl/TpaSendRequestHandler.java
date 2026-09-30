@@ -101,10 +101,12 @@ final class TpaSendRequestHandler {
                     if (!config().allowSelfTpa() && sender.getUniqueId().equals(t.getUniqueId())) return false;
                     if (this.warmupManager.isPlayerInWarmup(t.getUniqueId())) return false;
                     if (this.repository.isTpaToggledOff(t.getUniqueId())) return false;
-                    if (this.repository.isPlayerBlocked(t.getUniqueId(), sender.getUniqueId())) return false;
-                    if (this.repository.isPlayerBlocked(sender.getUniqueId(), t.getUniqueId())) return false;
+                    UUID tId = t.getUniqueId();
+                    if (this.repository.isPlayerBlocked(tId, sender.getUniqueId())) return false;
+                    if (this.repository.isPlayerBlocked(sender.getUniqueId(), tId)) return false;
+                    if (this.repository.getRequest(tId, sender.getUniqueId()).filter(r -> !r.isExpired(timeoutSecs)).isPresent()) return false;
                     if (maxReqPerPlayer > 0) {
-                        Collection<TpaRequest> incoming = this.repository.getIncomingRequests(t.getUniqueId());
+                        Collection<TpaRequest> incoming = this.repository.getIncomingRequests(tId);
                         int active = 0;
                         for (TpaRequest r : incoming) {
                             if (!r.isExpired(timeoutSecs)) active++;
