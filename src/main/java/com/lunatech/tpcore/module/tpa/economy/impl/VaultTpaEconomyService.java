@@ -60,11 +60,25 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
         setupVault();
     }
 
-    private static double roundCurrency(double amount) {
+    private double roundCurrency(double amount) {
         if (Double.isNaN(amount) || Double.isInfinite(amount) || amount <= 0.0) {
             return 0.0;
         }
-        return Math.round(amount * 100.0) / 100.0;
+        int digits = 2;
+        if (this.vaultEconomy != null) {
+            try {
+                int frac = this.vaultEconomy.fractionalDigits();
+                if (frac >= 0) {
+                    digits = Math.min(6, frac);
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        if (digits == 0) {
+            return Math.floor(amount);
+        }
+        double factor = Math.pow(10.0, digits);
+        return Math.round(amount * factor) / factor;
     }
 
     private synchronized void setupVault() {
@@ -128,7 +142,12 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
             return true;
         }
         try {
-            return this.vaultEconomy.has(player, roundCurrency(amount));
+            double cleanAmount = roundCurrency(amount);
+            if (this.vaultEconomy.has(player, cleanAmount)) {
+                return true;
+            }
+            double balance = this.vaultEconomy.getBalance(player);
+            return (balance + 1e-5) >= cleanAmount;
         } catch (Throwable ignored) {
             return false;
         }
@@ -432,7 +451,13 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
                     }, null);
                 }
             } else {
-                this.logger.warn("Vault economy deposit error during reward of {} for player {}", format(reward), targetId);
+                TpaRepository repo = (this.repositorySupplier != null) ? this.repositorySupplier.get() : null;
+                if (repo != null) {
+                    repo.addPendingRefund(targetId, reward);
+                    this.logger.warn("Vault economy deposit error during reward of {} for player {}. Queued into repository pending refunds.", format(reward), targetId);
+                } else {
+                    this.logger.warn("Vault economy deposit error during reward of {} for player {}", format(reward), targetId);
+                }
             }
         });
     }
