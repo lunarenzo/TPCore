@@ -6,6 +6,7 @@ import org.bukkit.entity.AreaEffectCloud;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Projectile;
+import org.bukkit.entity.TNTPrimed;
 import org.bukkit.entity.ThrownPotion;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -93,6 +94,14 @@ public final class TpaEventListener implements Listener {
                 long protectionStart = this.tpaService.getTeleportProtectionStartTime(pPotionShooter.getUniqueId());
                 if (protectionStart == 0L || launchTime >= protectionStart) {
                     attacker = pPotionShooter;
+                }
+                isPvp = (victim != null);
+            } else if (damager instanceof TNTPrimed tnt
+                    && tnt.getSource() instanceof Player pTntShooter) {
+                long launchTime = System.currentTimeMillis() - (tnt.getTicksLived() * 50L);
+                long protectionStart = this.tpaService.getTeleportProtectionStartTime(pTntShooter.getUniqueId());
+                if (protectionStart == 0L || launchTime >= protectionStart) {
+                    attacker = pTntShooter;
                 }
                 isPvp = (victim != null);
             }

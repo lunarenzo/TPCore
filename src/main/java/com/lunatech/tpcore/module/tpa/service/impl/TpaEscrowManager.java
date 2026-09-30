@@ -137,7 +137,7 @@ final class TpaEscrowManager {
             return;
         }
         String timing = config().getNormalizedChargeTiming();
-        if ("CHARGE_ON_SEND".equals(timing) || "CHARGE_ON_ACCEPT".equals(timing)) {
+        if ("CHARGE_ON_SEND".equals(timing) || "CHARGE_ON_ACCEPT".equals(timing) || "CHARGE_ON_WARMUP".equals(timing)) {
             refundSenderAfterCharge(senderId, cost, reason);
         }
     }

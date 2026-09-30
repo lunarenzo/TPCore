@@ -22,19 +22,26 @@ public final class TpaSafetyInspector {
     private static final int[] PROBE_DY = {0, -1, 1, -2, 2};
 
     private static final Set<Material> HAZARD_MATERIALS = EnumSet.noneOf(Material.class);
-    private static final Method IS_OWNED_BY_CURRENT_REGION;
+    private static final Method IS_OWNED_BY_CURRENT_REGION_LOC;
+    private static final Method IS_OWNED_BY_CURRENT_REGION_CHUNK;
 
     static {
-        Method m = null;
+        Method mLoc = null;
+        Method mChunk = null;
         try {
-            m = Bukkit.class.getMethod("isOwnedByCurrentRegion", Location.class);
+            mLoc = Bukkit.class.getMethod("isOwnedByCurrentRegion", Location.class);
         } catch (Throwable ignored) {
             try {
-                m = Location.class.getMethod("isOwnedByCurrentRegion");
+                mLoc = Location.class.getMethod("isOwnedByCurrentRegion");
             } catch (Throwable ignored2) {
             }
         }
-        IS_OWNED_BY_CURRENT_REGION = m;
+        try {
+            mChunk = Bukkit.class.getMethod("isOwnedByCurrentRegion", World.class, int.class, int.class);
+        } catch (Throwable ignored) {
+        }
+        IS_OWNED_BY_CURRENT_REGION_LOC = mLoc;
+        IS_OWNED_BY_CURRENT_REGION_CHUNK = mChunk;
 
         for (Material mat : Material.values()) {
             String name = mat.name();
@@ -60,6 +67,35 @@ public final class TpaSafetyInspector {
 
     private TpaSafetyInspector() {}
 
+    private static boolean isRegionOwned(World world, int chunkX, int chunkZ, Location loc) {
+        if (world == null) {
+            return false;
+        }
+        if (IS_OWNED_BY_CURRENT_REGION_CHUNK != null) {
+            try {
+                Boolean owned = (Boolean) IS_OWNED_BY_CURRENT_REGION_CHUNK.invoke(null, world, chunkX, chunkZ);
+                if (owned != null && !owned) {
+                    return false;
+                }
+            } catch (Throwable ignored) {
+                return false;
+            }
+        }
+        if (IS_OWNED_BY_CURRENT_REGION_LOC != null && loc != null) {
+            try {
+                Boolean owned = (IS_OWNED_BY_CURRENT_REGION_LOC.getDeclaringClass().equals(Bukkit.class))
+                    ? (Boolean) IS_OWNED_BY_CURRENT_REGION_LOC.invoke(null, loc)
+                    : (Boolean) IS_OWNED_BY_CURRENT_REGION_LOC.invoke(loc);
+                if (owned != null && !owned) {
+                    return false;
+                }
+            } catch (Throwable ignored) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     public static Location findSafeLocation(Location targetLocation) {
         if (targetLocation == null || targetLocation.getWorld() == null) {
             return null;
@@ -69,16 +105,19 @@ public final class TpaSafetyInspector {
         int targetX = targetLocation.getBlockX();
         int targetY = targetLocation.getBlockY();
         int targetZ = targetLocation.getBlockZ();
+        int originChunkX = targetX >> 4;
+        int originChunkZ = targetZ >> 4;
 
-        if (!world.isChunkLoaded(targetX >> 4, targetZ >> 4)) {
+        if (!world.isChunkLoaded(originChunkX, originChunkZ)) {
             return null;
         }
 
         int lastChunkX = Integer.MIN_VALUE;
         int lastChunkZ = Integer.MIN_VALUE;
         boolean lastChunkLoaded = false;
+        boolean lastChunkOwned = true;
 
-        Location probeLoc = (IS_OWNED_BY_CURRENT_REGION != null) ? targetLocation.clone() : null;
+        Location probeLoc = (IS_OWNED_BY_CURRENT_REGION_LOC != null) ? targetLocation.clone() : null;
 
         for (int i = 0; i < PROBE_DX.length; i++) {
             int checkX = targetX + PROBE_DX[i];
@@ -91,25 +130,21 @@ public final class TpaSafetyInspector {
                 lastChunkX = chunkX;
                 lastChunkZ = chunkZ;
                 lastChunkLoaded = world.isChunkLoaded(chunkX, chunkZ);
-            }
-
-            if (!lastChunkLoaded) {
-                continue;
-            }
-
-            if (probeLoc != null && IS_OWNED_BY_CURRENT_REGION != null) {
-                try {
-                    probeLoc.setX(checkX);
-                    probeLoc.setY(targetY);
-                    probeLoc.setZ(checkZ);
-                    Boolean owned = (IS_OWNED_BY_CURRENT_REGION.getDeclaringClass().equals(Bukkit.class))
-                        ? (Boolean) IS_OWNED_BY_CURRENT_REGION.invoke(null, probeLoc)
-                        : (Boolean) IS_OWNED_BY_CURRENT_REGION.invoke(probeLoc);
-                    if (owned != null && !owned) {
-                        continue;
+                if (lastChunkLoaded) {
+                    if (probeLoc != null) {
+                        probeLoc.setX(checkX);
+                        probeLoc.setY(targetY);
+                        probeLoc.setZ(checkZ);
                     }
-                } catch (Throwable ignored) {
+                    lastChunkOwned = (chunkX == originChunkX && chunkZ == originChunkZ)
+                        || isRegionOwned(world, chunkX, chunkZ, probeLoc);
+                } else {
+                    lastChunkOwned = false;
                 }
+            }
+
+            if (!lastChunkLoaded || !lastChunkOwned) {
+                continue;
             }
 
             for (int dy : PROBE_DY) {

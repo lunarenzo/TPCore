@@ -311,7 +311,7 @@ public final class ConcurrentTpaRepository implements TpaRepository {
             return;
         }
         long now = System.currentTimeMillis();
-        this.cooldownsMap.values().removeIf(end -> end <= now);
+        this.cooldownsMap.entrySet().removeIf(entry -> entry.getValue() == null || entry.getValue() <= now);
     }
 
     private void flushPendingRefundsSync() {

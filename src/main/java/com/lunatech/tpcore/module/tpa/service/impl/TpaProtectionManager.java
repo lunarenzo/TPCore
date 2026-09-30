@@ -18,7 +18,9 @@ final class TpaProtectionManager {
     private final JavaPlugin plugin;
     private final Supplier<TpaConfig> configSupplier;
     private final TpaMessenger messenger;
-    private final Map<UUID, Long> teleportProtectionMap = new ConcurrentHashMap<>();
+    private record ProtectionWindow(long startTime, long expiryTime) {}
+
+    private final Map<UUID, ProtectionWindow> teleportProtectionMap = new ConcurrentHashMap<>();
 
     TpaProtectionManager(JavaPlugin plugin, Supplier<TpaConfig> configSupplier, TpaMessenger messenger) {
         this.plugin = plugin;
@@ -35,8 +37,10 @@ final class TpaProtectionManager {
             return;
         }
         int seconds = config().protectionSeconds();
-        long expiry = System.currentTimeMillis() + (seconds * 1000L);
-        this.teleportProtectionMap.put(player.getUniqueId(), expiry);
+        long now = System.currentTimeMillis();
+        long expiry = now + (seconds * 1000L);
+        ProtectionWindow window = new ProtectionWindow(now, expiry);
+        this.teleportProtectionMap.put(player.getUniqueId(), window);
         this.messenger.sendMessage(
             player,
             config().messages().teleportProtectionStart(),
@@ -47,9 +51,9 @@ final class TpaProtectionManager {
             this.plugin,
             task -> {
                 if (player.isOnline()) {
-                    Long exp = this.teleportProtectionMap.get(player.getUniqueId());
-                    if (exp != null && System.currentTimeMillis() >= exp) {
-                        if (this.teleportProtectionMap.remove(player.getUniqueId(), exp)) {
+                    ProtectionWindow current = this.teleportProtectionMap.get(player.getUniqueId());
+                    if (current != null && System.currentTimeMillis() >= current.expiryTime()) {
+                        if (this.teleportProtectionMap.remove(player.getUniqueId(), current)) {
                             this.messenger.sendMessage(player, config().messages().teleportProtectionEnded());
                         }
                     }
@@ -64,12 +68,12 @@ final class TpaProtectionManager {
         if (playerId == null || this.teleportProtectionMap.isEmpty()) {
             return false;
         }
-        Long expiry = this.teleportProtectionMap.get(playerId);
-        if (expiry == null) {
+        ProtectionWindow window = this.teleportProtectionMap.get(playerId);
+        if (window == null) {
             return false;
         }
-        if (System.currentTimeMillis() >= expiry) {
-            if (this.teleportProtectionMap.remove(playerId, expiry)) {
+        if (System.currentTimeMillis() >= window.expiryTime()) {
+            if (this.teleportProtectionMap.remove(playerId, window)) {
                 Player p = Bukkit.getPlayer(playerId);
                 if (p != null && p.isOnline()) {
                     this.messenger.sendMessage(p, config().messages().teleportProtectionEnded());
@@ -84,19 +88,18 @@ final class TpaProtectionManager {
         if (playerId == null || this.teleportProtectionMap.isEmpty()) {
             return 0L;
         }
-        Long expiry = this.teleportProtectionMap.get(playerId);
-        if (expiry == null || System.currentTimeMillis() >= expiry) {
+        ProtectionWindow window = this.teleportProtectionMap.get(playerId);
+        if (window == null || System.currentTimeMillis() >= window.expiryTime()) {
             return 0L;
         }
-        int seconds = config().protectionSeconds();
-        return expiry - (seconds * 1000L);
+        return window.startTime();
     }
 
     void stripTeleportProtection(UUID playerId) {
         if (playerId == null || this.teleportProtectionMap.isEmpty()) {
             return;
         }
-        Long removed = this.teleportProtectionMap.remove(playerId);
+        ProtectionWindow removed = this.teleportProtectionMap.remove(playerId);
         if (removed != null) {
             Player p = Bukkit.getPlayer(playerId);
             if (p != null && p.isOnline()) {

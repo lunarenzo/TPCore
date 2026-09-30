@@ -144,76 +144,55 @@ final class TpaTeleportExecutor {
                         String timing = config().getNormalizedChargeTiming();
                         if ("CHARGE_ON_SUCCESS".equals(timing) && cost > 0.0 && senderId != null) {
                             OfflinePlayer senderOp = TpaPlayerResolver.resolveOfflinePlayer(senderId);
-                            final OfflinePlayer finalSenderOp = senderOp;
-                            this.economyService.withdrawAsync(finalSenderOp, cost).whenComplete((charged, ex) -> {
-                                if (ex != null) {
-                                    this.plugin.getSLF4JLogger().warn("withdrawAsync failed exceptionally for sender {}", finalSenderOp.getUniqueId(), ex);
-                                }
-                                player.getScheduler().run(
-                                    this.plugin,
-                                    payTask -> {
-                                        if (ex != null || !Boolean.TRUE.equals(charged)) {
-                                            this.repository.setCooldownEnd(player.getUniqueId(), 0L);
-                                            this.repository.setCooldownEnd(destinationPlayer.getUniqueId(), 0L);
-                                            TpaConfig cfg = config();
-                                            boolean isSenderTeleporting = senderId.equals(player.getUniqueId());
+                            if (!this.economyService.has(senderOp, cost)) {
+                                this.repository.setCooldownEnd(player.getUniqueId(), 0L);
+                                this.repository.setCooldownEnd(destinationPlayer.getUniqueId(), 0L);
+                                TpaConfig cfg = config();
+                                boolean isSenderTeleporting = senderId.equals(player.getUniqueId());
+                                TagResolver costResolver = Placeholder.unparsed("cost", this.economyService.format(cost));
 
-                                            TagResolver costResolver = Placeholder.unparsed("cost", this.economyService.format(cost));
-
-                                            if (isSenderTeleporting) {
-                                                if (player.isOnline()) {
-                                                    this.messenger.sendMessage(player, cfg.messages().teleportCancelledInsufficientFunds(), costResolver);
-                                                    if (cfg.enableSounds()) {
-                                                        this.messenger.playSound(player, cfg.cancelSound(), (float) cfg.cancelSoundVolume(), (float) cfg.cancelSoundPitch());
-                                                    }
-                                                }
-                                                if (destinationPlayer.isOnline() && !destinationPlayer.getUniqueId().equals(player.getUniqueId())) {
-                                                    destinationPlayer.getScheduler().run(
-                                                        this.plugin,
-                                                        dTask -> {
-                                                            this.messenger.sendMessage(destinationPlayer, cfg.messages().requestCancelledTarget(), "sender", player.getName());
-                                                            if (cfg.enableSounds()) {
-                                                                this.messenger.playSound(destinationPlayer, cfg.cancelSound(), (float) cfg.cancelSoundVolume(), (float) cfg.cancelSoundPitch());
-                                                            }
-                                                        },
-                                                        null
-                                                    );
-                                                }
-                                            } else {
-                                                if (player.isOnline()) {
-                                                    String dName = (destinationPlayer != null && destinationPlayer.getName() != null) ? destinationPlayer.getName() : "Player";
-                                                    this.messenger.sendMessage(player, cfg.messages().requestCancelledTarget(), "sender", dName);
-                                                    if (cfg.enableSounds()) {
-                                                        this.messenger.playSound(player, cfg.cancelSound(), (float) cfg.cancelSoundVolume(), (float) cfg.cancelSoundPitch());
-                                                    }
-                                                }
-                                                if (destinationPlayer.isOnline()) {
-                                                    destinationPlayer.getScheduler().run(
-                                                        this.plugin,
-                                                        dTask -> {
-                                                            this.messenger.sendMessage(destinationPlayer, cfg.messages().teleportCancelledInsufficientFunds(), costResolver);
-                                                            if (cfg.enableSounds()) {
-                                                                this.messenger.playSound(destinationPlayer, cfg.cancelSound(), (float) cfg.cancelSoundVolume(), (float) cfg.cancelSoundPitch());
-                                                            }
-                                                        },
-                                                        null
-                                                    );
-                                                }
-                                            }
-                                            return;
-                                        }
-                                        executeTeleportFinalization(player, destinationPlayer, destination, requestType, senderId, cost);
-                                    },
-                                    () -> {
-                                        this.repository.setCooldownEnd(player.getUniqueId(), 0L);
-                                        this.repository.setCooldownEnd(destinationPlayer.getUniqueId(), 0L);
-                                        if (Boolean.TRUE.equals(charged)) {
-                                            this.escrowManager.refundSenderAfterCharge(senderId, cost, "Player retired during payment finalization");
+                                if (isSenderTeleporting) {
+                                    if (player.isOnline()) {
+                                        this.messenger.sendMessage(player, cfg.messages().teleportCancelledInsufficientFunds(), costResolver);
+                                        if (cfg.enableSounds()) {
+                                            this.messenger.playSound(player, cfg.cancelSound(), (float) cfg.cancelSoundVolume(), (float) cfg.cancelSoundPitch());
                                         }
                                     }
-                                );
-                            });
-                            return;
+                                    if (destinationPlayer.isOnline() && !destinationPlayer.getUniqueId().equals(player.getUniqueId())) {
+                                        destinationPlayer.getScheduler().run(
+                                            this.plugin,
+                                            dTask -> {
+                                                this.messenger.sendMessage(destinationPlayer, cfg.messages().requestCancelledTarget(), "sender", player.getName());
+                                                if (cfg.enableSounds()) {
+                                                    this.messenger.playSound(destinationPlayer, cfg.cancelSound(), (float) cfg.cancelSoundVolume(), (float) cfg.cancelSoundPitch());
+                                                }
+                                            },
+                                            null
+                                        );
+                                    }
+                                } else {
+                                    if (player.isOnline()) {
+                                        String dName = (destinationPlayer != null && destinationPlayer.getName() != null) ? destinationPlayer.getName() : "Player";
+                                        this.messenger.sendMessage(player, cfg.messages().requestCancelledTarget(), "sender", dName);
+                                        if (cfg.enableSounds()) {
+                                            this.messenger.playSound(player, cfg.cancelSound(), (float) cfg.cancelSoundVolume(), (float) cfg.cancelSoundPitch());
+                                        }
+                                    }
+                                    if (destinationPlayer.isOnline()) {
+                                        destinationPlayer.getScheduler().run(
+                                            this.plugin,
+                                            dTask -> {
+                                                this.messenger.sendMessage(destinationPlayer, cfg.messages().teleportCancelledInsufficientFunds(), costResolver);
+                                                if (cfg.enableSounds()) {
+                                                    this.messenger.playSound(destinationPlayer, cfg.cancelSound(), (float) cfg.cancelSoundVolume(), (float) cfg.cancelSoundPitch());
+                                                }
+                                            },
+                                            null
+                                        );
+                                    }
+                                }
+                                return;
+                            }
                         }
 
                         executeTeleportFinalization(player, destinationPlayer, destination, requestType, senderId, cost);
@@ -237,14 +216,36 @@ final class TpaTeleportExecutor {
         if (!player.isOnline() || player.isDead() || !destinationPlayer.isOnline()) {
             this.repository.setCooldownEnd(player.getUniqueId(), 0L);
             this.repository.setCooldownEnd(destinationPlayer.getUniqueId(), 0L);
-            this.escrowManager.refundSenderAfterCharge(senderId, cost, "Player offline or dead before teleport dispatch");
+            this.escrowManager.refundSenderIfCharged(senderId, cost, "Player offline or dead before teleport dispatch");
             return;
         }
 
-        if (player.isInsideVehicle()) {
+        if (player.isInsideVehicle() || !player.getPassengers().isEmpty()) {
             player.leaveVehicle();
+            player.eject();
+            player.getScheduler().run(
+                this.plugin,
+                t -> dispatchTeleportAsync(player, destinationPlayer, destination, requestType, senderId, cost),
+                () -> {
+                    this.repository.setCooldownEnd(player.getUniqueId(), 0L);
+                    this.repository.setCooldownEnd(destinationPlayer.getUniqueId(), 0L);
+                    this.escrowManager.refundSenderIfCharged(senderId, cost, "Player retired during entity dismount");
+                }
+            );
+            return;
         }
-        player.eject();
+
+        dispatchTeleportAsync(player, destinationPlayer, destination, requestType, senderId, cost);
+    }
+
+    private void dispatchTeleportAsync(Player player, Player destinationPlayer, Location destination, TpaType requestType, UUID senderId, double cost) {
+        if (!player.isOnline() || player.isDead() || !destinationPlayer.isOnline()) {
+            this.repository.setCooldownEnd(player.getUniqueId(), 0L);
+            this.repository.setCooldownEnd(destinationPlayer.getUniqueId(), 0L);
+            this.escrowManager.refundSenderIfCharged(senderId, cost, "Player offline or dead before teleport dispatch");
+            return;
+        }
+
         player.setVelocity(ZERO_VECTOR);
         player.teleportAsync(destination).whenComplete((success, ex) -> {
             if (ex == null && Boolean.TRUE.equals(success)) {
@@ -264,17 +265,27 @@ final class TpaTeleportExecutor {
                             if (payerPlayer == null && senderId != null) {
                                 payerPlayer = TpaPlayerResolver.resolveOfflinePlayer(senderId);
                             }
+                            final OfflinePlayer finalPayerPlayer = payerPlayer;
+
                             if ("CHARGE_ON_SUCCESS".equals(cfg.getNormalizedChargeTiming()) && senderId != null && cost > 0.0) {
-                                Player senderPlayer = Bukkit.getPlayer(senderId);
-                                if (senderPlayer != null && senderPlayer.isOnline()) {
-                                    senderPlayer.getScheduler().run(this.plugin, t -> {
-                                        if (senderPlayer.isOnline()) {
-                                            TagResolver costResolver = Placeholder.unparsed("cost", this.economyService.format(cost));
-                                            this.messenger.sendMessage(senderPlayer, cfg.messages().moneyWithdrawn(), costResolver);
+                                OfflinePlayer senderOp = TpaPlayerResolver.resolveOfflinePlayer(senderId);
+                                this.economyService.withdrawAsync(senderOp, cost).whenComplete((charged, wEx) -> {
+                                    if (wEx != null) {
+                                        this.plugin.getSLF4JLogger().warn("withdrawAsync failed exceptionally for sender {}", senderId, wEx);
+                                    }
+                                    if (Boolean.TRUE.equals(charged)) {
+                                        Player senderPlayer = Bukkit.getPlayer(senderId);
+                                        if (senderPlayer != null && senderPlayer.isOnline()) {
+                                            senderPlayer.getScheduler().run(this.plugin, t -> {
+                                                if (senderPlayer.isOnline()) {
+                                                    TagResolver costResolver = Placeholder.unparsed("cost", this.economyService.format(cost));
+                                                    this.messenger.sendMessage(senderPlayer, cfg.messages().moneyWithdrawn(), costResolver);
+                                                }
+                                            }, null);
                                         }
-                                    }, null);
-                                }
-                                this.economyService.processReward(rewardRecipient, payerPlayer, cost);
+                                        this.economyService.processReward(rewardRecipient, finalPayerPlayer, cost);
+                                    }
+                                });
                             } else if (cost > 0.0) {
                                 this.economyService.processReward(rewardRecipient, payerPlayer, cost);
                             }
@@ -282,19 +293,19 @@ final class TpaTeleportExecutor {
                         () -> {
                             this.repository.setCooldownEnd(player.getUniqueId(), 0L);
                             this.repository.setCooldownEnd(destinationPlayer.getUniqueId(), 0L);
-                            this.escrowManager.refundSenderAfterCharge(senderId, cost, "Player retired before teleport finalization");
+                            this.escrowManager.refundSenderIfCharged(senderId, cost, "Player retired before teleport finalization");
                         }
                     );
                 } else {
                     this.repository.setCooldownEnd(player.getUniqueId(), 0L);
                     this.repository.setCooldownEnd(destinationPlayer.getUniqueId(), 0L);
-                    this.escrowManager.refundSenderAfterCharge(senderId, cost, "Player offline after teleport completion");
+                    this.escrowManager.refundSenderIfCharged(senderId, cost, "Player offline after teleport completion");
                 }
             } else {
                 this.repository.setCooldownEnd(player.getUniqueId(), 0L);
                 this.repository.setCooldownEnd(destinationPlayer.getUniqueId(), 0L);
                 String failReason = (ex != null) ? "Teleportation failed exceptionally" : "Teleportation cancelled or destination unsafe";
-                this.escrowManager.refundSenderAfterCharge(senderId, cost, failReason);
+                this.escrowManager.refundSenderIfCharged(senderId, cost, failReason);
                 if (ex != null) {
                     this.plugin.getSLF4JLogger().warn("Player teleportAsync failed exceptionally for {}: {}", player.getName(), ex.getMessage());
                 }
