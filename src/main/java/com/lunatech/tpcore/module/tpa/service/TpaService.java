@@ -3,6 +3,7 @@ package com.lunatech.tpcore.module.tpa.service;
 import com.lunatech.tpcore.config.model.TpaConfig;
 import com.lunatech.tpcore.module.tpa.model.TpaRequest;
 import com.lunatech.tpcore.module.tpa.model.TpaType;
+import org.bukkit.Location;
 import org.bukkit.entity.Player;
 
 import java.util.Collection;
@@ -52,7 +53,7 @@ public interface TpaService {
 
     void handlePlayerMove(Player player);
 
-    void handlePlayerMove(Player player, org.bukkit.Location to);
+    void handlePlayerMove(Player player, Location to);
 
     void handlePlayerTeleport(UUID playerId);
 
