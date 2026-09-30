@@ -124,11 +124,8 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
             return false;
         }
         TpaConfig cfg = this.configSupplier.get();
-        if (cfg == null || !cfg.economyEnabled()) {
+        if (cfg == null || !cfg.economyEnabled() || !isAvailable()) {
             return true;
-        }
-        if (!isAvailable()) {
-            return false;
         }
         try {
             return this.vaultEconomy.has(player, roundCurrency(amount));
@@ -146,11 +143,8 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
             return false;
         }
         TpaConfig cfg = this.configSupplier.get();
-        if (cfg == null || !cfg.economyEnabled()) {
+        if (cfg == null || !cfg.economyEnabled() || !isAvailable()) {
             return true;
-        }
-        if (!isAvailable()) {
-            return false;
         }
         try {
             EconomyResponse resp = this.vaultEconomy.withdrawPlayer(player, roundCurrency(amount));
@@ -170,11 +164,8 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
             return false;
         }
         TpaConfig cfg = this.configSupplier.get();
-        if (cfg == null || !cfg.economyEnabled()) {
+        if (cfg == null || !cfg.economyEnabled() || !isAvailable()) {
             return true;
-        }
-        if (!isAvailable()) {
-            return false;
         }
         try {
             EconomyResponse resp = this.vaultEconomy.depositPlayer(player, roundCurrency(amount));
@@ -232,7 +223,7 @@ public final class VaultTpaEconomyService implements TpaEconomyService {
             return 0.0;
         }
         TpaConfig cfg = this.configSupplier.get();
-        if (cfg == null || !cfg.economyEnabled()) {
+        if (cfg == null || !cfg.economyEnabled() || !isAvailable()) {
             return 0.0;
         }
         return (type == TpaType.TPA_HERE) ? cfg.tpahereCost() : cfg.tpaCost();

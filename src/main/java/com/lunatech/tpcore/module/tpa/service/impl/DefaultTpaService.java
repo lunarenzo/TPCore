@@ -296,56 +296,70 @@ public final class DefaultTpaService implements TpaService {
         }
     }
 
+    private void claimPendingRefunds(Player player) {
+        if (player == null || !player.isOnline()) {
+            return;
+        }
+        if (!this.config().economyEnabled() || !this.economyService.isAvailable()) {
+            return;
+        }
+        PersistentDataContainer pdc = player.getPersistentDataContainer();
+        boolean hasPdc = this.keyPendingRefund != null && pdc.has(this.keyPendingRefund, PersistentDataType.DOUBLE);
+        boolean hasRepo = this.repository.hasPendingRefund(player.getUniqueId());
+        if (!hasPdc && !hasRepo) {
+            return;
+        }
+
+        double totalPending = 0.0;
+        if (hasPdc) {
+            Double pending = pdc.get(this.keyPendingRefund, PersistentDataType.DOUBLE);
+            if (pending != null && !Double.isNaN(pending) && !Double.isInfinite(pending) && pending > 0.0) {
+                totalPending += pending;
+            }
+            pdc.remove(this.keyPendingRefund);
+        }
+        double repoPending = this.repository.consumePendingRefund(player.getUniqueId());
+        if (!Double.isNaN(repoPending) && !Double.isInfinite(repoPending) && repoPending > 0.0) {
+            totalPending += repoPending;
+        }
+
+        if (totalPending > 0.0) {
+            final double finalAmount = Math.round(totalPending * 100.0) / 100.0;
+            final UUID playerId = player.getUniqueId();
+            this.economyService.depositAsync(player, finalAmount).thenAccept(success -> {
+                if (success) {
+                    Player onlinePlayer = Bukkit.getPlayer(playerId);
+                    if (onlinePlayer != null && onlinePlayer.isOnline()) {
+                        onlinePlayer.getScheduler().run(
+                            this.plugin,
+                            t -> {
+                                if (onlinePlayer.isOnline()) {
+                                    TpaConfig cfg = this.config();
+                                    TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
+                                    TagResolver costResolver = Placeholder.unparsed("cost", this.economyService.format(finalAmount));
+                                    onlinePlayer.sendMessage(this.miniMessage.deserialize(
+                                        MessageFormatter.toMiniMessage(cfg.messages().moneyRefunded()),
+                                        TagResolver.resolver(prefixResolver, costResolver)
+                                    ));
+                                }
+                            },
+                            null
+                        );
+                    }
+                } else {
+                    this.repository.addPendingRefund(playerId, finalAmount);
+                }
+            });
+        }
+    }
+
     @Override
     public void handlePlayerJoin(Player player) {
         if (player == null || !player.isOnline()) {
             return;
         }
+        this.claimPendingRefunds(player);
         PersistentDataContainer pdc = player.getPersistentDataContainer();
-
-        if (this.config().economyEnabled() && this.economyService.isAvailable()) {
-            double totalPending = 0.0;
-            if (this.keyPendingRefund != null && pdc.has(this.keyPendingRefund, PersistentDataType.DOUBLE)) {
-                Double pending = pdc.get(this.keyPendingRefund, PersistentDataType.DOUBLE);
-                if (pending != null && !Double.isNaN(pending) && !Double.isInfinite(pending) && pending > 0.0) {
-                    totalPending += pending;
-                }
-                pdc.remove(this.keyPendingRefund);
-            }
-            double repoPending = this.repository.consumePendingRefund(player.getUniqueId());
-            if (!Double.isNaN(repoPending) && !Double.isInfinite(repoPending) && repoPending > 0.0) {
-                totalPending += repoPending;
-            }
-
-            if (totalPending > 0.0) {
-                final double finalAmount = Math.round(totalPending * 100.0) / 100.0;
-                final UUID playerId = player.getUniqueId();
-                this.economyService.depositAsync(player, finalAmount).thenAccept(success -> {
-                    if (success) {
-                        Player onlinePlayer = Bukkit.getPlayer(playerId);
-                        if (onlinePlayer != null && onlinePlayer.isOnline()) {
-                            onlinePlayer.getScheduler().run(
-                                this.plugin,
-                                t -> {
-                                    if (onlinePlayer.isOnline()) {
-                                        TpaConfig cfg = this.config();
-                                        TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
-                                        TagResolver costResolver = Placeholder.unparsed("cost", this.economyService.format(finalAmount));
-                                        onlinePlayer.sendMessage(this.miniMessage.deserialize(
-                                            MessageFormatter.toMiniMessage(cfg.messages().moneyRefunded()),
-                                            TagResolver.resolver(prefixResolver, costResolver)
-                                        ));
-                                    }
-                                },
-                                null
-                            );
-                        }
-                    } else {
-                        this.repository.addPendingRefund(playerId, finalAmount);
-                    }
-                });
-            }
-        }
         Byte toggledOffByte = pdc.get(this.keyToggledOff, PersistentDataType.BYTE);
         boolean toggledOff = toggledOffByte != null && toggledOffByte == (byte) 1;
 
@@ -559,6 +573,8 @@ public final class DefaultTpaService implements TpaService {
             }
         }
 
+        this.claimPendingRefunds(sender);
+
         if (this.repository.isAutoAcceptEnabled(target.getUniqueId())) {
             if (isPlayerInWarmup(sender.getUniqueId()) || isPlayerInWarmup(target.getUniqueId())) {
                 return false;
@@ -722,6 +738,9 @@ public final class DefaultTpaService implements TpaService {
     }
 
     private void acceptRequestInternal(Player target, String optionalSenderName, boolean notifyMessages) {
+        if (target != null && target.isOnline()) {
+            this.claimPendingRefunds(target);
+        }
         Collection<TpaRequest> rawIncoming = this.repository.getIncomingRequests(target.getUniqueId());
 
         if (rawIncoming.isEmpty()) {
@@ -771,6 +790,10 @@ public final class DefaultTpaService implements TpaService {
             return;
         }
 
+        if (isPlayerInWarmup(target.getUniqueId()) || isPlayerInWarmup(targetRequest.senderId())) {
+            return;
+        }
+
         if (!this.repository.removeRequest(targetRequest.targetId(), targetRequest.senderId())) {
             if (notifyMessages) {
                 this.sendMessage(target, this.config().messages().noPendingRequests());
@@ -779,6 +802,9 @@ public final class DefaultTpaService implements TpaService {
         }
 
         Player sender = Bukkit.getPlayer(targetRequest.senderId());
+        if (sender != null && sender.isOnline()) {
+            this.claimPendingRefunds(sender);
+        }
         String timing = this.config().getNormalizedChargeTiming();
         if ("CHARGE_ON_SEND".equals(timing)) {
             if (sender == null || !sender.isOnline()) {
