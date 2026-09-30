@@ -78,7 +78,7 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
             }
         }
 
-        if (ServerVersion.IS_DIALOG_SUPPORTED) {
+        if (ServerVersion.IS_DIALOG_SUPPORTED && DialogReflectionCache.SUPPORTED) {
             TpaConfig config = this.configSupplier.get();
             String body = (request.type() == TpaType.TPA_HERE)
                 ? config.dialogAcceptTpahereBodyText()
@@ -128,7 +128,7 @@ public final class PaperDialogConfirmationService implements TpaConfirmationMenu
             return;
         }
 
-        if (ServerVersion.IS_DIALOG_SUPPORTED) {
+        if (ServerVersion.IS_DIALOG_SUPPORTED && DialogReflectionCache.SUPPORTED) {
             TpaConfig config = this.configSupplier.get();
             String body = (type == TpaType.TPA_HERE)
                 ? config.dialogSendTpahereBodyText()

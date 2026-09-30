@@ -184,6 +184,7 @@ public final class DefaultTpaService implements TpaService {
         Player player = Bukkit.getPlayer(playerId);
         if (player != null) {
             this.userSettingsManager.saveUserSettingsToPdc(player);
+            TpaMenuCloser.closeConfirmationMenuIfOpen(player);
         }
 
         String quitName = (player != null && player.getName() != null) ? player.getName() : null;

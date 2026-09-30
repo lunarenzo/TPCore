@@ -191,9 +191,18 @@ public final class TpaEventListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlayerTeleport(PlayerTeleportEvent event) {
-        if (event != null && event.getPlayer() != null) {
-            this.tpaService.handlePlayerTeleport(event.getPlayer().getUniqueId());
+        if (event == null || event.getPlayer() == null || !this.tpaService.hasActiveWarmups()) {
+            return;
         }
+        PlayerTeleportEvent.TeleportCause cause = event.getCause();
+        if (cause == PlayerTeleportEvent.TeleportCause.PLUGIN || cause == PlayerTeleportEvent.TeleportCause.UNKNOWN) {
+            if (event.getFrom() != null && event.getTo() != null
+                && event.getFrom().getWorld() == event.getTo().getWorld()
+                && event.getFrom().distanceSquared(event.getTo()) < 0.25) {
+                return;
+            }
+        }
+        this.tpaService.handlePlayerTeleport(event.getPlayer().getUniqueId());
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
