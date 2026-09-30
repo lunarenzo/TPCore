@@ -55,6 +55,14 @@ public final class TpaGuiListener implements Listener {
                 denySlot = 11;
             }
 
+            if (slot != acceptSlot && slot != denySlot) {
+                return;
+            }
+
+            if (!holder.tryClaimClick()) {
+                return;
+            }
+
             if (holder.getConfirmationType() == TpaConfirmationHolder.ConfirmationType.SEND_REQUEST) {
                 if (slot == acceptSlot) {
                     closeInventoryDeferred(player);

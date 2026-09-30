@@ -6,6 +6,7 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class TpaConfirmationHolder implements InventoryHolder {
 
@@ -18,6 +19,11 @@ public final class TpaConfirmationHolder implements InventoryHolder {
     private final TpaRequest request;
     private final UUID targetPlayerId;
     private final TpaType tpaType;
+    private final AtomicBoolean clickHandled = new AtomicBoolean(false);
+
+    public boolean tryClaimClick() {
+        return this.clickHandled.compareAndSet(false, true);
+    }
 
     public TpaConfirmationHolder(TpaRequest request) {
         this.confirmationType = ConfirmationType.ACCEPT_REQUEST;

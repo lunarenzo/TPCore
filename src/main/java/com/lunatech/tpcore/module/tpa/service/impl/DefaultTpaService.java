@@ -332,8 +332,8 @@ public final class DefaultTpaService implements TpaService {
                 if (totalPending > 0.0) {
                     final double finalAmount = Math.round(totalPending * 100.0) / 100.0;
                     final UUID playerId = player.getUniqueId();
-                    this.economyService.depositAsync(player, finalAmount).thenAccept(success -> {
-                        if (success) {
+                    this.economyService.depositAsync(player, finalAmount).whenComplete((success, ex) -> {
+                        if (ex == null && Boolean.TRUE.equals(success)) {
                             Player onlinePlayer = Bukkit.getPlayer(playerId);
                             if (onlinePlayer != null && onlinePlayer.isOnline()) {
                                 onlinePlayer.getScheduler().run(
@@ -353,6 +353,9 @@ public final class DefaultTpaService implements TpaService {
                                 );
                             }
                         } else {
+                            if (ex != null) {
+                                this.plugin.getSLF4JLogger().warn("depositAsync failed exceptionally for player {} during pending refund claim", playerId, ex);
+                            }
                             this.repository.addPendingRefund(playerId, finalAmount);
                         }
                     });
@@ -863,11 +866,14 @@ public final class DefaultTpaService implements TpaService {
             final TpaRequest finalTargetReq = targetRequest;
             final boolean finalNotify = notifyMessages;
 
-            this.economyService.processSendCostAsync(sender, cost).thenAccept(charged -> {
+            this.economyService.processSendCostAsync(sender, cost).whenComplete((charged, ex) -> {
+                if (ex != null) {
+                    this.plugin.getSLF4JLogger().warn("processSendCostAsync failed exceptionally for sender {}", reqSenderId, ex);
+                }
                 target.getScheduler().run(
                     this.plugin,
                     tTask -> {
-                        if (!Boolean.TRUE.equals(charged)) {
+                        if (ex != null || !Boolean.TRUE.equals(charged)) {
                             this.repository.setCooldownEnd(reqSenderId, 0L);
                             Player currentSender = Bukkit.getPlayer(reqSenderId);
                             if (currentSender != null && currentSender.isOnline()) {
@@ -1782,13 +1788,19 @@ public final class DefaultTpaService implements TpaService {
             return;
         }
 
+        if (isPlayerInWarmup(player.getUniqueId()) || isPlayerInWarmup(destinationPlayer.getUniqueId())) {
+            this.repository.setCooldownEnd(senderId, 0L);
+            refundSenderIfCharged(senderId, cost, "Teleport sequence aborted: player already in active warmup");
+            return;
+        }
+
         int warmupSeconds = this.config().warmupSeconds();
         if (warmupSeconds <= 0 || player.hasPermission(Permissions.TPA_BYPASS_WARMUP)) {
             performFinalTeleport(player, destinationPlayer, requestType, senderId, cost);
             return;
         }
 
-        this.cancelWarmup(player.getUniqueId(), null);
+        this.cancelWarmup(player.getUniqueId(), null, true);
 
         this.sendMessage(
             player,
@@ -1839,8 +1851,9 @@ public final class DefaultTpaService implements TpaService {
                 if (!player.isOnline() || !destinationPlayer.isOnline() || warmup.isCancelled()) {
                     scheduledTask.cancel();
                     boolean destOffline = !destinationPlayer.isOnline();
+                    boolean playerOffline = !player.isOnline();
                     String cancelMsg = (destOffline && player.isOnline()) ? this.config().messages().playerNotOnline() : null;
-                    this.cancelWarmup(player.getUniqueId(), cancelMsg, destOffline);
+                    this.cancelWarmup(player.getUniqueId(), cancelMsg, destOffline || playerOffline);
                     return;
                 }
 
@@ -1873,7 +1886,7 @@ public final class DefaultTpaService implements TpaService {
                     }
                 }
             },
-            () -> this.cancelWarmup(player.getUniqueId(), null),
+            () -> this.cancelWarmup(player.getUniqueId(), null, true),
             20L,
             20L
         );
@@ -1883,7 +1896,7 @@ public final class DefaultTpaService implements TpaService {
             if (task != null) {
                 task.cancel();
             }
-            this.cancelWarmup(player.getUniqueId(), null);
+            this.cancelWarmup(player.getUniqueId(), null, true);
         }
     }
 
@@ -2109,11 +2122,14 @@ public final class DefaultTpaService implements TpaService {
                                 senderOp = Bukkit.getOfflinePlayer(senderId);
                             }
                             final OfflinePlayer finalSenderOp = senderOp;
-                            this.economyService.withdrawAsync(finalSenderOp, cost).thenAccept(charged -> {
+                            this.economyService.withdrawAsync(finalSenderOp, cost).whenComplete((charged, ex) -> {
+                                if (ex != null) {
+                                    this.plugin.getSLF4JLogger().warn("withdrawAsync failed exceptionally for sender {}", finalSenderOp.getUniqueId(), ex);
+                                }
                                 player.getScheduler().run(
                                     this.plugin,
                                     payTask -> {
-                                        if (!Boolean.TRUE.equals(charged)) {
+                                        if (ex != null || !Boolean.TRUE.equals(charged)) {
                                             this.repository.setCooldownEnd(player.getUniqueId(), 0L);
                                             this.repository.setCooldownEnd(destinationPlayer.getUniqueId(), 0L);
                                             TpaConfig cfg = this.config();
@@ -2315,7 +2331,9 @@ public final class DefaultTpaService implements TpaService {
                 this.repository.setCooldownEnd(warmup.destinationPlayerId(), 0L);
             }
             String timing = this.config().getNormalizedChargeTiming();
-            if (("CHARGE_ON_SEND".equals(timing) || "CHARGE_ON_ACCEPT".equals(timing)) && (forceRefund || this.config().refundOnWarmupCancel()) && warmup.senderId() != null && warmup.cost() > 0.0) {
+            boolean isPayerCancelling = warmup.senderId() != null && warmup.senderId().equals(playerId);
+            boolean shouldRefund = forceRefund || this.config().refundOnWarmupCancel() || !isPayerCancelling;
+            if (("CHARGE_ON_SEND".equals(timing) || "CHARGE_ON_ACCEPT".equals(timing)) && shouldRefund && warmup.senderId() != null && warmup.cost() > 0.0) {
                 OfflinePlayer senderOp = Bukkit.getPlayer(warmup.senderId());
                 if (senderOp == null) {
                     senderOp = resolveOfflinePlayerIfCached(warmup.senderId());
