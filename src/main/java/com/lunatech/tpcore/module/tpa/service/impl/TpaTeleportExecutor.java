@@ -1,6 +1,7 @@
 package com.lunatech.tpcore.module.tpa.service.impl;
 
 import com.lunatech.tpcore.config.model.TpaConfig;
+import com.lunatech.tpcore.constant.Permissions;
 import com.lunatech.tpcore.module.tpa.economy.TpaEconomyService;
 import com.lunatech.tpcore.module.tpa.model.TpaType;
 import com.lunatech.tpcore.module.tpa.repository.TpaRepository;
@@ -13,6 +14,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.util.Vector;
 
+import java.util.List;
 import java.util.UUID;
 import java.util.function.Supplier;
 
@@ -68,6 +70,25 @@ final class TpaTeleportExecutor {
                     this.repository.setCooldownEnd(destinationPlayer.getUniqueId(), 0L);
                     this.escrowManager.refundSenderIfCharged(senderId, cost, "Player offline or dead before destination check");
                     return;
+                }
+
+                List<String> disabledWorlds = config().disabledWorlds();
+                if (disabledWorlds != null && !disabledWorlds.isEmpty() && !player.hasPermission(Permissions.TPA_BYPASS_WORLD)) {
+                    String dWorld = destinationPlayer.getWorld().getName();
+                    String pWorld = player.getWorld().getName();
+                    if (disabledWorlds.stream().anyMatch(dWorld::equalsIgnoreCase) || disabledWorlds.stream().anyMatch(pWorld::equalsIgnoreCase)) {
+                        String disabledW = disabledWorlds.stream().anyMatch(dWorld::equalsIgnoreCase) ? dWorld : pWorld;
+                        this.repository.setCooldownEnd(player.getUniqueId(), 0L);
+                        this.repository.setCooldownEnd(destinationPlayer.getUniqueId(), 0L);
+                        this.escrowManager.refundSenderIfCharged(senderId, cost, "Teleport in disabled world");
+                        player.getScheduler().run(
+                            this.plugin,
+                            pTask -> this.messenger.sendMessage(player, config().messages().worldDisabled(), "world", disabledW),
+                            null
+                        );
+                        this.messenger.sendMessage(destinationPlayer, config().messages().worldDisabled(), "world", disabledW);
+                        return;
+                    }
                 }
 
                 Location rawTargetLoc = destinationPlayer.getLocation();

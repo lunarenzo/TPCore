@@ -56,9 +56,7 @@ final class TpaSendRequestHandler {
     }
 
     void sendRequest(Player sender, UUID targetId, TpaType type) {
-        if (sender == null || targetId == null) {
-            return;
-        }
+        if (sender == null || targetId == null) return;
         Player target = Bukkit.getPlayer(targetId);
         if (target != null && target.isOnline()) {
             sendRequest(sender, target, type);
@@ -90,6 +88,14 @@ final class TpaSendRequestHandler {
         }
 
         boolean isBulk = targets.size() > 1;
+        List<String> disabledWorlds = config().disabledWorlds();
+        if (disabledWorlds != null && !disabledWorlds.isEmpty() && !sender.hasPermission(Permissions.TPA_BYPASS_WORLD)) {
+            String sWorld = sender.getWorld().getName();
+            if (disabledWorlds.stream().anyMatch(sWorld::equalsIgnoreCase)) {
+                this.messenger.sendMessage(sender, config().messages().worldDisabled(), "world", sWorld);
+                return;
+            }
+        }
         double cost = this.economyService.getCost(sender, type);
         String timing = config().getNormalizedChargeTiming();
         if (isBulk && "CHARGE_ON_SEND".equals(timing) && cost > 0.0) {
@@ -99,6 +105,8 @@ final class TpaSendRequestHandler {
                 .filter(t -> {
                     if (t == null || !t.isOnline()) return false;
                     if (!config().allowSelfTpa() && sender.getUniqueId().equals(t.getUniqueId())) return false;
+                    if (disabledWorlds != null && !disabledWorlds.isEmpty() && !sender.hasPermission(Permissions.TPA_BYPASS_WORLD)
+                        && disabledWorlds.stream().anyMatch(t.getWorld().getName()::equalsIgnoreCase)) return false;
                     if (this.warmupManager.isPlayerInWarmup(t.getUniqueId())) return false;
                     if (this.repository.isTpaToggledOff(t.getUniqueId())) return false;
                     UUID tId = t.getUniqueId();
@@ -130,18 +138,12 @@ final class TpaSendRequestHandler {
         boolean sentAny = false;
         for (Player target : targets) {
             if (target != null && target.isOnline()) {
-                if (this.warmupManager.isPlayerInWarmup(sender.getUniqueId())) {
-                    break;
-                }
-                if (this.warmupManager.isPlayerInWarmup(target.getUniqueId())) {
-                    continue;
-                }
+                if (this.warmupManager.isPlayerInWarmup(sender.getUniqueId())) break;
+                if (this.warmupManager.isPlayerInWarmup(target.getUniqueId())) continue;
                 boolean isAutoAccept = this.repository.isAutoAcceptEnabled(target.getUniqueId());
                 if (processSingleSendRequest(sender, target, type, false, isBulk)) {
                     sentAny = true;
-                    if (isAutoAccept || this.warmupManager.isPlayerInWarmup(sender.getUniqueId())) {
-                        break;
-                    }
+                    if (isAutoAccept || this.warmupManager.isPlayerInWarmup(sender.getUniqueId())) break;
                 }
             }
         }
@@ -173,6 +175,20 @@ final class TpaSendRequestHandler {
                 this.messenger.sendMessage(sender, config().messages().rejectSelfTpa());
             }
             return false;
+        }
+
+        List<String> disabledWorlds = config().disabledWorlds();
+        if (disabledWorlds != null && !disabledWorlds.isEmpty() && !sender.hasPermission(Permissions.TPA_BYPASS_WORLD)) {
+            String sWorld = sender.getWorld().getName();
+            String tWorld = target.getWorld().getName();
+            if (disabledWorlds.stream().anyMatch(sWorld::equalsIgnoreCase)) {
+                if (!isBulk) this.messenger.sendMessage(sender, config().messages().worldDisabled(), "world", sWorld);
+                return false;
+            }
+            if (disabledWorlds.stream().anyMatch(tWorld::equalsIgnoreCase)) {
+                if (!isBulk) this.messenger.sendMessage(sender, config().messages().worldDisabled(), "world", tWorld);
+                return false;
+            }
         }
 
         if (this.repository.isTpaToggledOff(target.getUniqueId())

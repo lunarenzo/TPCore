@@ -1,6 +1,7 @@
 package com.lunatech.tpcore.module.tpa.service.impl;
 
 import com.lunatech.tpcore.config.model.TpaConfig;
+import com.lunatech.tpcore.constant.Permissions;
 import com.lunatech.tpcore.module.tpa.economy.TpaEconomyService;
 import com.lunatech.tpcore.module.tpa.model.TpaRequest;
 import com.lunatech.tpcore.module.tpa.model.TpaType;
@@ -140,6 +141,26 @@ final class TpaRequestAcceptor {
                 );
             }
             return;
+        }
+
+        List<String> disabledWorlds = config().disabledWorlds();
+        if (disabledWorlds != null && !disabledWorlds.isEmpty()) {
+            Player teleportingPlayer = (targetRequest.type() == TpaType.TPA_TO) ? sender : target;
+            Player destinationPlayer = (targetRequest.type() == TpaType.TPA_TO) ? target : sender;
+            if (!teleportingPlayer.hasPermission(Permissions.TPA_BYPASS_WORLD)) {
+                String dWorld = destinationPlayer.getWorld().getName();
+                String tWorld = teleportingPlayer.getWorld().getName();
+                if (disabledWorlds.stream().anyMatch(dWorld::equalsIgnoreCase) || disabledWorlds.stream().anyMatch(tWorld::equalsIgnoreCase)) {
+                    String disabledW = disabledWorlds.stream().anyMatch(dWorld::equalsIgnoreCase) ? dWorld : tWorld;
+                    this.repository.setCooldownEnd(targetRequest.senderId(), 0L);
+                    this.escrowManager.refundSenderIfCharged(targetRequest.senderId(), targetRequest.cost(), "Teleport in disabled world");
+                    if (notifyMessages) {
+                        this.messenger.sendMessage(target, config().messages().worldDisabled(), "world", disabledW);
+                    }
+                    this.messenger.sendMessage(sender, config().messages().worldDisabled(), "world", disabledW);
+                    return;
+                }
+            }
         }
 
         if ("CHARGE_ON_ACCEPT".equals(timing) && targetRequest.cost() > 0.0) {
@@ -323,6 +344,9 @@ final class TpaRequestAcceptor {
 
     private TpaRequest resolveMatchingRequest(List<TpaRequest> requests, String senderName) {
         for (TpaRequest req : requests) {
+            if (req.senderId().toString().equalsIgnoreCase(senderName)) {
+                return req;
+            }
             Player p = Bukkit.getPlayer(req.senderId());
             if (p != null && p.getName().equalsIgnoreCase(senderName)) {
                 return req;

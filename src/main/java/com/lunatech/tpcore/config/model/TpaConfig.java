@@ -3,6 +3,8 @@ package com.lunatech.tpcore.config.model;
 import org.spongepowered.configurate.objectmapping.ConfigSerializable;
 import org.spongepowered.configurate.objectmapping.meta.Comment;
 
+import java.util.List;
+
 @ConfigSerializable
 public record TpaConfig(
     @Comment("Enable or disable the TPA module completely")
@@ -28,6 +30,9 @@ public record TpaConfig(
 
     @Comment("Allow players to send TPA requests to themselves")
     boolean allowSelfTpa,
+
+    @Comment("List of world names where TPA teleportation is disabled")
+    List<String> disabledWorlds,
 
     @Comment("Require destination ground safety before teleportation")
     boolean requireSafeLocation,
@@ -232,41 +237,28 @@ public record TpaConfig(
 ) {
     public static TpaConfig createDefault() {
         return new TpaConfig(
-            true, 30, 10, 5, 3, true, true, false, true, 4, true, false,
-            true,
-            true,
-            true,
-            true,
-            "GUI",
+            true, 30, 10, 5, 3, true, true, false, List.of(), true, 4, true, false,
+            true, true, true, true, "GUI",
             "<gradient:#00D2FF:#3A7BD5><bold>Teleport Request</bold></gradient>",
             15, 11, 13,
-            "LIME_STAINED_GLASS_PANE",
-            "<green><bold>ACCEPT REQUEST</bold></green>",
-            "RED_STAINED_GLASS_PANE",
-            "<red><bold>DENY REQUEST</bold></red>",
-            "<green><bold>CONFIRM & SEND</bold></green>",
-            "<red><bold>CANCEL</bold></red>",
+            "LIME_STAINED_GLASS_PANE", "<green><bold>ACCEPT REQUEST</bold></green>",
+            "RED_STAINED_GLASS_PANE", "<red><bold>DENY REQUEST</bold></red>",
+            "<green><bold>CONFIRM & SEND</bold></green>", "<red><bold>CANCEL</bold></red>",
             "<gray>Send a teleport request to </gray><yellow><target></yellow>?\n<gray>You will be teleported to their location once accepted.</gray>",
             "<gray>Request </gray><yellow><target></yellow><gray> to teleport to you?</gray>\n<gray>They will be teleported to your location once accepted.</gray>",
             "<yellow><sender></yellow><gray> wants to teleport to your location.</gray>\n<gray>Do you accept?</gray>",
             "<yellow><sender></yellow><gray> requests you to teleport to their location.</gray>\n<gray>Do you accept?</gray>",
-            "GRAY_STAINED_GLASS_PANE",
-            true,
+            "GRAY_STAINED_GLASS_PANE", true,
             "<gradient:#00D2FF:#3A7BD5><bold>Teleport Confirmation</bold></gradient>",
             "<yellow><sender></yellow> sent a teleport request.\nDo you accept?",
             "<gray>Send a teleport request to </gray><yellow><target></yellow>?\n<gray>You will be teleported to their location once accepted.</gray>",
             "<gray>Request </gray><yellow><target></yellow><gray> to teleport to you?</gray>\n<gray>They will be teleported to your location once accepted.</gray>",
             "<yellow><sender></yellow><gray> wants to teleport to your location.</gray>\n<gray>Do you accept?</gray>",
             "<yellow><sender></yellow><gray> requests you to teleport to their location.</gray>\n<gray>Do you accept?</gray>",
-            "<green><bold>CONFIRM & SEND</bold></green>",
-            "<red><bold>CANCEL</bold></red>",
-            "<green><bold>ACCEPT</bold></green>",
-            "<red><bold>DENY</bold></red>",
-            true,
-            "<gold>Teleporting in <yellow><seconds>s</yellow>... Do not move!</gold>",
-            true,
-            "<gold><bold>TELEPORTING</bold></gold>",
-            "<gray>in <yellow><seconds>s</yellow>... Stay still!</gray>",
+            "<green><bold>CONFIRM & SEND</bold></green>", "<red><bold>CANCEL</bold></red>",
+            "<green><bold>ACCEPT</bold></green>", "<red><bold>DENY</bold></red>",
+            true, "<gold>Teleporting in <yellow><seconds>s</yellow>... Do not move!</gold>",
+            true, "<gold><bold>TELEPORTING</bold></gold>", "<gray>in <yellow><seconds>s</yellow>... Stay still!</gray>",
             "<red><bold>TPA CANCELLED</bold></red>",
             true,
             "<gold>Teleporting in <yellow><seconds>s</yellow>...</gold>",
@@ -339,7 +331,8 @@ public record TpaConfig(
         String unsafeDestination,
         String warmupCancelledDamage,
         String warmupCancelledMove,
-        String warmupStart
+        String warmupStart,
+        String worldDisabled
     ) {
         public static TpaMessages createDefault() {
             return new TpaMessages(
@@ -386,7 +379,8 @@ public record TpaConfig(
                 "<prefix><red>Teleportation cancelled because the target location is unsafe!</red>",
                 "<prefix><red>Teleport cancelled because you took damage!</red>",
                 "<prefix><red>Teleport cancelled because you moved!</red>",
-                "<prefix><gray>Teleporting in <gold><seconds></gold> seconds. <red>Do not move or take damage!</red></gray>"
+                "<prefix><gray>Teleporting in <gold><seconds></gold> seconds. <red>Do not move or take damage!</red></gray>",
+                "<prefix><red>Teleportation is disabled in world <yellow><world></yellow>!</red>"
             );
         }
     }

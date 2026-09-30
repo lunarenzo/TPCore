@@ -294,6 +294,9 @@ final class TpaRequestManager {
 
     private TpaRequest resolveMatchingRequest(List<TpaRequest> requests, String senderName) {
         for (TpaRequest req : requests) {
+            if (req.senderId().toString().equalsIgnoreCase(senderName)) {
+                return req;
+            }
             Player p = Bukkit.getPlayer(req.senderId());
             if (p != null && p.getName().equalsIgnoreCase(senderName)) {
                 return req;
@@ -308,6 +311,9 @@ final class TpaRequestManager {
 
     private TpaRequest resolveMatchingOutgoingRequest(List<TpaRequest> requests, String targetName) {
         for (TpaRequest req : requests) {
+            if (req.targetId().toString().equalsIgnoreCase(targetName)) {
+                return req;
+            }
             Player p = Bukkit.getPlayer(req.targetId());
             if (p != null && p.getName().equalsIgnoreCase(targetName)) {
                 return req;

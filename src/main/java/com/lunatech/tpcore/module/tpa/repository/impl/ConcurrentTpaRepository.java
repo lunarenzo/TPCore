@@ -106,13 +106,8 @@ public final class ConcurrentTpaRepository implements TpaRepository {
 
     @Override
     public void addRequest(TpaRequest request) {
-        this.incoming
-            .computeIfAbsent(request.targetId(), k -> new ConcurrentHashMap<>())
-            .put(request.senderId(), request);
-
-        this.outgoing
-            .computeIfAbsent(request.senderId(), k -> new ConcurrentHashMap<>())
-            .put(request.targetId(), request);
+        this.incoming.computeIfAbsent(request.targetId(), k -> new ConcurrentHashMap<>()).put(request.senderId(), request);
+        this.outgoing.computeIfAbsent(request.senderId(), k -> new ConcurrentHashMap<>()).put(request.targetId(), request);
     }
 
     @Override
@@ -146,13 +141,8 @@ public final class ConcurrentTpaRepository implements TpaRepository {
     public Collection<TpaRequest> getAllRequests() {
         List<TpaRequest> all = new ArrayList<>();
         for (Map<UUID, TpaRequest> map : this.incoming.values()) {
-            if (map == null || map.isEmpty()) {
-                continue;
-            }
-            for (TpaRequest request : map.values()) {
-                if (request != null) {
-                    all.add(request);
-                }
+            if (map != null && !map.isEmpty()) {
+                all.addAll(map.values());
             }
         }
         return Collections.unmodifiableCollection(all);
@@ -160,17 +150,10 @@ public final class ConcurrentTpaRepository implements TpaRepository {
 
     @Override
     public void forEachRequest(Consumer<TpaRequest> action) {
-        if (action == null) {
-            return;
-        }
+        if (action == null) return;
         for (Map<UUID, TpaRequest> map : this.incoming.values()) {
-            if (map == null || map.isEmpty()) {
-                continue;
-            }
-            for (TpaRequest request : map.values()) {
-                if (request != null) {
-                    action.accept(request);
-                }
+            if (map != null && !map.isEmpty()) {
+                map.values().forEach(action);
             }
         }
     }
