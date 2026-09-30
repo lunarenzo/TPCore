@@ -86,7 +86,7 @@ public final class NoOpTpaEconomyService implements TpaEconomyService {
     }
 
     @Override
-    public void processReward(Player target, Player sender, double cost) {
+    public void processReward(Player target, OfflinePlayer sender, double cost) {
         // No-Op
     }
 }

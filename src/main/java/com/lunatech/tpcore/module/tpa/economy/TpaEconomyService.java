@@ -46,7 +46,7 @@ public interface TpaEconomyService {
 
     void processRefund(OfflinePlayer player, double amount, String reason);
 
-    void processReward(Player target, Player sender, double cost);
+    void processReward(Player target, OfflinePlayer sender, double cost);
 
     default void shutdown() {}
 }
