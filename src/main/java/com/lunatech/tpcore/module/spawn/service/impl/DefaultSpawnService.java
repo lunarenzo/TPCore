@@ -34,6 +34,7 @@ public final class DefaultSpawnService implements SpawnService {
     private final SpawnWarmupRenderer warmupRenderer;
     private final SpawnWarmupManager warmupManager;
     private final SpawnCooldownManager cooldownManager;
+    private final SpawnProtectionManager protectionManager;
     private final Set<UUID> pendingVoidRescues = ConcurrentHashMap.newKeySet();
     private final Set<UUID> spawnTeleportsInProgress = ConcurrentHashMap.newKeySet();
 
@@ -46,6 +47,7 @@ public final class DefaultSpawnService implements SpawnService {
         this.warmupRenderer = new SpawnWarmupRenderer(this.miniMessage);
         this.warmupManager = new SpawnWarmupManager(plugin, this.configRef::get, economyService, this.warmupRenderer);
         this.cooldownManager = new SpawnCooldownManager();
+        this.protectionManager = new SpawnProtectionManager(plugin, this.configRef::get, this.miniMessage);
         this.repository.load();
     }
 
@@ -225,6 +227,7 @@ public final class DefaultSpawnService implements SpawnService {
                     if (isChargeOnSuccess) {
                         this.economyService.chargeSuccessAsync(player);
                     }
+                    this.protectionManager.grantTeleportProtection(player);
                     this.sendMessage(player, this.config().messages().spawnTeleportSuccess());
                 } else {
                     if (paidCost > 0.0 && this.config().refundOnCancel()) {
@@ -238,26 +241,15 @@ public final class DefaultSpawnService implements SpawnService {
 
     @Override
     public void setGlobalSpawn(Player player) {
-        SpawnLocation spawnLoc = SpawnLocation.fromBukkit(player.getLocation());
-        this.repository.setGlobalSpawn(spawnLoc);
-        this.sendMessage(
-            player,
-            this.config().messages().setSpawnGlobalSuccess(),
-            Placeholder.unparsed("location", this.formatLocation(player.getLocation()))
-        );
+        this.repository.setGlobalSpawn(SpawnLocation.fromBukkit(player.getLocation()));
+        this.sendMessage(player, this.config().messages().setSpawnGlobalSuccess(), Placeholder.unparsed("location", this.formatLocation(player.getLocation())));
     }
 
     @Override
     public void setWorldSpawn(Player player, String worldName) {
         String targetWorld = (worldName != null && !worldName.isBlank()) ? worldName : player.getWorld().getName();
-        SpawnLocation spawnLoc = SpawnLocation.fromBukkit(player.getLocation());
-        this.repository.setWorldSpawn(targetWorld, spawnLoc);
-        this.sendMessage(
-            player,
-            this.config().messages().setSpawnWorldSuccess(),
-            Placeholder.unparsed("world", targetWorld),
-            Placeholder.unparsed("location", this.formatLocation(player.getLocation()))
-        );
+        this.repository.setWorldSpawn(targetWorld, SpawnLocation.fromBukkit(player.getLocation()));
+        this.sendMessage(player, this.config().messages().setSpawnWorldSuccess(), Placeholder.unparsed("world", targetWorld), Placeholder.unparsed("location", this.formatLocation(player.getLocation())));
     }
 
     @Override
@@ -270,11 +262,7 @@ public final class DefaultSpawnService implements SpawnService {
     public void deleteWorldSpawn(Player player, String worldName) {
         String targetWorld = (worldName != null && !worldName.isBlank()) ? worldName : player.getWorld().getName();
         this.repository.removeWorldSpawn(targetWorld);
-        this.sendMessage(
-            player,
-            this.config().messages().delSpawnWorldSuccess(),
-            Placeholder.unparsed("world", targetWorld)
-        );
+        this.sendMessage(player, this.config().messages().delSpawnWorldSuccess(), Placeholder.unparsed("world", targetWorld));
     }
 
     @Override
@@ -302,8 +290,19 @@ public final class DefaultSpawnService implements SpawnService {
     public void handlePlayerQuit(UUID playerId) {
         this.warmupManager.handleQuit(playerId);
         this.cooldownManager.removeCooldown(playerId);
+        this.protectionManager.evict(playerId);
         this.pendingVoidRescues.remove(playerId);
         this.spawnTeleportsInProgress.remove(playerId);
+    }
+
+    @Override
+    public boolean handlePlayerProtectionDamage(Player victim, Player attacker, boolean isPvp) {
+        return this.protectionManager.handlePlayerProtectionDamage(victim, attacker, isPvp);
+    }
+
+    @Override
+    public long getTeleportProtectionStartTime(UUID playerId) {
+        return this.protectionManager.getTeleportProtectionStartTime(playerId);
     }
 
     @Override
@@ -373,6 +372,7 @@ public final class DefaultSpawnService implements SpawnService {
     public void shutdown() {
         this.warmupManager.cancelAll();
         this.cooldownManager.clear();
+        this.protectionManager.clear();
         this.pendingVoidRescues.clear();
         this.spawnTeleportsInProgress.clear();
         this.warmupRenderer.clear();

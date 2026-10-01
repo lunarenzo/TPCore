@@ -31,6 +31,10 @@ public interface SpawnService {
 
     void handlePlayerQuit(UUID playerId);
 
+    boolean handlePlayerProtectionDamage(Player victim, Player attacker, boolean isPvp);
+
+    long getTeleportProtectionStartTime(UUID playerId);
+
     void rescueFromVoid(Player player);
 
     void updateConfig(SpawnConfig newConfig);

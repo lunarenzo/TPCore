@@ -106,6 +106,15 @@ public record SpawnConfig(
     @Comment("Pitch of the cancellation sound")
     double cancelSoundPitch,
 
+    @Comment("Teleport protection duration in seconds after teleportation to spawn (0 to disable)")
+    int protectionSeconds,
+
+    @Comment("Cancel spawn teleport protection if the protected player attacks another entity")
+    boolean protectionCancelOnAttack,
+
+    @Comment("Protect from all damage types (environmental, fall, fire) or only PvP attacks")
+    boolean protectionAllDamage,
+
     @Comment("Module message strings (Alphabetically ordered)")
     SpawnMessages messages
 ) {
@@ -144,6 +153,9 @@ public record SpawnConfig(
             "minecraft:block.note_block.bass",
             0.8,
             0.5,
+            0,
+            true,
+            true,
             SpawnMessages.createDefault()
         );
     }
@@ -172,6 +184,8 @@ public record SpawnConfig(
         String setSpawnWorldSuccess,
         String spawnTeleportSuccess,
         String teleportFailed,
+        String teleportProtectionEnded,
+        String teleportProtectionStart,
         String voidRescued,
         String warmupCancelledDamage,
         String warmupCancelledMove,
@@ -195,6 +209,8 @@ public record SpawnConfig(
                 "<prefix><green>Spawn location for world <yellow><world></yellow> set to <yellow><location></yellow>.</green>",
                 "<prefix><green>Teleported to spawn!</green>",
                 "<prefix><red>Could not find a safe spawn location or teleportation failed!</red>",
+                "<prefix><yellow>Your spawn teleport protection has ended.</yellow>",
+                "<prefix><green>You have <gold><seconds>s</gold> of spawn teleport protection!</green>",
                 "<prefix><yellow>You were saved from falling into the void and returned to spawn!</yellow>",
                 "<prefix><red>Teleport cancelled because you took damage!</red>",
                 "<prefix><red>Teleport cancelled because you moved!</red>",

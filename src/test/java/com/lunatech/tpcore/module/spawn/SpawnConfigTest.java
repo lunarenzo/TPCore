@@ -33,6 +33,9 @@ class SpawnConfigTest {
         assertFalse(config.enableTitle());
         assertTrue(config.enableSounds());
         assertEquals("minecraft:block.note_block.hat", config.tickSound());
+        assertEquals(0, config.protectionSeconds());
+        assertTrue(config.protectionCancelOnAttack());
+        assertTrue(config.protectionAllDamage());
 
         assertNotNull(config.messages());
         assertNotNull(config.messages().prefix());
@@ -43,5 +46,7 @@ class SpawnConfigTest {
         assertNotNull(config.messages().costDeducted());
         assertNotNull(config.messages().costRefunded());
         assertNotNull(config.messages().insufficientFunds());
+        assertNotNull(config.messages().teleportProtectionStart());
+        assertNotNull(config.messages().teleportProtectionEnded());
     }
 }

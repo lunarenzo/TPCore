@@ -43,6 +43,13 @@ cancel-sound: "minecraft:block.note_block.bass"
 cancel-sound-volume: 0.8
 cancel-sound-pitch: 0.5
 
+# Post-Teleport Invulnerability Protection (0 to disable)
+protection-seconds: 0
+# Cancel protection if the protected player attacks another player or mob
+protection-cancel-on-attack: true
+# Protect against all damage (PvE, environmental, fall, fire) or only PvP attacks
+protection-all-damage: true
+
 # Module Messages (Alphabetically ordered keys)
 messages:
   cooldown-active: "<prefix><red>You must wait <gold><seconds>s</gold> before using /spawn again!</red>"
@@ -60,6 +67,8 @@ messages:
   set-spawn-world-success: "<prefix><green>Spawn location for world <yellow><world></yellow> set to <yellow><location></yellow>.</green>"
   spawn-teleport-success: "<prefix><green>Teleported to spawn!</green>"
   teleport-failed: "<prefix><red>Could not find a safe spawn location or teleportation failed!</red>"
+  teleport-protection-ended: "<prefix><yellow>Your spawn teleport protection has ended.</yellow>"
+  teleport-protection-start: "<prefix><green>You have <gold><seconds>s</gold> of spawn teleport protection!</green>"
   void-rescued: "<prefix><yellow>You were saved from falling into the void and returned to spawn!</yellow>"
   warmup-cancelled-damage: "<prefix><red>Teleport cancelled because you took damage!</red>"
   warmup-cancelled-move: "<prefix><red>Teleport cancelled because you moved!</red>"
