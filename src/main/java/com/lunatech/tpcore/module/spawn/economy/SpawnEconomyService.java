@@ -29,7 +29,11 @@ public interface SpawnEconomyService {
 
     double getCost(Player player);
 
+    CompletableFuture<Boolean> validateFundsAsync(Player player);
+
     CompletableFuture<Boolean> processTeleportCostAsync(Player player);
+
+    CompletableFuture<Boolean> chargeSuccessAsync(Player player);
 
     void processRefund(OfflinePlayer player, double amount);
 

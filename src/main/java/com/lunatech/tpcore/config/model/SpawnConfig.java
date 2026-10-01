@@ -3,6 +3,8 @@ package com.lunatech.tpcore.config.model;
 import org.spongepowered.configurate.objectmapping.ConfigSerializable;
 import org.spongepowered.configurate.objectmapping.meta.Comment;
 
+import java.util.Locale;
+
 @ConfigSerializable
 public record SpawnConfig(
     @Comment("Enable or disable the Spawn module completely")
@@ -43,6 +45,9 @@ public record SpawnConfig(
 
     @Comment("Cost charged to player when teleporting to spawn")
     double spawnCost,
+
+    @Comment("Charge timing mode: CHARGE_ON_START or CHARGE_ON_SUCCESS")
+    String chargeTiming,
 
     @Comment("Refund teleportation cost if warmup is cancelled (by movement, damage, or teleport)")
     boolean refundOnCancel,
@@ -119,6 +124,7 @@ public record SpawnConfig(
             true,
             false,
             0.0,
+            "CHARGE_ON_START",
             true,
             true,
             "YELLOW",
@@ -140,6 +146,13 @@ public record SpawnConfig(
             0.5,
             SpawnMessages.createDefault()
         );
+    }
+
+    public String getNormalizedChargeTiming() {
+        if (this.chargeTiming != null && !this.chargeTiming.isBlank()) {
+            return this.chargeTiming.trim().toUpperCase(Locale.ROOT);
+        }
+        return "CHARGE_ON_START";
     }
 
     @ConfigSerializable

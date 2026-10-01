@@ -44,7 +44,17 @@ public final class NoOpSpawnEconomyService implements SpawnEconomyService {
     }
 
     @Override
+    public CompletableFuture<Boolean> validateFundsAsync(Player player) {
+        return CompletableFuture.completedFuture(true);
+    }
+
+    @Override
     public CompletableFuture<Boolean> processTeleportCostAsync(Player player) {
+        return CompletableFuture.completedFuture(true);
+    }
+
+    @Override
+    public CompletableFuture<Boolean> chargeSuccessAsync(Player player) {
         return CompletableFuture.completedFuture(true);
     }
 

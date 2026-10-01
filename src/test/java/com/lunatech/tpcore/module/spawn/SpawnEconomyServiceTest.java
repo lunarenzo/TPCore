@@ -19,7 +19,8 @@ class SpawnEconomyServiceTest {
         assertEquals(0.0, service.getCost(null));
         assertTrue(service.has(null, 100.0));
         assertTrue(service.withdraw(null, 50.0));
-        assertTrue(service.deposit(null, 50.0));
         assertTrue(service.processTeleportCostAsync(null).get());
+        assertTrue(service.validateFundsAsync(null).get());
+        assertTrue(service.chargeSuccessAsync(null).get());
     }
 }

@@ -137,8 +137,13 @@ public final class DefaultSpawnService implements SpawnService {
             }
         }
 
-        this.economyService.processTeleportCostAsync(player).thenAccept(paid -> {
-            if (!Boolean.TRUE.equals(paid)) {
+        boolean isChargeOnSuccess = "CHARGE_ON_SUCCESS".equals(this.config().getNormalizedChargeTiming());
+        var fundCheckFuture = isChargeOnSuccess
+            ? this.economyService.validateFundsAsync(player)
+            : this.economyService.processTeleportCostAsync(player);
+
+        fundCheckFuture.thenAccept(canProceed -> {
+            if (!Boolean.TRUE.equals(canProceed)) {
                 return;
             }
 
@@ -148,12 +153,14 @@ public final class DefaultSpawnService implements SpawnService {
                 }
 
                 double cost = this.economyService.getCost(player);
+                double paidCost = isChargeOnSuccess ? 0.0 : cost;
+
                 boolean bypassWarmup = player.hasPermission(Permissions.SPAWN_BYPASS)
                     || player.hasPermission(Permissions.SPAWN_BYPASS_WARMUP);
 
                 int warmupSeconds = this.config().warmupSeconds();
                 if (warmupSeconds <= 0 || bypassWarmup) {
-                    this.executeTeleport(player, targetLoc, cost);
+                    this.executeTeleport(player, targetLoc, paidCost, isChargeOnSuccess);
                     return;
                 }
 
@@ -165,12 +172,12 @@ public final class DefaultSpawnService implements SpawnService {
                     Placeholder.unparsed("seconds", String.valueOf(warmupSeconds))
                 );
 
-                this.warmupManager.startWarmup(player, warmupSeconds, cost, () -> this.executeTeleport(player, targetLoc, 0.0));
+                this.warmupManager.startWarmup(player, warmupSeconds, paidCost, () -> this.executeTeleport(player, targetLoc, paidCost, isChargeOnSuccess));
             }, null);
         });
     }
 
-    private void executeTeleport(Player player, Location targetLocation, double paidCost) {
+    private void executeTeleport(Player player, Location targetLocation, double paidCost, boolean isChargeOnSuccess) {
         if (player.isInsideVehicle()) {
             player.leaveVehicle();
         }
@@ -194,15 +201,15 @@ public final class DefaultSpawnService implements SpawnService {
                         }
                         return;
                     }
-                    this.performTeleport(player, safeLoc, paidCost);
+                    this.performTeleport(player, safeLoc, paidCost, isChargeOnSuccess);
                 }, null);
             });
         } else {
-            this.performTeleport(player, targetLocation, paidCost);
+            this.performTeleport(player, targetLocation, paidCost, isChargeOnSuccess);
         }
     }
 
-    private void performTeleport(Player player, Location destination, double paidCost) {
+    private void performTeleport(Player player, Location destination, double paidCost, boolean isChargeOnSuccess) {
         UUID playerId = player.getUniqueId();
         this.spawnTeleportsInProgress.add(playerId);
 
@@ -214,6 +221,9 @@ public final class DefaultSpawnService implements SpawnService {
                         || player.hasPermission(Permissions.SPAWN_BYPASS_COOLDOWN);
                     if (!bypassCooldown) {
                         this.cooldownManager.applyCooldown(playerId);
+                    }
+                    if (isChargeOnSuccess) {
+                        this.economyService.chargeSuccessAsync(player);
                     }
                     this.sendMessage(player, this.config().messages().spawnTeleportSuccess());
                 } else {
@@ -269,37 +279,23 @@ public final class DefaultSpawnService implements SpawnService {
 
     @Override
     public void handlePlayerMove(Player player) {
-        if (!this.config().cancelOnMove()) {
-            return;
-        }
-        if (this.warmupManager.checkMovement(player)) {
-            this.warmupManager.cancelWarmup(
-                player.getUniqueId(),
-                p -> this.sendMessage(p, this.config().messages().warmupCancelledMove())
-            );
+        if (this.config().cancelOnMove() && this.warmupManager.checkMovement(player)) {
+            this.warmupManager.cancelWarmup(player.getUniqueId(), p -> this.sendMessage(p, this.config().messages().warmupCancelledMove()));
         }
     }
 
     @Override
     public void handlePlayerDamage(UUID playerId) {
-        if (!this.config().cancelOnDamage()) {
-            return;
+        if (this.config().cancelOnDamage()) {
+            this.warmupManager.cancelWarmup(playerId, p -> this.sendMessage(p, this.config().messages().warmupCancelledDamage()));
         }
-        this.warmupManager.cancelWarmup(
-            playerId,
-            p -> this.sendMessage(p, this.config().messages().warmupCancelledDamage())
-        );
     }
 
     @Override
     public void handlePlayerTeleport(UUID playerId) {
-        if (this.spawnTeleportsInProgress.contains(playerId)) {
-            return;
+        if (!this.spawnTeleportsInProgress.contains(playerId)) {
+            this.warmupManager.cancelWarmup(playerId, p -> this.sendMessage(p, this.config().messages().warmupCancelledTeleport()));
         }
-        this.warmupManager.cancelWarmup(
-            playerId,
-            p -> this.sendMessage(p, this.config().messages().warmupCancelledTeleport())
-        );
     }
 
     @Override

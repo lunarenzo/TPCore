@@ -23,6 +23,8 @@ class SpawnConfigTest {
         assertTrue(config.requireSafeLocation());
         assertFalse(config.economyEnabled());
         assertEquals(0.0, config.spawnCost(), 0.001);
+        assertEquals("CHARGE_ON_START", config.chargeTiming());
+        assertEquals("CHARGE_ON_START", config.getNormalizedChargeTiming());
         assertTrue(config.refundOnCancel());
         assertTrue(config.enableBossbar());
         assertEquals("YELLOW", config.bossbarColor());

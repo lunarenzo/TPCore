@@ -9,12 +9,49 @@ spawn-on-join: false
 spawn-on-respawn: true
 override-bed-respawn: false
 void-fall-protection: true
+require-safe-location: true
+
+# Economy Submodule Settings for Spawn (Requires Vault / VaultUnlocked)
+economy-enabled: false
+spawn-cost: 0.0
+# Charge Timing Mode: CHARGE_ON_START or CHARGE_ON_SUCCESS
+# CHARGE_ON_START = Charge up-front when initiating /spawn. Refunded if warmup cancelled / teleport fails.
+# CHARGE_ON_SUCCESS = Charge ONLY after player successfully teleports and arrives at spawn destination. Zero refunds needed.
+charge-timing: "CHARGE_ON_START"
+refund-on-cancel: true
+
+# Warmup Visual & Audio Feedback
+enable-bossbar: true
+bossbar-color: "YELLOW"
+bossbar-overlay: "PROGRESS"
+bossbar-format: "<prefix><gray>Teleporting to spawn in <gold><seconds></gold>s...</gray>"
+
+enable-action-bar: true
+action-bar-format: "<gray>Teleporting to spawn in <gold><seconds></gold> seconds...</gray>"
+
+enable-title: false
+title-format: "<gold><seconds></gold>"
+subtitle-format: "<gray>Teleporting to spawn...</gray>"
+
+enable-sounds: true
+tick-sound: "minecraft:block.note_block.hat"
+tick-sound-volume: 0.6
+teleport-sound: "minecraft:entity.enderman.teleport"
+teleport-sound-volume: 0.8
+teleport-sound-pitch: 1.0
+cancel-sound: "minecraft:block.note_block.bass"
+cancel-sound-volume: 0.8
+cancel-sound-pitch: 0.5
 
 # Module Messages (Alphabetically ordered keys)
 messages:
   cooldown-active: "<prefix><red>You must wait <gold><seconds>s</gold> before using /spawn again!</red>"
+  cost-deducted: "<prefix><green>Spawn teleport fee of <yellow><cost></yellow> has been deducted from your account.</green>"
+  cost-refunded: "<prefix><yellow>Spawn teleport fee of <gold><cost></gold> has been refunded.</yellow>"
   del-spawn-global-success: "<prefix><green>Global spawn location has been deleted.</green>"
   del-spawn-world-success: "<prefix><green>Spawn location for world <yellow><world></yellow> has been deleted.</green>"
+  insufficient-funds: "<prefix><red>You need <yellow><cost></yellow> to teleport to spawn! Your balance: <gold><balance></gold>.</red>"
+  must-be-in-target-world: "<prefix><red>You must be in world <yellow><world></yellow> to set its spawn point!</red>"
   no-spawn-set: "<prefix><red>No spawn point has been set!</red>"
   no-spawn-set-world: "<prefix><red>No spawn point has been set for world <yellow><world></yellow>!</red>"
   only-players: "<prefix><red>Only players can execute this command!</red>"
@@ -22,7 +59,10 @@ messages:
   set-spawn-global-success: "<prefix><green>Global spawn location set to <yellow><location></yellow>.</green>"
   set-spawn-world-success: "<prefix><green>Spawn location for world <yellow><world></yellow> set to <yellow><location></yellow>.</green>"
   spawn-teleport-success: "<prefix><green>Teleported to spawn!</green>"
+  teleport-failed: "<prefix><red>Could not find a safe spawn location or teleportation failed!</red>"
   void-rescued: "<prefix><yellow>You were saved from falling into the void and returned to spawn!</yellow>"
   warmup-cancelled-damage: "<prefix><red>Teleport cancelled because you took damage!</red>"
   warmup-cancelled-move: "<prefix><red>Teleport cancelled because you moved!</red>"
+  warmup-cancelled-teleport: "<prefix><red>Teleport cancelled because you were teleported!</red>"
   warmup-start: "<prefix><gray>Teleporting to spawn in <gold><seconds></gold> seconds. <red>Do not move or take damage!</red></gray>"
+

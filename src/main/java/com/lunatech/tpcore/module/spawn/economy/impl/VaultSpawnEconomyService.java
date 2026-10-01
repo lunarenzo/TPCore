@@ -230,6 +230,36 @@ public final class VaultSpawnEconomyService implements SpawnEconomyService {
     }
 
     @Override
+    public CompletableFuture<Boolean> validateFundsAsync(Player player) {
+        double cost = this.getCost(player);
+        if (player == null || !isAvailable() || cost <= 0.0) {
+            return CompletableFuture.completedFuture(true);
+        }
+
+        return CompletableFuture.supplyAsync(() -> {
+            SpawnConfig cfg = this.configSupplier.get();
+            if (!this.has(player, cost)) {
+                double balance = this.getBalance(player);
+                if (player.isOnline()) {
+                    player.getScheduler().run(this.plugin, task -> {
+                        if (player.isOnline()) {
+                            TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
+                            TagResolver costResolver = Placeholder.unparsed("cost", this.format(cost));
+                            TagResolver balResolver = Placeholder.unparsed("balance", this.format(balance));
+                            player.sendMessage(this.miniMessage.deserialize(
+                                MessageFormatter.toMiniMessage(cfg.messages().insufficientFunds()),
+                                TagResolver.resolver(prefixResolver, costResolver, balResolver)
+                            ));
+                        }
+                    }, null);
+                }
+                return false;
+            }
+            return true;
+        }, this.ioExecutor);
+    }
+
+    @Override
     public CompletableFuture<Boolean> processTeleportCostAsync(Player player) {
         double cost = this.getCost(player);
         if (player == null || !isAvailable() || cost <= 0.0) {
@@ -272,6 +302,34 @@ public final class VaultSpawnEconomyService implements SpawnEconomyService {
                 return true;
             }
 
+            return false;
+        }, this.ioExecutor);
+    }
+
+    @Override
+    public CompletableFuture<Boolean> chargeSuccessAsync(Player player) {
+        double cost = this.getCost(player);
+        if (player == null || !isAvailable() || cost <= 0.0) {
+            return CompletableFuture.completedFuture(true);
+        }
+
+        return CompletableFuture.supplyAsync(() -> {
+            SpawnConfig cfg = this.configSupplier.get();
+            if (this.withdraw(player, cost)) {
+                if (player.isOnline()) {
+                    player.getScheduler().run(this.plugin, task -> {
+                        if (player.isOnline()) {
+                            TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
+                            TagResolver costResolver = Placeholder.unparsed("cost", this.format(cost));
+                            player.sendMessage(this.miniMessage.deserialize(
+                                MessageFormatter.toMiniMessage(cfg.messages().costDeducted()),
+                                TagResolver.resolver(prefixResolver, costResolver)
+                            ));
+                        }
+                    }, null);
+                }
+                return true;
+            }
             return false;
         }, this.ioExecutor);
     }
