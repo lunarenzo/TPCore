@@ -5,7 +5,6 @@ import com.lunatech.tpcore.config.ReloadableModule;
 import com.lunatech.tpcore.config.model.SpawnConfig;
 import com.lunatech.tpcore.module.spawn.command.SpawnCommandRegistry;
 import com.lunatech.tpcore.module.spawn.economy.SpawnEconomyService;
-import com.lunatech.tpcore.module.spawn.economy.impl.NoOpSpawnEconomyService;
 import com.lunatech.tpcore.module.spawn.economy.impl.VaultSpawnEconomyService;
 import com.lunatech.tpcore.module.spawn.listener.SpawnDamageListener;
 import com.lunatech.tpcore.module.spawn.listener.SpawnJoinListener;
@@ -68,13 +67,7 @@ public final class SpawnModule implements ReloadableModule {
         }
 
         this.repository = new YamlSpawnRepository(this.plugin, this.plugin.getDataFolder().toPath(), this.plugin.getSLF4JLogger());
-
-        if (this.config.economyEnabled()) {
-            this.economyService = new VaultSpawnEconomyService(this.plugin, () -> this.config, this.plugin.getSLF4JLogger());
-        } else {
-            this.economyService = new NoOpSpawnEconomyService();
-        }
-
+        this.economyService = new VaultSpawnEconomyService(this.plugin, () -> this.config, this.plugin.getSLF4JLogger());
         this.service = new DefaultSpawnService(this.plugin, this.repository, this.economyService, this.config);
 
         this.joinListener = new SpawnJoinListener(this.plugin, this.service, () -> this.config);
