@@ -10,12 +10,12 @@ import org.bukkit.event.entity.EntityDamageEvent;
 
 import java.util.function.Supplier;
 
-public final class SpawnVoidListener implements Listener {
+public final class SpawnDamageListener implements Listener {
 
     private final SpawnService spawnService;
     private final Supplier<SpawnConfig> configSupplier;
 
-    public SpawnVoidListener(SpawnService spawnService, Supplier<SpawnConfig> configSupplier) {
+    public SpawnDamageListener(SpawnService spawnService, Supplier<SpawnConfig> configSupplier) {
         this.spawnService = spawnService;
         this.configSupplier = configSupplier;
     }
@@ -23,13 +23,18 @@ public final class SpawnVoidListener implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onEntityDamage(EntityDamageEvent event) {
         SpawnConfig config = this.configSupplier.get();
-        if (!config.enabled() || !config.voidFallProtection()) {
+        if (!config.enabled() || !(event.getEntity() instanceof Player player)) {
             return;
         }
 
-        if (event.getCause() == EntityDamageEvent.DamageCause.VOID && event.getEntity() instanceof Player player) {
+        if (event.getCause() == EntityDamageEvent.DamageCause.VOID && config.voidFallProtection()) {
             event.setCancelled(true);
             this.spawnService.rescueFromVoid(player);
+            return;
+        }
+
+        if (config.cancelOnDamage()) {
+            this.spawnService.handlePlayerDamage(player.getUniqueId());
         }
     }
 }

@@ -8,18 +8,20 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
-import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.Optional;
 import java.util.function.Supplier;
 
 public final class SpawnJoinListener implements Listener {
 
+    private final JavaPlugin plugin;
     private final SpawnService spawnService;
     private final Supplier<SpawnConfig> configSupplier;
 
-    public SpawnJoinListener(SpawnService spawnService, Supplier<SpawnConfig> configSupplier) {
+    public SpawnJoinListener(JavaPlugin plugin, SpawnService spawnService, Supplier<SpawnConfig> configSupplier) {
+        this.plugin = plugin;
         this.spawnService = spawnService;
         this.configSupplier = configSupplier;
     }
@@ -36,18 +38,12 @@ public final class SpawnJoinListener implements Listener {
         boolean shouldTeleportToSpawn = (config.spawnOnFirstJoin() && isFirstJoin) || config.spawnOnJoin();
 
         if (shouldTeleportToSpawn) {
-            Optional<Location> spawnLocOpt = this.spawnService.getEffectiveSpawnLocation(null);
-            spawnLocOpt.ifPresent(player::teleportAsync);
-        }
-    }
-
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
-    public void onPlayerMove(PlayerMoveEvent event) {
-        if (!event.hasChangedPosition()) {
-            return;
-        }
-        if (event.hasChangedBlock()) {
-            this.spawnService.handlePlayerMove(event.getPlayer());
+            player.getScheduler().run(this.plugin, task -> {
+                if (player.isOnline()) {
+                    Optional<Location> spawnLocOpt = this.spawnService.getEffectiveSpawnLocation(null);
+                    spawnLocOpt.ifPresent(player::teleportAsync);
+                }
+            }, null);
         }
     }
 

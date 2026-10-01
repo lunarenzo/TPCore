@@ -9,6 +9,7 @@ import org.spongepowered.configurate.ConfigurateException;
 import org.spongepowered.configurate.yaml.NodeStyle;
 import org.spongepowered.configurate.yaml.YamlConfigurationLoader;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
@@ -128,6 +129,11 @@ public final class YamlSpawnRepository implements SpawnRepository {
     public void save() {
         synchronized (this.fileLock) {
             try {
+                Path parent = this.dataFile.getParent();
+                if (parent != null && !Files.exists(parent)) {
+                    Files.createDirectories(parent);
+                }
+
                 CommentedConfigurationNode root = this.loader.createNode();
 
                 SpawnLocation globalLoc = this.globalSpawn.get();
@@ -141,7 +147,7 @@ public final class YamlSpawnRepository implements SpawnRepository {
                 }
 
                 this.loader.save(root);
-            } catch (ConfigurateException e) {
+            } catch (IOException e) {
                 this.logger.error("Failed to save spawn locations to {}", this.dataFile, e);
             }
         }

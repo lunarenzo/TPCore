@@ -5,8 +5,6 @@ import com.lunatech.tpcore.constant.Permissions;
 import com.lunatech.tpcore.module.spawn.model.SpawnLocation;
 import com.lunatech.tpcore.module.spawn.repository.SpawnRepository;
 import com.lunatech.tpcore.module.spawn.service.SpawnService;
-import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
-import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
@@ -15,8 +13,8 @@ import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.util.Vector;
 
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -30,38 +28,17 @@ public final class DefaultSpawnService implements SpawnService {
     private final AtomicReference<SpawnConfig> configRef;
     private final MiniMessage miniMessage;
 
-    private final Map<UUID, ActiveWarmup> activeWarmups = new ConcurrentHashMap<>();
+    private final SpawnWarmupManager warmupManager;
+    private final SpawnCooldownManager cooldownManager;
     private final Set<UUID> pendingVoidRescues = ConcurrentHashMap.newKeySet();
-    private final Object2LongOpenHashMap<UUID> cooldowns = new Object2LongOpenHashMap<>();
-    private final Object cooldownLock = new Object();
-
-    private record ActiveWarmup(
-        UUID playerId,
-        String worldName,
-        double startX,
-        double startY,
-        double startZ,
-        ScheduledTask task
-    ) {
-        public boolean hasMoved(Location currentLoc) {
-            if (currentLoc == null || currentLoc.getWorld() == null) {
-                return true;
-            }
-            if (!this.worldName.equals(currentLoc.getWorld().getName())) {
-                return true;
-            }
-            double dx = currentLoc.getX() - this.startX;
-            double dy = currentLoc.getY() - this.startY;
-            double dz = currentLoc.getZ() - this.startZ;
-            return (dx * dx + dy * dy + dz * dz) > 0.25;
-        }
-    }
 
     public DefaultSpawnService(JavaPlugin plugin, SpawnRepository repository, SpawnConfig config) {
         this.plugin = plugin;
         this.repository = repository;
         this.configRef = new AtomicReference<>(config);
         this.miniMessage = MiniMessage.miniMessage();
+        this.warmupManager = new SpawnWarmupManager(plugin);
+        this.cooldownManager = new SpawnCooldownManager();
         this.repository.load();
     }
 
@@ -96,7 +73,6 @@ public final class DefaultSpawnService implements SpawnService {
             }
         }
 
-        // Fallback to target world spawn or main world spawn
         if (worldName != null && !worldName.isBlank()) {
             World world = Bukkit.getWorld(worldName);
             if (world != null) {
@@ -131,10 +107,10 @@ public final class DefaultSpawnService implements SpawnService {
             return;
         }
 
-        Location spawnLocation = spawnLocOpt.get();
+        Location targetLoc = spawnLocOpt.get();
 
         if (!player.hasPermission(Permissions.SPAWN_BYPASS)) {
-            long remainingMs = this.getRemainingCooldownMs(player.getUniqueId());
+            long remainingMs = this.cooldownManager.getRemainingCooldownMs(player.getUniqueId(), this.config().cooldownSeconds());
             if (remainingMs > 0) {
                 long remainingSeconds = (remainingMs + 999L) / 1000L;
                 this.sendMessage(
@@ -148,11 +124,11 @@ public final class DefaultSpawnService implements SpawnService {
 
         int warmupSeconds = this.config().warmupSeconds();
         if (warmupSeconds <= 0 || player.hasPermission(Permissions.SPAWN_BYPASS)) {
-            this.executeTeleport(player, spawnLocation);
+            this.executeTeleport(player, targetLoc);
             return;
         }
 
-        this.cancelWarmup(player.getUniqueId(), null);
+        this.warmupManager.cancelWarmup(player.getUniqueId(), null);
 
         this.sendMessage(
             player,
@@ -160,56 +136,34 @@ public final class DefaultSpawnService implements SpawnService {
             Placeholder.unparsed("seconds", String.valueOf(warmupSeconds))
         );
 
-        Location currentLoc = player.getLocation();
-        ScheduledTask task = player.getScheduler().runDelayed(
-            this.plugin,
-            scheduledTask -> {
-                ActiveWarmup warmup = this.activeWarmups.remove(player.getUniqueId());
-                if (warmup != null && player.isOnline()) {
-                    this.executeTeleport(player, spawnLocation);
-                }
-            },
-            null,
-            warmupSeconds * 20L
-        );
-
-        if (task != null) {
-            this.activeWarmups.put(
-                player.getUniqueId(),
-                new ActiveWarmup(
-                    player.getUniqueId(),
-                    currentLoc.getWorld().getName(),
-                    currentLoc.getX(),
-                    currentLoc.getY(),
-                    currentLoc.getZ(),
-                    task
-                )
-            );
-        }
+        this.warmupManager.startWarmup(player, warmupSeconds, () -> this.executeTeleport(player, targetLoc));
     }
 
     private void executeTeleport(Player player, Location targetLocation) {
+        Location finalLocation = targetLocation;
+        if (this.config().requireSafeLocation()) {
+            Location safe = SpawnSafetyInspector.findSafeLocation(targetLocation);
+            if (safe != null) {
+                finalLocation = safe;
+            }
+        }
+
         if (player.isInsideVehicle()) {
             player.leaveVehicle();
         }
-        synchronized (this.cooldownLock) {
-            this.cooldowns.put(player.getUniqueId(), System.currentTimeMillis());
-        }
-        player.teleportAsync(targetLocation);
-        this.sendMessage(player, this.config().messages().spawnTeleportSuccess());
-    }
 
-    private long getRemainingCooldownMs(UUID playerId) {
-        long lastTime;
-        synchronized (this.cooldownLock) {
-            lastTime = this.cooldowns.getOrDefault(playerId, 0L);
-        }
-        if (lastTime <= 0) {
-            return 0L;
-        }
-        long elapsed = System.currentTimeMillis() - lastTime;
-        long cooldownMs = this.config().cooldownSeconds() * 1000L;
-        return Math.max(0L, cooldownMs - elapsed);
+        player.teleportAsync(finalLocation).thenAccept(success -> {
+            player.getScheduler().run(this.plugin, task -> {
+                if (Boolean.TRUE.equals(success)) {
+                    if (!player.hasPermission(Permissions.SPAWN_BYPASS)) {
+                        this.cooldownManager.applyCooldown(player.getUniqueId());
+                    }
+                    this.sendMessage(player, this.config().messages().spawnTeleportSuccess());
+                } else {
+                    this.sendMessage(player, this.config().messages().teleportFailed());
+                }
+            }, null);
+        });
     }
 
     @Override
@@ -255,29 +209,31 @@ public final class DefaultSpawnService implements SpawnService {
 
     @Override
     public void handlePlayerMove(Player player) {
-        if (!this.config().cancelOnMove() || this.activeWarmups.isEmpty()) {
+        if (!this.config().cancelOnMove()) {
             return;
         }
-        ActiveWarmup warmup = this.activeWarmups.get(player.getUniqueId());
-        if (warmup != null && warmup.hasMoved(player.getLocation())) {
-            this.cancelWarmup(player.getUniqueId(), this.config().messages().warmupCancelledMove());
-        }
+        this.warmupManager.checkMovement(
+            player,
+            p -> this.sendMessage(p, this.config().messages().warmupCancelledMove())
+        );
     }
 
     @Override
     public void handlePlayerDamage(UUID playerId) {
-        if (this.config().cancelOnDamage()) {
-            this.cancelWarmup(playerId, this.config().messages().warmupCancelledDamage());
+        if (!this.config().cancelOnDamage()) {
+            return;
         }
+        this.warmupManager.cancelWarmup(
+            playerId,
+            p -> this.sendMessage(p, this.config().messages().warmupCancelledDamage())
+        );
     }
 
     @Override
     public void handlePlayerQuit(UUID playerId) {
-        this.cancelWarmup(playerId, null);
+        this.warmupManager.handleQuit(playerId);
+        this.cooldownManager.removeCooldown(playerId);
         this.pendingVoidRescues.remove(playerId);
-        synchronized (this.cooldownLock) {
-            this.cooldowns.remove(playerId);
-        }
     }
 
     @Override
@@ -286,36 +242,36 @@ public final class DefaultSpawnService implements SpawnService {
             return;
         }
 
+        player.setVelocity(new Vector(0, 0, 0));
         player.setFallDistance(0.0f);
-        Location dest = this.getEffectiveSpawnLocation(player.getWorld().getName())
-            .orElseGet(() -> player.getWorld().getSpawnLocation());
-
-        this.sendMessage(player, this.config().messages().voidRescued());
 
         if (player.isInsideVehicle()) {
             player.leaveVehicle();
         }
 
-        player.teleportAsync(dest).thenAccept(success -> {
-            player.getScheduler().runDelayed(this.plugin, task -> {
-                this.pendingVoidRescues.remove(player.getUniqueId());
-            }, null, 40L);
-        });
-    }
+        Location dest = this.getEffectiveSpawnLocation(player.getWorld().getName())
+            .orElseGet(() -> player.getWorld().getSpawnLocation());
 
-    private void cancelWarmup(UUID playerId, String cancelMessageTemplate) {
-        ActiveWarmup warmup = this.activeWarmups.remove(playerId);
-        if (warmup != null) {
-            if (warmup.task() != null) {
-                warmup.task().cancel();
-            }
-            if (cancelMessageTemplate != null) {
-                Player player = Bukkit.getPlayer(playerId);
-                if (player != null && player.isOnline()) {
-                    this.sendMessage(player, cancelMessageTemplate);
-                }
+        if (this.config().requireSafeLocation()) {
+            Location safe = SpawnSafetyInspector.findSafeLocation(dest);
+            if (safe != null) {
+                dest = safe;
             }
         }
+
+        Location finalDest = dest;
+        player.teleportAsync(finalDest).thenAccept(success -> {
+            player.getScheduler().run(this.plugin, task -> {
+                if (Boolean.TRUE.equals(success)) {
+                    player.setVelocity(new Vector(0, 0, 0));
+                    player.setFallDistance(0.0f);
+                    this.sendMessage(player, this.config().messages().voidRescued());
+                }
+                player.getScheduler().runDelayed(this.plugin, delayTask -> {
+                    this.pendingVoidRescues.remove(player.getUniqueId());
+                }, null, 20L);
+            }, null);
+        });
     }
 
     private String formatLocation(Location loc) {
@@ -331,15 +287,8 @@ public final class DefaultSpawnService implements SpawnService {
 
     @Override
     public void shutdown() {
-        for (ActiveWarmup warmup : this.activeWarmups.values()) {
-            if (warmup.task() != null) {
-                warmup.task().cancel();
-            }
-        }
-        this.activeWarmups.clear();
+        this.warmupManager.cancelAll();
+        this.cooldownManager.clear();
         this.pendingVoidRescues.clear();
-        synchronized (this.cooldownLock) {
-            this.cooldowns.clear();
-        }
     }
 }

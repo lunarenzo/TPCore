@@ -35,6 +35,9 @@ public record SpawnConfig(
     @Comment("Automatically rescue players falling into the void and teleport to spawn")
     boolean voidFallProtection,
 
+    @Comment("Require safe landing location when teleporting to spawn")
+    boolean requireSafeLocation,
+
     @Comment("Module message strings (Alphabetically ordered)")
     SpawnMessages messages
 ) {
@@ -49,6 +52,7 @@ public record SpawnConfig(
             false,
             true,
             false,
+            true,
             true,
             SpawnMessages.createDefault()
         );
@@ -66,6 +70,7 @@ public record SpawnConfig(
         String setSpawnGlobalSuccess,
         String setSpawnWorldSuccess,
         String spawnTeleportSuccess,
+        String teleportFailed,
         String voidRescued,
         String warmupCancelledDamage,
         String warmupCancelledMove,
@@ -79,10 +84,11 @@ public record SpawnConfig(
                 "<prefix><red>No spawn point has been set!</red>",
                 "<prefix><red>No spawn point has been set for world <yellow><world></yellow>!</red>",
                 "<prefix><red>Only players can execute this command!</red>",
-                "<gradient:#00D2FF:#3A7BD5><bold>TPCore</bold></gradient> <dark_gray>»</dark_gray> ",
+                "<prefix><gradient:#00D2FF:#3A7BD5><bold>TPCore</bold></gradient> <dark_gray>»</dark_gray> ",
                 "<prefix><green>Global spawn location set to <yellow><location></yellow>.</green>",
                 "<prefix><green>Spawn location for world <yellow><world></yellow> set to <yellow><location></yellow>.</green>",
                 "<prefix><green>Teleported to spawn!</green>",
+                "<prefix><red>Could not find a safe spawn location or teleportation failed!</red>",
                 "<prefix><yellow>You were saved from falling into the void and returned to spawn!</yellow>",
                 "<prefix><red>Teleport cancelled because you took damage!</red>",
                 "<prefix><red>Teleport cancelled because you moved!</red>",

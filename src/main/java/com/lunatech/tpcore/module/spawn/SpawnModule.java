@@ -4,9 +4,10 @@ import com.lunatech.tpcore.config.ModularConfigManager;
 import com.lunatech.tpcore.config.ReloadableModule;
 import com.lunatech.tpcore.config.model.SpawnConfig;
 import com.lunatech.tpcore.module.spawn.command.SpawnCommandRegistry;
+import com.lunatech.tpcore.module.spawn.listener.SpawnDamageListener;
 import com.lunatech.tpcore.module.spawn.listener.SpawnJoinListener;
+import com.lunatech.tpcore.module.spawn.listener.SpawnMoveListener;
 import com.lunatech.tpcore.module.spawn.listener.SpawnRespawnListener;
-import com.lunatech.tpcore.module.spawn.listener.SpawnVoidListener;
 import com.lunatech.tpcore.module.spawn.repository.SpawnRepository;
 import com.lunatech.tpcore.module.spawn.repository.impl.YamlSpawnRepository;
 import com.lunatech.tpcore.module.spawn.service.SpawnService;
@@ -23,8 +24,9 @@ public final class SpawnModule implements ReloadableModule {
     private SpawnRepository repository;
     private SpawnService service;
     private SpawnJoinListener joinListener;
+    private SpawnMoveListener moveListener;
+    private SpawnDamageListener damageListener;
     private SpawnRespawnListener respawnListener;
-    private SpawnVoidListener voidListener;
     private SpawnCommandRegistry commandRegistry;
 
     public SpawnModule(JavaPlugin plugin, ModularConfigManager configManager, SpawnConfig config) {
@@ -64,15 +66,17 @@ public final class SpawnModule implements ReloadableModule {
         this.repository = new YamlSpawnRepository(this.plugin, this.plugin.getDataFolder().toPath(), this.plugin.getSLF4JLogger());
         this.service = new DefaultSpawnService(this.plugin, this.repository, this.config);
 
-        this.joinListener = new SpawnJoinListener(this.service, () -> this.config);
+        this.joinListener = new SpawnJoinListener(this.plugin, this.service, () -> this.config);
+        this.moveListener = new SpawnMoveListener(this.service, () -> this.config);
+        this.damageListener = new SpawnDamageListener(this.service, () -> this.config);
         this.respawnListener = new SpawnRespawnListener(this.service, () -> this.config);
-        this.voidListener = new SpawnVoidListener(this.service, () -> this.config);
 
         this.commandRegistry = new SpawnCommandRegistry(this.plugin, this.service, () -> this.config);
 
         this.plugin.getServer().getPluginManager().registerEvents(this.joinListener, this.plugin);
+        this.plugin.getServer().getPluginManager().registerEvents(this.moveListener, this.plugin);
+        this.plugin.getServer().getPluginManager().registerEvents(this.damageListener, this.plugin);
         this.plugin.getServer().getPluginManager().registerEvents(this.respawnListener, this.plugin);
-        this.plugin.getServer().getPluginManager().registerEvents(this.voidListener, this.plugin);
 
         this.commandRegistry.registerAll();
         this.configManager.registerModule(this);
@@ -85,11 +89,14 @@ public final class SpawnModule implements ReloadableModule {
         if (this.joinListener != null) {
             HandlerList.unregisterAll(this.joinListener);
         }
+        if (this.moveListener != null) {
+            HandlerList.unregisterAll(this.moveListener);
+        }
+        if (this.damageListener != null) {
+            HandlerList.unregisterAll(this.damageListener);
+        }
         if (this.respawnListener != null) {
             HandlerList.unregisterAll(this.respawnListener);
-        }
-        if (this.voidListener != null) {
-            HandlerList.unregisterAll(this.voidListener);
         }
         if (this.service != null) {
             this.service.shutdown();
