@@ -11,6 +11,7 @@ import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
+import org.bukkit.event.player.PlayerTeleportEvent.TeleportCause;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.util.Vector;
 
@@ -247,7 +248,7 @@ final class TpaTeleportExecutor {
         }
 
         player.setVelocity(ZERO_VECTOR);
-        player.teleportAsync(destination).whenComplete((success, ex) -> {
+        player.teleportAsync(destination, TeleportCause.PLUGIN).whenComplete((success, ex) -> {
             if (ex == null && Boolean.TRUE.equals(success)) {
                 if (player.isOnline()) {
                     player.getScheduler().run(
@@ -304,24 +305,10 @@ final class TpaTeleportExecutor {
             } else {
                 this.repository.setCooldownEnd(player.getUniqueId(), 0L);
                 this.repository.setCooldownEnd(destinationPlayer.getUniqueId(), 0L);
-                String failReason = (ex != null) ? "Teleportation failed exceptionally" : "Teleportation cancelled or destination unsafe";
+                String failReason = (ex != null) ? "Teleportation failed exceptionally: " + ex.getMessage() : "Teleportation cancelled by external plugin or event";
                 this.escrowManager.refundSenderIfCharged(senderId, cost, failReason);
                 if (ex != null) {
                     this.plugin.getSLF4JLogger().warn("Player teleportAsync failed exceptionally for {}: {}", player.getName(), ex.getMessage());
-                }
-                if (player.isOnline()) {
-                    player.getScheduler().run(
-                        this.plugin,
-                        pTask -> this.messenger.sendMessage(player, config().messages().unsafeDestination()),
-                        null
-                    );
-                }
-                if (destinationPlayer.isOnline()) {
-                    destinationPlayer.getScheduler().run(
-                        this.plugin,
-                        dTask -> this.messenger.sendMessage(destinationPlayer, config().messages().unsafeDestination()),
-                        null
-                    );
                 }
             }
         });

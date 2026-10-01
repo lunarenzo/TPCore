@@ -22,44 +22,80 @@ public final class TpaSafetyInspector {
     private static final int[] PROBE_DY = {0, -1, 1, -2, 2};
 
     private static final Set<Material> HAZARD_MATERIALS = EnumSet.noneOf(Material.class);
+    private static final boolean IS_FOLIA;
     private static final Method IS_OWNED_BY_CURRENT_REGION_LOC;
     private static final Method IS_OWNED_BY_CURRENT_REGION_CHUNK;
+    private static final Method IS_OWNED_BY_CURRENT_REGION_WORLD;
+    private static final Method IS_OWNED_BY_CURRENT_REGION_SERVER;
 
     static {
-        Method mLoc = null;
-        Method mChunk = null;
+        boolean folia = false;
+        try {
+            Class.forName("io.papermc.paper.threadedregions.RegionizedServer");
+            folia = true;
+        } catch (Throwable ignored) {
+            try {
+                Class.forName("io.papermc.paper.threadedregions.TickRegions");
+                folia = true;
+            } catch (Throwable ignored2) {
+                try {
+                    Bukkit.class.getMethod("isOwnedByCurrentRegion", Location.class);
+                    folia = true;
+                } catch (Throwable ignored3) {
+                    try {
+                        Bukkit.class.getMethod("getRegionScheduler");
+                        folia = true;
+                    } catch (Throwable ignored4) {
+                        folia = false;
+                    }
+                }
+            }
+        }
+        IS_FOLIA = folia;
+
+        Method mLoc = null, mChunk = null, mWorld = null, mServer = null;
         try {
             mLoc = Bukkit.class.getMethod("isOwnedByCurrentRegion", Location.class);
         } catch (Throwable ignored) {
             try {
                 mLoc = Location.class.getMethod("isOwnedByCurrentRegion");
-            } catch (Throwable ignored2) {
-            }
+            } catch (Throwable ignored2) {}
         }
         try {
             mChunk = Bukkit.class.getMethod("isOwnedByCurrentRegion", World.class, int.class, int.class);
+        } catch (Throwable ignored) {}
+        try {
+            mWorld = World.class.getMethod("isOwnedByCurrentRegion", int.class, int.class);
         } catch (Throwable ignored) {
+            try {
+                mWorld = World.class.getMethod("isOwnedByCurrentRegion", Location.class);
+            } catch (Throwable ignored2) {}
         }
+        try {
+            Object server = Bukkit.getServer();
+            if (server != null) {
+                for (Method m : server.getClass().getMethods()) {
+                    if ("isOwnedByCurrentRegion".equals(m.getName())) {
+                        mServer = m;
+                        break;
+                    }
+                }
+            }
+        } catch (Throwable ignored) {}
+
         IS_OWNED_BY_CURRENT_REGION_LOC = mLoc;
         IS_OWNED_BY_CURRENT_REGION_CHUNK = mChunk;
+        IS_OWNED_BY_CURRENT_REGION_WORLD = mWorld;
+        IS_OWNED_BY_CURRENT_REGION_SERVER = mServer;
 
         for (Material mat : Material.values()) {
             String name = mat.name();
-            if (name.contains("LAVA") ||
-                name.contains("FIRE") ||
-                name.contains("CAMPFIRE") ||
-                name.contains("MAGMA") ||
-                name.contains("CACTUS") ||
-                name.contains("BERRY_BUSH") ||
-                name.contains("WITHER_ROSE") ||
-                name.contains("POWDER_SNOW") ||
-                name.contains("WEB") ||
-                name.contains("BUBBLE") ||
-                name.startsWith("POINTED_DRIPSTONE") ||
-                name.equals("RESPAWN_ANCHOR") ||
-                name.contains("PORTAL") ||
-                name.contains("GATEWAY") ||
-                name.contains("VOID")) {
+            if (name.contains("LAVA") || name.contains("FIRE") || name.contains("CAMPFIRE") ||
+                name.contains("MAGMA") || name.contains("CACTUS") || name.contains("BERRY_BUSH") ||
+                name.contains("WITHER_ROSE") || name.contains("POWDER_SNOW") || name.contains("WEB") ||
+                name.contains("BUBBLE") || name.startsWith("POINTED_DRIPSTONE") ||
+                name.equals("RESPAWN_ANCHOR") || name.contains("PORTAL") ||
+                name.contains("GATEWAY") || name.contains("VOID")) {
                 HAZARD_MATERIALS.add(mat);
             }
         }
@@ -68,32 +104,45 @@ public final class TpaSafetyInspector {
     private TpaSafetyInspector() {}
 
     private static boolean isRegionOwned(World world, int chunkX, int chunkZ, Location loc) {
-        if (world == null) {
-            return false;
-        }
+        if (world == null) return false;
+        if (!IS_FOLIA) return true;
+
         if (IS_OWNED_BY_CURRENT_REGION_CHUNK != null) {
             try {
                 Boolean owned = (Boolean) IS_OWNED_BY_CURRENT_REGION_CHUNK.invoke(null, world, chunkX, chunkZ);
-                if (owned != null && !owned) {
-                    return false;
-                }
-            } catch (Throwable ignored) {
-                return false;
-            }
+                if (owned != null) return owned;
+            } catch (Throwable ignored) {}
         }
         if (IS_OWNED_BY_CURRENT_REGION_LOC != null && loc != null) {
             try {
                 Boolean owned = (IS_OWNED_BY_CURRENT_REGION_LOC.getDeclaringClass().equals(Bukkit.class))
                     ? (Boolean) IS_OWNED_BY_CURRENT_REGION_LOC.invoke(null, loc)
                     : (Boolean) IS_OWNED_BY_CURRENT_REGION_LOC.invoke(loc);
-                if (owned != null && !owned) {
-                    return false;
-                }
-            } catch (Throwable ignored) {
-                return false;
-            }
+                if (owned != null) return owned;
+            } catch (Throwable ignored) {}
         }
-        return true;
+        if (IS_OWNED_BY_CURRENT_REGION_WORLD != null) {
+            try {
+                Class<?>[] params = IS_OWNED_BY_CURRENT_REGION_WORLD.getParameterTypes();
+                Boolean owned = (params.length == 2)
+                    ? (Boolean) IS_OWNED_BY_CURRENT_REGION_WORLD.invoke(world, chunkX, chunkZ)
+                    : (loc != null ? (Boolean) IS_OWNED_BY_CURRENT_REGION_WORLD.invoke(world, loc) : null);
+                if (owned != null) return owned;
+            } catch (Throwable ignored) {}
+        }
+        if (IS_OWNED_BY_CURRENT_REGION_SERVER != null) {
+            try {
+                Object srv = Bukkit.getServer();
+                if (srv != null) {
+                    Class<?>[] params = IS_OWNED_BY_CURRENT_REGION_SERVER.getParameterTypes();
+                    Boolean owned = (params.length == 3)
+                        ? (Boolean) IS_OWNED_BY_CURRENT_REGION_SERVER.invoke(srv, world, chunkX, chunkZ)
+                        : (loc != null ? (Boolean) IS_OWNED_BY_CURRENT_REGION_SERVER.invoke(srv, loc) : null);
+                    if (owned != null) return owned;
+                }
+            } catch (Throwable ignored) {}
+        }
+        return false;
     }
 
     public static Location findSafeLocation(Location targetLocation) {
