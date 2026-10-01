@@ -46,6 +46,9 @@ class SpawnConfigTest {
         assertNotNull(config.messages().costDeducted());
         assertNotNull(config.messages().costRefunded());
         assertNotNull(config.messages().insufficientFunds());
+        assertNotNull(config.messages().playerNotOnline());
+        assertNotNull(config.messages().teleportOtherSuccess());
+        assertNotNull(config.messages().teleportOtherTarget());
         assertNotNull(config.messages().teleportProtectionStart());
         assertNotNull(config.messages().teleportProtectionEnded());
     }

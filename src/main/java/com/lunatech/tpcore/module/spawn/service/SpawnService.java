@@ -2,6 +2,7 @@ package com.lunatech.tpcore.module.spawn.service;
 
 import com.lunatech.tpcore.config.model.SpawnConfig;
 import org.bukkit.Location;
+import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
 import java.util.Optional;
@@ -10,6 +11,8 @@ import java.util.UUID;
 public interface SpawnService {
 
     void teleportToSpawn(Player player, String optionalWorldName);
+
+    void teleportOtherToSpawn(CommandSender sender, Player target, String optionalWorldName);
 
     void setGlobalSpawn(Player player);
 

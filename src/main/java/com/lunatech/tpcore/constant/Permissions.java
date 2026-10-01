@@ -22,6 +22,8 @@ public final class Permissions {
     public static final String SPAWN_USE = "tpcore.spawn.use";
     public static final String SPAWN_SET = "tpcore.spawn.set";
     public static final String SPAWN_DEL = "tpcore.spawn.del";
+    public static final String SPAWN_OTHER = "tpcore.spawn.other";
+    public static final String SPAWN_ADMIN = "tpcore.spawn.admin";
     public static final String SPAWN_BYPASS = "tpcore.spawn.bypass";
     public static final String SPAWN_BYPASS_WARMUP = "tpcore.spawn.bypass.warmup";
     public static final String SPAWN_BYPASS_COOLDOWN = "tpcore.spawn.bypass.cooldown";

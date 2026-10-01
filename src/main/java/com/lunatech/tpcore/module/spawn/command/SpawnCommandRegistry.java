@@ -51,13 +51,25 @@ public final class SpawnCommandRegistry {
                 return builder.buildFuture();
             };
 
-            SuggestionProvider<CommandSourceStack> setSpawnTypeSuggestions = (ctx, builder) -> {
+            SuggestionProvider<CommandSourceStack> playerSuggestions = (ctx, builder) -> {
                 String remaining = builder.getRemaining().toLowerCase(Locale.ROOT);
-                if ("global".startsWith(remaining)) {
-                    builder.suggest("global");
+                for (Player p : Bukkit.getOnlinePlayers()) {
+                    if (p.getName().toLowerCase(Locale.ROOT).startsWith(remaining)) {
+                        builder.suggest(p.getName());
+                    }
                 }
-                if ("world".startsWith(remaining)) {
-                    builder.suggest("world");
+                return builder.buildFuture();
+            };
+
+            SuggestionProvider<CommandSourceStack> spawnArgSuggestions = (ctx, builder) -> {
+                String remaining = builder.getRemaining().toLowerCase(Locale.ROOT);
+                CommandSender sender = ctx.getSource().getSender();
+                if (hasOtherPermission(sender)) {
+                    for (Player p : Bukkit.getOnlinePlayers()) {
+                        if (p.getName().toLowerCase(Locale.ROOT).startsWith(remaining)) {
+                            builder.suggest(p.getName());
+                        }
+                    }
                 }
                 for (World world : Bukkit.getWorlds()) {
                     if (world.getName().toLowerCase(Locale.ROOT).startsWith(remaining)) {
@@ -67,10 +79,22 @@ public final class SpawnCommandRegistry {
                 return builder.buildFuture();
             };
 
-            // /spawn [world]
+            SuggestionProvider<CommandSourceStack> setSpawnTypeSuggestions = (ctx, builder) -> {
+                String remaining = builder.getRemaining().toLowerCase(Locale.ROOT);
+                if ("global".startsWith(remaining)) builder.suggest("global");
+                if ("world".startsWith(remaining)) builder.suggest("world");
+                for (World world : Bukkit.getWorlds()) {
+                    if (world.getName().toLowerCase(Locale.ROOT).startsWith(remaining)) {
+                        builder.suggest(world.getName());
+                    }
+                }
+                return builder.buildFuture();
+            };
+
+            // /spawn [world|player] [world]
             commands.register(
                 Commands.literal("spawn")
-                    .requires(src -> src.getSender().hasPermission(Permissions.SPAWN_USE))
+                    .requires(src -> src.getSender().hasPermission(Permissions.SPAWN_USE) || hasOtherPermission(src.getSender()))
                     .executes(ctx -> {
                         CommandSender sender = ctx.getSource().getSender();
                         if (sender instanceof Player player) {
@@ -80,21 +104,89 @@ public final class SpawnCommandRegistry {
                         }
                         return Command.SINGLE_SUCCESS;
                     })
-                    .then(Commands.argument("world", StringArgumentType.string())
-                        .suggests(worldSuggestions)
+                    .then(Commands.argument("targetOrWorld", StringArgumentType.string())
+                        .suggests(spawnArgSuggestions)
                         .executes(ctx -> {
                             CommandSender sender = ctx.getSource().getSender();
+                            String arg = StringArgumentType.getString(ctx, "targetOrWorld");
+                            Player target = Bukkit.getPlayerExact(arg);
+                            if (target == null) target = Bukkit.getPlayer(arg);
+
+                            if (target != null && hasOtherPermission(sender)) {
+                                this.spawnService.teleportOtherToSpawn(sender, target, null);
+                                return Command.SINGLE_SUCCESS;
+                            }
+
                             if (sender instanceof Player player) {
-                                String worldName = StringArgumentType.getString(ctx, "world");
-                                this.spawnService.teleportToSpawn(player, worldName);
+                                this.spawnService.teleportToSpawn(player, arg);
                             } else {
-                                this.sendOnlyPlayersMessage(sender);
+                                this.sendPlayerNotOnline(sender, arg);
                             }
                             return Command.SINGLE_SUCCESS;
                         })
+                        .then(Commands.argument("world", StringArgumentType.string())
+                            .suggests(worldSuggestions)
+                            .requires(src -> hasOtherPermission(src.getSender()))
+                            .executes(ctx -> {
+                                CommandSender sender = ctx.getSource().getSender();
+                                String targetName = StringArgumentType.getString(ctx, "targetOrWorld");
+                                String worldName = StringArgumentType.getString(ctx, "world");
+                                Player target = Bukkit.getPlayerExact(targetName);
+                                if (target == null) target = Bukkit.getPlayer(targetName);
+
+                                if (target != null) {
+                                    this.spawnService.teleportOtherToSpawn(sender, target, worldName);
+                                } else {
+                                    this.sendPlayerNotOnline(sender, targetName);
+                                }
+                                return Command.SINGLE_SUCCESS;
+                            })
+                        )
                     )
                     .build(),
-                "Teleport to spawn location",
+                "Teleport to spawn location or force teleport another player to spawn",
+                List.of()
+            );
+
+            // /spawnother <target> [world]
+            commands.register(
+                Commands.literal("spawnother")
+                    .requires(src -> hasOtherPermission(src.getSender()))
+                    .then(Commands.argument("target", StringArgumentType.word())
+                        .suggests(playerSuggestions)
+                        .executes(ctx -> {
+                            CommandSender sender = ctx.getSource().getSender();
+                            String targetName = StringArgumentType.getString(ctx, "target");
+                            Player target = Bukkit.getPlayerExact(targetName);
+                            if (target == null) target = Bukkit.getPlayer(targetName);
+
+                            if (target != null) {
+                                this.spawnService.teleportOtherToSpawn(sender, target, null);
+                            } else {
+                                this.sendPlayerNotOnline(sender, targetName);
+                            }
+                            return Command.SINGLE_SUCCESS;
+                        })
+                        .then(Commands.argument("world", StringArgumentType.string())
+                            .suggests(worldSuggestions)
+                            .executes(ctx -> {
+                                CommandSender sender = ctx.getSource().getSender();
+                                String targetName = StringArgumentType.getString(ctx, "target");
+                                String worldName = StringArgumentType.getString(ctx, "world");
+                                Player target = Bukkit.getPlayerExact(targetName);
+                                if (target == null) target = Bukkit.getPlayer(targetName);
+
+                                if (target != null) {
+                                    this.spawnService.teleportOtherToSpawn(sender, target, worldName);
+                                } else {
+                                    this.sendPlayerNotOnline(sender, targetName);
+                                }
+                                return Command.SINGLE_SUCCESS;
+                            })
+                        )
+                    )
+                    .build(),
+                "Force teleport another player to spawn",
                 List.of()
             );
 
@@ -183,6 +275,21 @@ public final class SpawnCommandRegistry {
                 List.of("removespawn")
             );
         });
+    }
+
+    private static boolean hasOtherPermission(CommandSender sender) {
+        if (!(sender instanceof Player)) return true;
+        return sender.hasPermission(Permissions.SPAWN_OTHER) || sender.hasPermission(Permissions.SPAWN_ADMIN);
+    }
+
+    private void sendPlayerNotOnline(CommandSender sender, String playerName) {
+        SpawnConfig cfg = this.configSupplier.get();
+        TagResolver prefix = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
+        TagResolver player = Placeholder.unparsed("player", playerName);
+        sender.sendMessage(this.miniMessage.deserialize(
+            MessageFormatter.toMiniMessage(cfg.messages().playerNotOnline()),
+            TagResolver.resolver(prefix, player)
+        ));
     }
 
     private void sendOnlyPlayersMessage(CommandSender sender) {
