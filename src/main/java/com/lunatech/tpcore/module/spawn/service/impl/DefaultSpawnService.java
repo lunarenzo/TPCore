@@ -139,6 +139,10 @@ public final class DefaultSpawnService implements SpawnService {
             }
         }
 
+        if (this.spawnTeleportsInProgress.contains(player.getUniqueId())) {
+            return;
+        }
+
         boolean isChargeOnSuccess = "CHARGE_ON_SUCCESS".equals(this.config().getNormalizedChargeTiming());
         var fundCheckFuture = isChargeOnSuccess
             ? this.economyService.validateFundsAsync(player)
@@ -150,7 +154,7 @@ public final class DefaultSpawnService implements SpawnService {
             }
 
             player.getScheduler().run(this.plugin, task -> {
-                if (!player.isOnline()) {
+                if (!player.isOnline() || this.spawnTeleportsInProgress.contains(player.getUniqueId())) {
                     return;
                 }
 
@@ -180,6 +184,11 @@ public final class DefaultSpawnService implements SpawnService {
     }
 
     private void executeTeleport(Player player, Location targetLocation, double paidCost, boolean isChargeOnSuccess) {
+        UUID playerId = player.getUniqueId();
+        if (!this.spawnTeleportsInProgress.add(playerId)) {
+            return;
+        }
+
         if (player.isInsideVehicle()) {
             player.leaveVehicle();
         }
@@ -191,12 +200,14 @@ public final class DefaultSpawnService implements SpawnService {
             SpawnSafetyInspector.findSafeLocationAsync(this.plugin, targetLocation).thenAccept(safeLoc -> {
                 player.getScheduler().run(this.plugin, task -> {
                     if (!player.isOnline()) {
+                        this.spawnTeleportsInProgress.remove(playerId);
                         if (paidCost > 0.0 && this.config().refundOnCancel()) {
                             this.economyService.processRefund(player, paidCost);
                         }
                         return;
                     }
                     if (safeLoc == null) {
+                        this.spawnTeleportsInProgress.remove(playerId);
                         this.sendMessage(player, this.config().messages().teleportFailed());
                         if (paidCost > 0.0 && this.config().refundOnCancel()) {
                             this.economyService.processRefund(player, paidCost);
