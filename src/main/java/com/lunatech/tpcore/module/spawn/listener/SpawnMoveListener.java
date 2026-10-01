@@ -6,6 +6,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerMoveEvent;
+import org.bukkit.event.player.PlayerTeleportEvent;
 
 import java.util.function.Supplier;
 
@@ -26,8 +27,26 @@ public final class SpawnMoveListener implements Listener {
             return;
         }
 
+        if (!this.spawnService.hasActiveWarmup(event.getPlayer().getUniqueId())) {
+            return;
+        }
+
         if (event.hasChangedPosition()) {
             this.spawnService.handlePlayerMove(event.getPlayer());
         }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onPlayerTeleport(PlayerTeleportEvent event) {
+        SpawnConfig config = this.configSupplier.get();
+        if (!config.enabled()) {
+            return;
+        }
+
+        if (!this.spawnService.hasActiveWarmup(event.getPlayer().getUniqueId())) {
+            return;
+        }
+
+        this.spawnService.handlePlayerTeleport(event.getPlayer().getUniqueId());
     }
 }

@@ -120,7 +120,17 @@ public final class SpawnCommandRegistry {
                                 } else if (arg.equals("world")) {
                                     this.spawnService.setWorldSpawn(player, player.getWorld().getName());
                                 } else {
-                                    this.spawnService.setWorldSpawn(player, arg);
+                                    String currentWorld = player.getWorld().getName();
+                                    if (currentWorld.equalsIgnoreCase(arg)) {
+                                        this.spawnService.setWorldSpawn(player, currentWorld);
+                                    } else {
+                                        SpawnConfig cfg = this.configSupplier.get();
+                                        player.sendMessage(this.miniMessage.deserialize(
+                                            cfg.messages().mustBeInTargetWorld(),
+                                            Placeholder.parsed("prefix", cfg.messages().prefix()),
+                                            Placeholder.unparsed("world", arg)
+                                        ));
+                                    }
                                 }
                             } else {
                                 this.sendOnlyPlayersMessage(sender);

@@ -8,11 +8,13 @@ import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.block.data.Openable;
 import org.bukkit.block.data.Waterlogged;
+import org.bukkit.plugin.java.JavaPlugin;
 
 import java.lang.reflect.Method;
 import java.util.EnumSet;
 import java.util.Locale;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 
 public final class SpawnSafetyInspector {
 
@@ -66,6 +68,37 @@ public final class SpawnSafetyInspector {
     }
 
     private SpawnSafetyInspector() {}
+
+    public static CompletableFuture<Location> findSafeLocationAsync(JavaPlugin plugin, Location targetLocation) {
+        if (targetLocation == null || targetLocation.getWorld() == null) {
+            return CompletableFuture.completedFuture(null);
+        }
+
+        World world = targetLocation.getWorld();
+        int chunkX = targetLocation.getBlockX() >> 4;
+        int chunkZ = targetLocation.getBlockZ() >> 4;
+        CompletableFuture<Location> future = new CompletableFuture<>();
+
+        world.getChunkAtAsync(chunkX, chunkZ).thenAccept(chunk -> {
+            if (chunk == null) {
+                future.complete(null);
+                return;
+            }
+            Bukkit.getRegionScheduler().execute(plugin, targetLocation, () -> {
+                try {
+                    Location safe = findSafeLocation(targetLocation);
+                    future.complete(safe);
+                } catch (Throwable t) {
+                    future.complete(null);
+                }
+            });
+        }).exceptionally(ex -> {
+            future.complete(null);
+            return null;
+        });
+
+        return future;
+    }
 
     private static boolean isRegionOwned(World world, int chunkX, int chunkZ, Location loc) {
         if (world == null) return false;

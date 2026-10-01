@@ -21,9 +21,13 @@ public interface SpawnService {
 
     Optional<Location> getEffectiveSpawnLocation(String worldName);
 
+    boolean hasActiveWarmup(UUID playerId);
+
     void handlePlayerMove(Player player);
 
     void handlePlayerDamage(UUID playerId);
+
+    void handlePlayerTeleport(UUID playerId);
 
     void handlePlayerQuit(UUID playerId);
 

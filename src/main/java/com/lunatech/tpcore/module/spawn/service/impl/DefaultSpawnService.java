@@ -31,6 +31,7 @@ public final class DefaultSpawnService implements SpawnService {
     private final SpawnWarmupManager warmupManager;
     private final SpawnCooldownManager cooldownManager;
     private final Set<UUID> pendingVoidRescues = ConcurrentHashMap.newKeySet();
+    private final Set<UUID> spawnTeleportsInProgress = ConcurrentHashMap.newKeySet();
 
     public DefaultSpawnService(JavaPlugin plugin, SpawnRepository repository, SpawnConfig config) {
         this.plugin = plugin;
@@ -51,6 +52,11 @@ public final class DefaultSpawnService implements SpawnService {
         if (newConfig != null) {
             this.configRef.set(newConfig);
         }
+    }
+
+    @Override
+    public boolean hasActiveWarmup(UUID playerId) {
+        return this.warmupManager.hasActiveWarmup(playerId);
     }
 
     @Override
@@ -109,7 +115,10 @@ public final class DefaultSpawnService implements SpawnService {
 
         Location targetLoc = spawnLocOpt.get();
 
-        if (!player.hasPermission(Permissions.SPAWN_BYPASS)) {
+        boolean bypassCooldown = player.hasPermission(Permissions.SPAWN_BYPASS)
+            || player.hasPermission(Permissions.SPAWN_BYPASS_COOLDOWN);
+
+        if (!bypassCooldown) {
             long remainingMs = this.cooldownManager.getRemainingCooldownMs(player.getUniqueId(), this.config().cooldownSeconds());
             if (remainingMs > 0) {
                 long remainingSeconds = (remainingMs + 999L) / 1000L;
@@ -122,8 +131,11 @@ public final class DefaultSpawnService implements SpawnService {
             }
         }
 
+        boolean bypassWarmup = player.hasPermission(Permissions.SPAWN_BYPASS)
+            || player.hasPermission(Permissions.SPAWN_BYPASS_WARMUP);
+
         int warmupSeconds = this.config().warmupSeconds();
-        if (warmupSeconds <= 0 || player.hasPermission(Permissions.SPAWN_BYPASS)) {
+        if (warmupSeconds <= 0 || bypassWarmup) {
             this.executeTeleport(player, targetLoc);
             return;
         }
@@ -140,23 +152,43 @@ public final class DefaultSpawnService implements SpawnService {
     }
 
     private void executeTeleport(Player player, Location targetLocation) {
-        Location finalLocation = targetLocation;
-        if (this.config().requireSafeLocation()) {
-            Location safe = SpawnSafetyInspector.findSafeLocation(targetLocation);
-            if (safe != null) {
-                finalLocation = safe;
-            }
-        }
-
         if (player.isInsideVehicle()) {
             player.leaveVehicle();
         }
+        if (!player.getPassengers().isEmpty()) {
+            player.eject();
+        }
 
-        player.teleportAsync(finalLocation).thenAccept(success -> {
+        if (this.config().requireSafeLocation()) {
+            SpawnSafetyInspector.findSafeLocationAsync(this.plugin, targetLocation).thenAccept(safeLoc -> {
+                player.getScheduler().run(this.plugin, task -> {
+                    if (!player.isOnline()) {
+                        return;
+                    }
+                    if (safeLoc == null) {
+                        this.sendMessage(player, this.config().messages().teleportFailed());
+                        return;
+                    }
+                    this.performTeleport(player, safeLoc);
+                }, null);
+            });
+        } else {
+            this.performTeleport(player, targetLocation);
+        }
+    }
+
+    private void performTeleport(Player player, Location destination) {
+        UUID playerId = player.getUniqueId();
+        this.spawnTeleportsInProgress.add(playerId);
+
+        player.teleportAsync(destination).whenComplete((success, ex) -> {
             player.getScheduler().run(this.plugin, task -> {
-                if (Boolean.TRUE.equals(success)) {
-                    if (!player.hasPermission(Permissions.SPAWN_BYPASS)) {
-                        this.cooldownManager.applyCooldown(player.getUniqueId());
+                this.spawnTeleportsInProgress.remove(playerId);
+                if (Boolean.TRUE.equals(success) && ex == null) {
+                    boolean bypassCooldown = player.hasPermission(Permissions.SPAWN_BYPASS)
+                        || player.hasPermission(Permissions.SPAWN_BYPASS_COOLDOWN);
+                    if (!bypassCooldown) {
+                        this.cooldownManager.applyCooldown(playerId);
                     }
                     this.sendMessage(player, this.config().messages().spawnTeleportSuccess());
                 } else {
@@ -212,10 +244,12 @@ public final class DefaultSpawnService implements SpawnService {
         if (!this.config().cancelOnMove()) {
             return;
         }
-        this.warmupManager.checkMovement(
-            player,
-            p -> this.sendMessage(p, this.config().messages().warmupCancelledMove())
-        );
+        if (this.warmupManager.checkMovement(player)) {
+            this.warmupManager.cancelWarmup(
+                player.getUniqueId(),
+                p -> this.sendMessage(p, this.config().messages().warmupCancelledMove())
+            );
+        }
     }
 
     @Override
@@ -230,15 +264,28 @@ public final class DefaultSpawnService implements SpawnService {
     }
 
     @Override
+    public void handlePlayerTeleport(UUID playerId) {
+        if (this.spawnTeleportsInProgress.contains(playerId)) {
+            return;
+        }
+        this.warmupManager.cancelWarmup(
+            playerId,
+            p -> this.sendMessage(p, this.config().messages().warmupCancelledTeleport())
+        );
+    }
+
+    @Override
     public void handlePlayerQuit(UUID playerId) {
         this.warmupManager.handleQuit(playerId);
         this.cooldownManager.removeCooldown(playerId);
         this.pendingVoidRescues.remove(playerId);
+        this.spawnTeleportsInProgress.remove(playerId);
     }
 
     @Override
     public void rescueFromVoid(Player player) {
-        if (!this.config().voidFallProtection() || !this.pendingVoidRescues.add(player.getUniqueId())) {
+        UUID playerId = player.getUniqueId();
+        if (!this.config().voidFallProtection() || !this.pendingVoidRescues.add(playerId)) {
             return;
         }
 
@@ -248,28 +295,41 @@ public final class DefaultSpawnService implements SpawnService {
         if (player.isInsideVehicle()) {
             player.leaveVehicle();
         }
+        if (!player.getPassengers().isEmpty()) {
+            player.eject();
+        }
 
         Location dest = this.getEffectiveSpawnLocation(player.getWorld().getName())
             .orElseGet(() -> player.getWorld().getSpawnLocation());
 
         if (this.config().requireSafeLocation()) {
-            Location safe = SpawnSafetyInspector.findSafeLocation(dest);
-            if (safe != null) {
-                dest = safe;
-            }
+            SpawnSafetyInspector.findSafeLocationAsync(this.plugin, dest).thenAccept(safeLoc -> {
+                Location finalLoc = (safeLoc != null) ? safeLoc : dest;
+                this.performVoidTeleport(player, finalLoc);
+            });
+        } else {
+            this.performVoidTeleport(player, dest);
         }
+    }
 
-        Location finalDest = dest;
-        player.teleportAsync(finalDest).thenAccept(success -> {
+    private void performVoidTeleport(Player player, Location target) {
+        UUID playerId = player.getUniqueId();
+        this.spawnTeleportsInProgress.add(playerId);
+
+        player.teleportAsync(target).whenComplete((success, ex) -> {
             player.getScheduler().run(this.plugin, task -> {
-                if (Boolean.TRUE.equals(success)) {
-                    player.setVelocity(new Vector(0, 0, 0));
-                    player.setFallDistance(0.0f);
-                    this.sendMessage(player, this.config().messages().voidRescued());
+                this.spawnTeleportsInProgress.remove(playerId);
+                try {
+                    if (Boolean.TRUE.equals(success) && ex == null) {
+                        player.setVelocity(new Vector(0, 0, 0));
+                        player.setFallDistance(0.0f);
+                        this.sendMessage(player, this.config().messages().voidRescued());
+                    }
+                } finally {
+                    player.getScheduler().runDelayed(this.plugin, delayTask -> {
+                        this.pendingVoidRescues.remove(playerId);
+                    }, null, 20L);
                 }
-                player.getScheduler().runDelayed(this.plugin, delayTask -> {
-                    this.pendingVoidRescues.remove(player.getUniqueId());
-                }, null, 20L);
             }, null);
         });
     }
@@ -290,5 +350,6 @@ public final class DefaultSpawnService implements SpawnService {
         this.warmupManager.cancelAll();
         this.cooldownManager.clear();
         this.pendingVoidRescues.clear();
+        this.spawnTeleportsInProgress.clear();
     }
 }

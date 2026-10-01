@@ -33,7 +33,7 @@ public final class SpawnDamageListener implements Listener {
             return;
         }
 
-        if (config.cancelOnDamage()) {
+        if (config.cancelOnDamage() && this.spawnService.hasActiveWarmup(player.getUniqueId())) {
             this.spawnService.handlePlayerDamage(player.getUniqueId());
         }
     }

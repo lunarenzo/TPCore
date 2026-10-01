@@ -77,14 +77,12 @@ public final class SpawnWarmupManager {
         }
     }
 
-    public void checkMovement(Player player, Consumer<Player> onCancelled) {
+    public boolean checkMovement(Player player) {
         if (this.activeWarmups.isEmpty()) {
-            return;
+            return false;
         }
         ActiveWarmup warmup = this.activeWarmups.get(player.getUniqueId());
-        if (warmup != null && warmup.hasMoved(player.getLocation())) {
-            this.cancelWarmup(player.getUniqueId(), onCancelled);
-        }
+        return warmup != null && warmup.hasMoved(player.getLocation());
     }
 
     public void cancelWarmup(UUID playerId, Consumer<Player> onCancelled) {

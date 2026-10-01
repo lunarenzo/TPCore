@@ -63,6 +63,7 @@ public record SpawnConfig(
         String cooldownActive,
         String delSpawnGlobalSuccess,
         String delSpawnWorldSuccess,
+        String mustBeInTargetWorld,
         String noSpawnSet,
         String noSpawnSetWorld,
         String onlyPlayers,
@@ -74,6 +75,7 @@ public record SpawnConfig(
         String voidRescued,
         String warmupCancelledDamage,
         String warmupCancelledMove,
+        String warmupCancelledTeleport,
         String warmupStart
     ) {
         public static SpawnMessages createDefault() {
@@ -81,6 +83,7 @@ public record SpawnConfig(
                 "<prefix><red>You must wait <gold><seconds>s</gold> before using /spawn again!</red>",
                 "<prefix><green>Global spawn location has been deleted.</green>",
                 "<prefix><green>Spawn location for world <yellow><world></yellow> has been deleted.</green>",
+                "<prefix><red>You must be in world <yellow><world></yellow> to set its spawn point!</red>",
                 "<prefix><red>No spawn point has been set!</red>",
                 "<prefix><red>No spawn point has been set for world <yellow><world></yellow>!</red>",
                 "<prefix><red>Only players can execute this command!</red>",
@@ -92,6 +95,7 @@ public record SpawnConfig(
                 "<prefix><yellow>You were saved from falling into the void and returned to spawn!</yellow>",
                 "<prefix><red>Teleport cancelled because you took damage!</red>",
                 "<prefix><red>Teleport cancelled because you moved!</red>",
+                "<prefix><red>Teleport cancelled because you were teleported!</red>",
                 "<prefix><gray>Teleporting to spawn in <gold><seconds></gold> seconds. <red>Do not move or take damage!</red></gray>"
             );
         }
