@@ -38,6 +38,69 @@ public record SpawnConfig(
     @Comment("Require safe landing location when teleporting to spawn")
     boolean requireSafeLocation,
 
+    @Comment("Enable Vault economy integration for spawn teleport costs")
+    boolean economyEnabled,
+
+    @Comment("Cost charged to player when teleporting to spawn")
+    double spawnCost,
+
+    @Comment("Refund teleportation cost if warmup is cancelled (by movement, damage, or teleport)")
+    boolean refundOnCancel,
+
+    @Comment("Enable BossBar progress indicator during warmup")
+    boolean enableBossbar,
+
+    @Comment("BossBar color (PINK, BLUE, RED, GREEN, YELLOW, PURPLE, WHITE)")
+    String bossbarColor,
+
+    @Comment("BossBar overlay style (PROGRESS, NOTCHED_6, NOTCHED_10, NOTCHED_12, NOTCHED_20)")
+    String bossbarOverlay,
+
+    @Comment("BossBar title format string")
+    String bossbarFormat,
+
+    @Comment("Enable ActionBar countdown text during warmup")
+    boolean enableActionBar,
+
+    @Comment("ActionBar format string")
+    String actionBarFormat,
+
+    @Comment("Enable on-screen Title and Subtitle countdown during warmup")
+    boolean enableTitle,
+
+    @Comment("Title format string")
+    String titleFormat,
+
+    @Comment("Subtitle format string")
+    String subtitleFormat,
+
+    @Comment("Enable audio sound effects for ticks, success, and cancellations")
+    boolean enableSounds,
+
+    @Comment("Key of the sound played on each warmup countdown tick")
+    String tickSound,
+
+    @Comment("Volume of the tick sound")
+    double tickSoundVolume,
+
+    @Comment("Key of the sound played on successful teleport")
+    String teleportSound,
+
+    @Comment("Volume of the teleport sound")
+    double teleportSoundVolume,
+
+    @Comment("Pitch of the teleport sound")
+    double teleportSoundPitch,
+
+    @Comment("Key of the sound played when warmup is cancelled")
+    String cancelSound,
+
+    @Comment("Volume of the cancellation sound")
+    double cancelSoundVolume,
+
+    @Comment("Pitch of the cancellation sound")
+    double cancelSoundPitch,
+
     @Comment("Module message strings (Alphabetically ordered)")
     SpawnMessages messages
 ) {
@@ -54,6 +117,27 @@ public record SpawnConfig(
             false,
             true,
             true,
+            false,
+            0.0,
+            true,
+            true,
+            "YELLOW",
+            "PROGRESS",
+            "<prefix><gray>Teleporting to spawn in <gold><seconds></gold>s...</gray>",
+            true,
+            "<gray>Teleporting to spawn in <gold><seconds></gold> seconds...</gray>",
+            false,
+            "<gold><seconds></gold>",
+            "<gray>Teleporting to spawn...</gray>",
+            true,
+            "minecraft:block.note_block.hat",
+            0.6,
+            "minecraft:entity.enderman.teleport",
+            0.8,
+            1.0,
+            "minecraft:block.note_block.bass",
+            0.8,
+            0.5,
             SpawnMessages.createDefault()
         );
     }
@@ -61,8 +145,11 @@ public record SpawnConfig(
     @ConfigSerializable
     public record SpawnMessages(
         String cooldownActive,
+        String costDeducted,
+        String costRefunded,
         String delSpawnGlobalSuccess,
         String delSpawnWorldSuccess,
+        String insufficientFunds,
         String mustBeInTargetWorld,
         String noSpawnSet,
         String noSpawnSetWorld,
@@ -81,8 +168,11 @@ public record SpawnConfig(
         public static SpawnMessages createDefault() {
             return new SpawnMessages(
                 "<prefix><red>You must wait <gold><seconds>s</gold> before using /spawn again!</red>",
+                "<prefix><green>Spawn teleport fee of <yellow><cost></yellow> has been deducted from your account.</green>",
+                "<prefix><yellow>Spawn teleport fee of <gold><cost></gold> has been refunded.</yellow>",
                 "<prefix><green>Global spawn location has been deleted.</green>",
                 "<prefix><green>Spawn location for world <yellow><world></yellow> has been deleted.</green>",
+                "<prefix><red>You need <yellow><cost></yellow> to teleport to spawn! Your balance: <gold><balance></gold>.</red>",
                 "<prefix><red>You must be in world <yellow><world></yellow> to set its spawn point!</red>",
                 "<prefix><red>No spawn point has been set!</red>",
                 "<prefix><red>No spawn point has been set for world <yellow><world></yellow>!</red>",

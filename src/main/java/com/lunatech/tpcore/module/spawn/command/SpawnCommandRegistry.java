@@ -3,6 +3,7 @@ package com.lunatech.tpcore.module.spawn.command;
 import com.lunatech.tpcore.config.model.SpawnConfig;
 import com.lunatech.tpcore.constant.Permissions;
 import com.lunatech.tpcore.module.spawn.service.SpawnService;
+import com.lunatech.tpcore.util.MessageFormatter;
 import com.mojang.brigadier.Command;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
@@ -11,6 +12,7 @@ import io.papermc.paper.command.brigadier.Commands;
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
+import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
 import org.bukkit.Bukkit;
 import org.bukkit.World;
 import org.bukkit.command.CommandSender;
@@ -125,10 +127,11 @@ public final class SpawnCommandRegistry {
                                         this.spawnService.setWorldSpawn(player, currentWorld);
                                     } else {
                                         SpawnConfig cfg = this.configSupplier.get();
+                                        TagResolver prefix = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
+                                        TagResolver world = Placeholder.unparsed("world", arg);
                                         player.sendMessage(this.miniMessage.deserialize(
-                                            cfg.messages().mustBeInTargetWorld(),
-                                            Placeholder.parsed("prefix", cfg.messages().prefix()),
-                                            Placeholder.unparsed("world", arg)
+                                            MessageFormatter.toMiniMessage(cfg.messages().mustBeInTargetWorld()),
+                                            TagResolver.resolver(prefix, world)
                                         ));
                                     }
                                 }
@@ -184,9 +187,10 @@ public final class SpawnCommandRegistry {
 
     private void sendOnlyPlayersMessage(CommandSender sender) {
         SpawnConfig cfg = this.configSupplier.get();
+        TagResolver prefix = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
         sender.sendMessage(this.miniMessage.deserialize(
-            cfg.messages().onlyPlayers(),
-            Placeholder.parsed("prefix", cfg.messages().prefix())
+            MessageFormatter.toMiniMessage(cfg.messages().onlyPlayers()),
+            prefix
         ));
     }
 }

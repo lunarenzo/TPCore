@@ -25,6 +25,7 @@ public final class Permissions {
     public static final String SPAWN_BYPASS = "tpcore.spawn.bypass";
     public static final String SPAWN_BYPASS_WARMUP = "tpcore.spawn.bypass.warmup";
     public static final String SPAWN_BYPASS_COOLDOWN = "tpcore.spawn.bypass.cooldown";
+    public static final String SPAWN_BYPASS_COST = "tpcore.spawn.bypass.cost";
     public static final String HOME_USE = "tpcore.home.use";
     public static final String HOME_SET = "tpcore.home.set";
     public static final String HOME_DEL = "tpcore.home.del";

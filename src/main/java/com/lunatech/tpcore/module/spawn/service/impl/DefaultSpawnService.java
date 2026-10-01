@@ -2,9 +2,11 @@ package com.lunatech.tpcore.module.spawn.service.impl;
 
 import com.lunatech.tpcore.config.model.SpawnConfig;
 import com.lunatech.tpcore.constant.Permissions;
+import com.lunatech.tpcore.module.spawn.economy.SpawnEconomyService;
 import com.lunatech.tpcore.module.spawn.model.SpawnLocation;
 import com.lunatech.tpcore.module.spawn.repository.SpawnRepository;
 import com.lunatech.tpcore.module.spawn.service.SpawnService;
+import com.lunatech.tpcore.util.MessageFormatter;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
@@ -25,20 +27,24 @@ public final class DefaultSpawnService implements SpawnService {
 
     private final JavaPlugin plugin;
     private final SpawnRepository repository;
+    private final SpawnEconomyService economyService;
     private final AtomicReference<SpawnConfig> configRef;
     private final MiniMessage miniMessage;
 
+    private final SpawnWarmupRenderer warmupRenderer;
     private final SpawnWarmupManager warmupManager;
     private final SpawnCooldownManager cooldownManager;
     private final Set<UUID> pendingVoidRescues = ConcurrentHashMap.newKeySet();
     private final Set<UUID> spawnTeleportsInProgress = ConcurrentHashMap.newKeySet();
 
-    public DefaultSpawnService(JavaPlugin plugin, SpawnRepository repository, SpawnConfig config) {
+    public DefaultSpawnService(JavaPlugin plugin, SpawnRepository repository, SpawnEconomyService economyService, SpawnConfig config) {
         this.plugin = plugin;
         this.repository = repository;
+        this.economyService = economyService;
         this.configRef = new AtomicReference<>(config);
         this.miniMessage = MiniMessage.miniMessage();
-        this.warmupManager = new SpawnWarmupManager(plugin);
+        this.warmupRenderer = new SpawnWarmupRenderer(this.miniMessage);
+        this.warmupManager = new SpawnWarmupManager(plugin, this.configRef::get, economyService, this.warmupRenderer);
         this.cooldownManager = new SpawnCooldownManager();
         this.repository.load();
     }
@@ -131,27 +137,40 @@ public final class DefaultSpawnService implements SpawnService {
             }
         }
 
-        boolean bypassWarmup = player.hasPermission(Permissions.SPAWN_BYPASS)
-            || player.hasPermission(Permissions.SPAWN_BYPASS_WARMUP);
+        this.economyService.processTeleportCostAsync(player).thenAccept(paid -> {
+            if (!Boolean.TRUE.equals(paid)) {
+                return;
+            }
 
-        int warmupSeconds = this.config().warmupSeconds();
-        if (warmupSeconds <= 0 || bypassWarmup) {
-            this.executeTeleport(player, targetLoc);
-            return;
-        }
+            player.getScheduler().run(this.plugin, task -> {
+                if (!player.isOnline()) {
+                    return;
+                }
 
-        this.warmupManager.cancelWarmup(player.getUniqueId(), null);
+                double cost = this.economyService.getCost(player);
+                boolean bypassWarmup = player.hasPermission(Permissions.SPAWN_BYPASS)
+                    || player.hasPermission(Permissions.SPAWN_BYPASS_WARMUP);
 
-        this.sendMessage(
-            player,
-            this.config().messages().warmupStart(),
-            Placeholder.unparsed("seconds", String.valueOf(warmupSeconds))
-        );
+                int warmupSeconds = this.config().warmupSeconds();
+                if (warmupSeconds <= 0 || bypassWarmup) {
+                    this.executeTeleport(player, targetLoc, cost);
+                    return;
+                }
 
-        this.warmupManager.startWarmup(player, warmupSeconds, () -> this.executeTeleport(player, targetLoc));
+                this.warmupManager.cancelWarmup(player.getUniqueId(), null);
+
+                this.sendMessage(
+                    player,
+                    this.config().messages().warmupStart(),
+                    Placeholder.unparsed("seconds", String.valueOf(warmupSeconds))
+                );
+
+                this.warmupManager.startWarmup(player, warmupSeconds, cost, () -> this.executeTeleport(player, targetLoc, 0.0));
+            }, null);
+        });
     }
 
-    private void executeTeleport(Player player, Location targetLocation) {
+    private void executeTeleport(Player player, Location targetLocation, double paidCost) {
         if (player.isInsideVehicle()) {
             player.leaveVehicle();
         }
@@ -163,21 +182,27 @@ public final class DefaultSpawnService implements SpawnService {
             SpawnSafetyInspector.findSafeLocationAsync(this.plugin, targetLocation).thenAccept(safeLoc -> {
                 player.getScheduler().run(this.plugin, task -> {
                     if (!player.isOnline()) {
+                        if (paidCost > 0.0 && this.config().refundOnCancel()) {
+                            this.economyService.processRefund(player, paidCost);
+                        }
                         return;
                     }
                     if (safeLoc == null) {
                         this.sendMessage(player, this.config().messages().teleportFailed());
+                        if (paidCost > 0.0 && this.config().refundOnCancel()) {
+                            this.economyService.processRefund(player, paidCost);
+                        }
                         return;
                     }
-                    this.performTeleport(player, safeLoc);
+                    this.performTeleport(player, safeLoc, paidCost);
                 }, null);
             });
         } else {
-            this.performTeleport(player, targetLocation);
+            this.performTeleport(player, targetLocation, paidCost);
         }
     }
 
-    private void performTeleport(Player player, Location destination) {
+    private void performTeleport(Player player, Location destination, double paidCost) {
         UUID playerId = player.getUniqueId();
         this.spawnTeleportsInProgress.add(playerId);
 
@@ -192,6 +217,9 @@ public final class DefaultSpawnService implements SpawnService {
                     }
                     this.sendMessage(player, this.config().messages().spawnTeleportSuccess());
                 } else {
+                    if (paidCost > 0.0 && this.config().refundOnCancel()) {
+                        this.economyService.processRefund(player, paidCost);
+                    }
                     this.sendMessage(player, this.config().messages().teleportFailed());
                 }
             }, null);
@@ -340,9 +368,9 @@ public final class DefaultSpawnService implements SpawnService {
     }
 
     private void sendMessage(Player player, String template, TagResolver... resolvers) {
-        TagResolver prefixResolver = Placeholder.parsed("prefix", this.config().messages().prefix());
+        TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(this.config().messages().prefix()));
         TagResolver combined = TagResolver.resolver(prefixResolver, TagResolver.resolver(resolvers));
-        player.sendMessage(this.miniMessage.deserialize(template, combined));
+        player.sendMessage(this.miniMessage.deserialize(MessageFormatter.toMiniMessage(template), combined));
     }
 
     @Override
@@ -351,5 +379,7 @@ public final class DefaultSpawnService implements SpawnService {
         this.cooldownManager.clear();
         this.pendingVoidRescues.clear();
         this.spawnTeleportsInProgress.clear();
+        this.warmupRenderer.clear();
+        this.economyService.shutdown();
     }
 }

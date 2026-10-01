@@ -4,6 +4,9 @@ import com.lunatech.tpcore.config.ModularConfigManager;
 import com.lunatech.tpcore.config.ReloadableModule;
 import com.lunatech.tpcore.config.model.SpawnConfig;
 import com.lunatech.tpcore.module.spawn.command.SpawnCommandRegistry;
+import com.lunatech.tpcore.module.spawn.economy.SpawnEconomyService;
+import com.lunatech.tpcore.module.spawn.economy.impl.NoOpSpawnEconomyService;
+import com.lunatech.tpcore.module.spawn.economy.impl.VaultSpawnEconomyService;
 import com.lunatech.tpcore.module.spawn.listener.SpawnDamageListener;
 import com.lunatech.tpcore.module.spawn.listener.SpawnJoinListener;
 import com.lunatech.tpcore.module.spawn.listener.SpawnMoveListener;
@@ -22,6 +25,7 @@ public final class SpawnModule implements ReloadableModule {
     private volatile SpawnConfig config;
 
     private SpawnRepository repository;
+    private SpawnEconomyService economyService;
     private SpawnService service;
     private SpawnJoinListener joinListener;
     private SpawnMoveListener moveListener;
@@ -64,7 +68,14 @@ public final class SpawnModule implements ReloadableModule {
         }
 
         this.repository = new YamlSpawnRepository(this.plugin, this.plugin.getDataFolder().toPath(), this.plugin.getSLF4JLogger());
-        this.service = new DefaultSpawnService(this.plugin, this.repository, this.config);
+
+        if (this.config.economyEnabled()) {
+            this.economyService = new VaultSpawnEconomyService(this.plugin, () -> this.config, this.plugin.getSLF4JLogger());
+        } else {
+            this.economyService = new NoOpSpawnEconomyService();
+        }
+
+        this.service = new DefaultSpawnService(this.plugin, this.repository, this.economyService, this.config);
 
         this.joinListener = new SpawnJoinListener(this.plugin, this.service, () -> this.config);
         this.moveListener = new SpawnMoveListener(this.service, () -> this.config);
@@ -100,6 +111,9 @@ public final class SpawnModule implements ReloadableModule {
         }
         if (this.service != null) {
             this.service.shutdown();
+        }
+        if (this.economyService != null) {
+            this.economyService.shutdown();
         }
         this.plugin.getSLF4JLogger().info("Spawn Module disabled.");
     }
