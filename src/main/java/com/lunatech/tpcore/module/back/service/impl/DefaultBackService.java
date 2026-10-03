@@ -112,7 +112,7 @@ public final class DefaultBackService implements BackService {
     private CompletableFuture<BackResultStatus> executeBackTeleport(Player player, BackLocation backLoc, Consumer<UUID> onSuccessConsumer) {
         UUID uuid = player.getUniqueId();
         if (!pendingBackOperations.add(uuid)) {
-            return CompletableFuture.completedFuture(BackResultStatus.COOLDOWN_ACTIVE);
+            return CompletableFuture.completedFuture(BackResultStatus.WARMUP_IN_PROGRESS);
         }
 
         boolean bypassCooldown = player.hasPermission(Permissions.BACK_BYPASS_COOLDOWN);
@@ -138,6 +138,7 @@ public final class DefaultBackService implements BackService {
 
         return fundCheckFuture.thenCompose(canProceed -> {
             if (!Boolean.TRUE.equals(canProceed)) {
+                pendingBackOperations.remove(uuid);
                 return CompletableFuture.completedFuture(BackResultStatus.ERROR);
             }
 
@@ -148,38 +149,66 @@ public final class DefaultBackService implements BackService {
             int warmupSeconds = config.warmupSeconds();
             boolean bypassWarmup = player.hasPermission(Permissions.BACK_BYPASS_WARMUP);
 
-            if (warmupSeconds <= 0 || bypassWarmup) {
-                return performTeleportWithSafety(player, targetLocation, onSuccessConsumer, paidCost, isChargeOnSuccess, cause);
-            }
-
-            CompletableFuture<BackResultStatus> future = new CompletableFuture<>();
-            warmupManager.startWarmup(player, backLoc, warmupSeconds, paidCost, () -> {
+            CompletableFuture<BackResultStatus> entityFuture = new CompletableFuture<>();
+            player.getScheduler().run(plugin, task -> {
                 if (!player.isOnline() || player.isDead()) {
                     if (paidCost > 0.0 && config.refundOnCancel()) {
                         economyService.processRefund(player, paidCost);
                     }
-                    future.complete(BackResultStatus.ERROR);
+                    pendingBackOperations.remove(uuid);
+                    entityFuture.complete(BackResultStatus.ERROR);
                     return;
                 }
-                World currentWorld = resolveWorld(backLoc);
-                if (currentWorld == null) {
-                    if (paidCost > 0.0 && config.refundOnCancel()) {
-                        economyService.processRefund(player, paidCost);
-                    }
-                    future.complete(BackResultStatus.WORLD_NOT_LOADED);
-                    return;
-                }
-                Location freshTarget = new Location(currentWorld, backLoc.x(), backLoc.y(), backLoc.z(), backLoc.yaw(), backLoc.pitch());
-                performTeleportWithSafety(player, freshTarget, onSuccessConsumer, paidCost, isChargeOnSuccess, cause)
-                    .thenAccept(future::complete)
-                    .exceptionally(ex -> {
-                        future.complete(BackResultStatus.ERROR);
-                        return null;
-                    });
-            }, () -> future.complete(BackResultStatus.ERROR));
 
-            return future;
-        }).whenComplete((status, throwable) -> pendingBackOperations.remove(uuid));
+                if (warmupSeconds <= 0 || bypassWarmup) {
+                    performTeleportWithSafety(player, targetLocation, onSuccessConsumer, paidCost, isChargeOnSuccess, cause)
+                        .thenAccept(entityFuture::complete)
+                        .exceptionally(ex -> {
+                            entityFuture.complete(BackResultStatus.ERROR);
+                            return null;
+                        })
+                        .whenComplete((res, err) -> pendingBackOperations.remove(uuid));
+                    return;
+                }
+
+                pendingBackOperations.remove(uuid);
+                warmupManager.startWarmup(player, backLoc, warmupSeconds, paidCost, () -> {
+                    if (!player.isOnline() || player.isDead()) {
+                        if (paidCost > 0.0 && config.refundOnCancel()) {
+                            economyService.processRefund(player, paidCost);
+                        }
+                        entityFuture.complete(BackResultStatus.ERROR);
+                        return;
+                    }
+                    World currentWorld = resolveWorld(backLoc);
+                    if (currentWorld == null) {
+                        if (paidCost > 0.0 && config.refundOnCancel()) {
+                            economyService.processRefund(player, paidCost);
+                        }
+                        entityFuture.complete(BackResultStatus.WORLD_NOT_LOADED);
+                        return;
+                    }
+                    Location freshTarget = new Location(currentWorld, backLoc.x(), backLoc.y(), backLoc.z(), backLoc.yaw(), backLoc.pitch());
+                    performTeleportWithSafety(player, freshTarget, onSuccessConsumer, paidCost, isChargeOnSuccess, cause)
+                        .thenAccept(entityFuture::complete)
+                        .exceptionally(ex -> {
+                            entityFuture.complete(BackResultStatus.ERROR);
+                            return null;
+                        });
+                }, () -> entityFuture.complete(BackResultStatus.ERROR));
+            }, () -> {
+                if (paidCost > 0.0 && config.refundOnCancel()) {
+                    economyService.processRefund(player, paidCost);
+                }
+                pendingBackOperations.remove(uuid);
+                entityFuture.complete(BackResultStatus.ERROR);
+            });
+
+            return entityFuture;
+        }).exceptionally(ex -> {
+            pendingBackOperations.remove(uuid);
+            return BackResultStatus.ERROR;
+        });
     }
 
     private void preparePlayerForTeleport(Player player) {
@@ -434,9 +463,13 @@ public final class DefaultBackService implements BackService {
         Objects.requireNonNull(playerUuid, "playerUuid cannot be null");
         return repository.loadPlayerHistory(playerUuid).thenAccept(history -> {
             if (history != null && !history.isEmpty()) {
+                List<BackLocation> liveHistory = cache.getHistory(playerUuid);
                 cache.clearPlayerHistory(playerUuid);
                 for (int i = history.size() - 1; i >= 0; i--) {
                     cache.pushLocation(playerUuid, history.get(i), config.maxHistoryDepth());
+                }
+                for (int i = liveHistory.size() - 1; i >= 0; i--) {
+                    cache.pushLocation(playerUuid, liveHistory.get(i), config.maxHistoryDepth());
                 }
             }
         });

@@ -367,7 +367,7 @@ public final class VaultBackEconomyService implements BackEconomyService {
     public void shutdown() {
         this.ioExecutor.shutdown();
         try {
-            if (!this.ioExecutor.awaitTermination(3, TimeUnit.SECONDS)) {
+            if (!this.ioExecutor.awaitTermination(500, TimeUnit.MILLISECONDS)) {
                 List<Runnable> dropped = this.ioExecutor.shutdownNow();
                 if (dropped != null && !dropped.isEmpty()) {
                     this.logger.warn("Back Economy I/O executor forced shutdown; {} pending tasks dropped.", dropped.size());

@@ -16,6 +16,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
+import org.bukkit.Bukkit;
+import org.bukkit.entity.Player;
 import org.slf4j.Logger;
 
 public final class BackDataMigrator {
@@ -63,17 +65,27 @@ public final class BackDataMigrator {
                 if (!isToActive) toRepo.initialize().join();
 
                 Map<UUID, List<BackLocation>> allData = fromRepo.loadAll().join();
+                toRepo.saveAll(allData).join();
+
                 int count = 0;
                 for (Map.Entry<UUID, List<BackLocation>> entry : allData.entrySet()) {
                     UUID playerUuid = entry.getKey();
                     List<BackLocation> history = entry.getValue();
-                    toRepo.savePlayerHistory(playerUuid, history).join();
-                    if (isToActive) {
-                        for (int i = history.size() - 1; i >= 0; i--) {
-                            cache.pushLocation(playerUuid, history.get(i), config.maxHistoryDepth());
-                        }
+                    if (isToActive && history != null) {
+                        try {
+                            if (Bukkit.getServer() != null) {
+                                Player online = Bukkit.getPlayer(playerUuid);
+                                if (online != null && online.isOnline()) {
+                                    for (int i = history.size() - 1; i >= 0; i--) {
+                                        cache.pushLocation(playerUuid, history.get(i), config.maxHistoryDepth());
+                                    }
+                                }
+                            }
+                        } catch (Throwable ignored) {}
                     }
-                    count += history.size();
+                    if (history != null) {
+                        count += history.size();
+                    }
                 }
                 logger.info("Successfully migrated {} back entries from {} storage to {} storage.", count, from, to);
                 return count;
@@ -87,7 +99,7 @@ public final class BackDataMigrator {
     public void close() {
         this.ioExecutor.shutdown();
         try {
-            if (!this.ioExecutor.awaitTermination(3, TimeUnit.SECONDS)) {
+            if (!this.ioExecutor.awaitTermination(500, TimeUnit.MILLISECONDS)) {
                 this.ioExecutor.shutdownNow();
             }
         } catch (InterruptedException e) {

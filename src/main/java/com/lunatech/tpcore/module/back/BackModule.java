@@ -16,6 +16,7 @@ import com.lunatech.tpcore.module.back.service.BackService;
 import com.lunatech.tpcore.module.back.service.impl.DefaultBackService;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import org.bukkit.event.HandlerList;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -117,10 +118,10 @@ public final class BackModule implements ReloadableModule {
         }
 
         if (this.service != null) {
-            this.service.close().join();
+            safeClose(this.service);
             this.service = null;
         } else if (this.repository != null) {
-            this.repository.close().join();
+            safeClose(this.repository);
         }
         this.repository = null;
         if (this.cache != null) {
@@ -145,7 +146,10 @@ public final class BackModule implements ReloadableModule {
 
         this.cache = new DefaultBackCache();
         this.service = new DefaultBackService(this.plugin, this.repository, this.cache, this.economyService, targetConfig, this.plugin.getSLF4JLogger());
-        this.service.initialize().join();
+        this.service.initialize().exceptionally(ex -> {
+            this.plugin.getSLF4JLogger().error("Failed to asynchronously initialize Back storage repository", ex);
+            return null;
+        });
     }
 
     public void disable() {
@@ -161,10 +165,10 @@ public final class BackModule implements ReloadableModule {
         }
 
         if (this.service != null) {
-            this.service.close().join();
+            safeClose(this.service);
             this.service = null;
         } else if (this.repository != null) {
-            this.repository.close().join();
+            safeClose(this.repository);
         }
         this.repository = null;
 
@@ -192,5 +196,25 @@ public final class BackModule implements ReloadableModule {
 
     public BackEconomyService getEconomyService() {
         return this.economyService;
+    }
+
+    private void safeClose(BackService backService) {
+        if (backService != null) {
+            try {
+                backService.close().get(1, TimeUnit.SECONDS);
+            } catch (Exception e) {
+                this.plugin.getSLF4JLogger().warn("Timed out or interrupted while closing BackService", e);
+            }
+        }
+    }
+
+    private void safeClose(BackRepository backRepository) {
+        if (backRepository != null) {
+            try {
+                backRepository.close().get(1, TimeUnit.SECONDS);
+            } catch (Exception e) {
+                this.plugin.getSLF4JLogger().warn("Timed out or interrupted while closing BackRepository", e);
+            }
+        }
     }
 }

@@ -269,7 +269,7 @@ public final class BackCommandRegistry {
     }
 
     private void handleResultStatus(Player player, BackResultStatus status, String worldName) {
-        if (status == BackResultStatus.ERROR) {
+        if (status == BackResultStatus.ERROR || status == BackResultStatus.WARMUP_IN_PROGRESS) {
             return;
         }
 

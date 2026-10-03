@@ -9,6 +9,7 @@ public enum BackResultStatus {
     WORLD_NOT_LOADED,
     UNSAFE_LOCATION,
     COOLDOWN_ACTIVE,
+    WARMUP_IN_PROGRESS,
     ERROR;
 
     public boolean isSuccess() {

@@ -153,35 +153,19 @@ public final class BackEventListener implements Listener {
                 isPvp = (victim != null);
             } else if (damager instanceof Projectile projectile
                     && projectile.getShooter() instanceof Player pShooter) {
-                long launchTime = System.currentTimeMillis() - (projectile.getTicksLived() * 50L);
-                long protectionStart = service != null ? service.getTeleportProtectionStartTime(pShooter.getUniqueId()) : 0L;
-                if (protectionStart == 0L || launchTime >= protectionStart) {
-                    attacker = pShooter;
-                }
+                attacker = pShooter;
                 isPvp = (victim != null);
             } else if (damager instanceof AreaEffectCloud cloud
                     && cloud.getSource() instanceof Player pCloudShooter) {
-                long launchTime = System.currentTimeMillis() - (cloud.getTicksLived() * 50L);
-                long protectionStart = service != null ? service.getTeleportProtectionStartTime(pCloudShooter.getUniqueId()) : 0L;
-                if (protectionStart == 0L || launchTime >= protectionStart) {
-                    attacker = pCloudShooter;
-                }
+                attacker = pCloudShooter;
                 isPvp = (victim != null);
             } else if (damager instanceof ThrownPotion potion
                     && potion.getShooter() instanceof Player pPotionShooter) {
-                long launchTime = System.currentTimeMillis() - (potion.getTicksLived() * 50L);
-                long protectionStart = service != null ? service.getTeleportProtectionStartTime(pPotionShooter.getUniqueId()) : 0L;
-                if (protectionStart == 0L || launchTime >= protectionStart) {
-                    attacker = pPotionShooter;
-                }
+                attacker = pPotionShooter;
                 isPvp = (victim != null);
             } else if (damager instanceof TNTPrimed tnt
                     && tnt.getSource() instanceof Player pTntShooter) {
-                long launchTime = System.currentTimeMillis() - (tnt.getTicksLived() * 50L);
-                long protectionStart = service != null ? service.getTeleportProtectionStartTime(pTntShooter.getUniqueId()) : 0L;
-                if (protectionStart == 0L || launchTime >= protectionStart) {
-                    attacker = pTntShooter;
-                }
+                attacker = pTntShooter;
                 isPvp = (victim != null);
             } else if (damager instanceof LightningStrike lightning
                     && lightning.getCausingEntity() instanceof Player pLightning) {

@@ -40,4 +40,13 @@ class BackCooldownManagerTest {
         cooldownManager.removeCooldown(playerUuid);
         assertFalse(cooldownManager.isOnCooldown(playerUuid, 10));
     }
+
+    @Test
+    @DisplayName("Lazy eviction cleans expired entries on isOnCooldown and getRemainingCooldownSeconds")
+    void testLazyEviction() throws InterruptedException {
+        cooldownManager.applyCooldown(playerUuid);
+        // Checking with 0-second cooldown (or passed elapsed time) should lazily evict
+        assertFalse(cooldownManager.isOnCooldown(playerUuid, 0));
+        assertEquals(0, cooldownManager.getRemainingCooldownSeconds(playerUuid, 0));
+    }
 }

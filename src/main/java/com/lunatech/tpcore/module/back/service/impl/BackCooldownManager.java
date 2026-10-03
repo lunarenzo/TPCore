@@ -17,7 +17,11 @@ public final class BackCooldownManager {
             return false;
         }
         long passedMs = System.currentTimeMillis() - lastTime;
-        return passedMs < (cooldownSeconds * 1000L);
+        if (passedMs >= (cooldownSeconds * 1000L)) {
+            cooldowns.remove(uuid, lastTime);
+            return false;
+        }
+        return true;
     }
 
     public long getRemainingCooldownSeconds(UUID uuid, int cooldownSeconds) {
@@ -31,6 +35,7 @@ public final class BackCooldownManager {
         long passedMs = System.currentTimeMillis() - lastTime;
         long cooldownMs = cooldownSeconds * 1000L;
         if (passedMs >= cooldownMs) {
+            cooldowns.remove(uuid, lastTime);
             return 0;
         }
         return Math.max(1, (cooldownMs - passedMs + 999) / 1000);

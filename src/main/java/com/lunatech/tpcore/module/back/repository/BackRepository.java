@@ -16,6 +16,8 @@ public interface BackRepository {
 
     CompletableFuture<Void> savePlayerHistory(UUID playerUuid, List<BackLocation> history);
 
+    CompletableFuture<Void> saveAll(Map<UUID, List<BackLocation>> allData);
+
     CompletableFuture<Void> deletePlayerHistory(UUID playerUuid);
 
     CompletableFuture<Void> close();

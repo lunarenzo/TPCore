@@ -48,7 +48,7 @@ public final class SqliteBackRepository implements BackRepository {
             config.setPoolName("TPCore-BackSQLitePool");
             config.setDriverClassName("org.sqlite.JDBC");
             config.setJdbcUrl("jdbc:sqlite:" + dbFile.getAbsolutePath());
-            config.setMaximumPoolSize(4);
+            config.setMaximumPoolSize(2);
             config.setConnectionTimeout(10000);
             config.setConnectionTestQuery("SELECT 1");
             config.setConnectionInitSql("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=10000;");
@@ -186,6 +186,58 @@ public final class SqliteBackRepository implements BackRepository {
     }
 
     @Override
+    public CompletableFuture<Void> saveAll(Map<UUID, List<BackLocation>> allData) {
+        if (allData == null || allData.isEmpty()) {
+            return CompletableFuture.completedFuture(null);
+        }
+        return CompletableFuture.runAsync(() -> {
+            String insertSql = """
+                INSERT INTO tpcore_back_locations (player_uuid, world_id, world_name, x, y, z, yaw, pitch, created_at, cause)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """;
+            try (Connection conn = dataSource.getConnection()) {
+                conn.setAutoCommit(false);
+                try {
+                    try (Statement delStmt = conn.createStatement()) {
+                        delStmt.execute("DELETE FROM tpcore_back_locations;");
+                    }
+                    try (PreparedStatement insPs = conn.prepareStatement(insertSql)) {
+                        for (Map.Entry<UUID, List<BackLocation>> entry : allData.entrySet()) {
+                            UUID playerUuid = entry.getKey();
+                            List<BackLocation> history = entry.getValue();
+                            if (history != null) {
+                                for (BackLocation loc : history) {
+                                    insPs.setString(1, playerUuid.toString());
+                                    insPs.setString(2, loc.worldId() != null ? loc.worldId().toString() : null);
+                                    insPs.setString(3, loc.worldName());
+                                    insPs.setDouble(4, loc.x());
+                                    insPs.setDouble(5, loc.y());
+                                    insPs.setDouble(6, loc.z());
+                                    insPs.setFloat(7, loc.yaw());
+                                    insPs.setFloat(8, loc.pitch());
+                                    insPs.setLong(9, loc.timestamp());
+                                    insPs.setString(10, loc.cause() != null ? loc.cause().name() : "TELEPORT");
+                                    insPs.addBatch();
+                                }
+                            }
+                        }
+                        insPs.executeBatch();
+                    }
+                    conn.commit();
+                } catch (Exception e) {
+                    conn.rollback();
+                    throw e;
+                } finally {
+                    conn.setAutoCommit(true);
+                }
+            } catch (SQLException e) {
+                logger.error("Failed to batch save back history in SQLite database", e);
+                throw new RuntimeException("SQLite batch save failed", e);
+            }
+        }, writeExecutor);
+    }
+
+    @Override
     public CompletableFuture<Void> deletePlayerHistory(UUID playerUuid) {
         Objects.requireNonNull(playerUuid, "playerUuid cannot be null");
         return CompletableFuture.runAsync(() -> {
@@ -220,7 +272,7 @@ public final class SqliteBackRepository implements BackRepository {
         if (executor != null && !executor.isShutdown()) {
             try {
                 executor.shutdown();
-                if (!executor.awaitTermination(3, TimeUnit.SECONDS)) {
+                if (!executor.awaitTermination(500, TimeUnit.MILLISECONDS)) {
                     executor.shutdownNow();
                 }
             } catch (Exception e) {

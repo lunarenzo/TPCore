@@ -109,9 +109,8 @@ public final class YamlBackRepository implements BackRepository {
             try {
                 CommentedConfigurationNode root = loader.createNode();
                 CommentedConfigurationNode historyNode = root.node("history");
-                for (int i = 0; i < history.size(); i++) {
-                    BackLocation loc = history.get(i);
-                    CommentedConfigurationNode itemNode = historyNode.node(i);
+                for (BackLocation loc : history) {
+                    CommentedConfigurationNode itemNode = historyNode.appendListNode();
                     itemNode.node("world-id").set(loc.worldId() != null ? loc.worldId().toString() : null);
                     itemNode.node("world").set(loc.worldName());
                     itemNode.node("x").set(loc.x());
@@ -127,6 +126,18 @@ public final class YamlBackRepository implements BackRepository {
                 logger.error("Failed to save back history for player {} to YAML file", playerUuid, e);
             }
         }, writeExecutor);
+    }
+
+    @Override
+    public CompletableFuture<Void> saveAll(Map<UUID, List<BackLocation>> allData) {
+        if (allData == null || allData.isEmpty()) {
+            return CompletableFuture.completedFuture(null);
+        }
+        List<CompletableFuture<Void>> futures = new ArrayList<>();
+        for (Map.Entry<UUID, List<BackLocation>> entry : allData.entrySet()) {
+            futures.add(savePlayerHistory(entry.getKey(), entry.getValue()));
+        }
+        return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
     }
 
     @Override
@@ -152,7 +163,7 @@ public final class YamlBackRepository implements BackRepository {
         if (executor != null && !executor.isShutdown()) {
             try {
                 executor.shutdown();
-                if (!executor.awaitTermination(3, java.util.concurrent.TimeUnit.SECONDS)) {
+                if (!executor.awaitTermination(500, java.util.concurrent.TimeUnit.MILLISECONDS)) {
                     executor.shutdownNow();
                 }
             } catch (Exception e) {
@@ -181,36 +192,42 @@ public final class YamlBackRepository implements BackRepository {
         }
     }
 
-
-
     private List<BackLocation> parseHistoryNode(CommentedConfigurationNode node) {
         List<BackLocation> list = new ArrayList<>();
         if (node.isList()) {
             for (CommentedConfigurationNode itemNode : node.childrenList()) {
-                String worldIdRaw = itemNode.node("world-id").getString();
-                UUID worldId = (worldIdRaw != null && !worldIdRaw.isBlank()) ? UUID.fromString(worldIdRaw) : null;
-                String worldName = itemNode.node("world").getString("world");
-                if (worldName == null || worldName.isBlank()) {
-                    worldName = "world";
-                }
-                double x = itemNode.node("x").getDouble(0.0);
-                double y = itemNode.node("y").getDouble(0.0);
-                double z = itemNode.node("z").getDouble(0.0);
-                float yaw = itemNode.node("yaw").getFloat(0.0f);
-                float pitch = itemNode.node("pitch").getFloat(0.0f);
-                long timestamp = itemNode.node("timestamp").getLong(System.currentTimeMillis());
-                String causeRaw = itemNode.node("cause").getString("TELEPORT");
-                BackCause cause;
-                try {
-                    cause = (causeRaw != null) ? BackCause.valueOf(causeRaw.toUpperCase()) : BackCause.TELEPORT;
-                } catch (IllegalArgumentException e) {
-                    cause = BackCause.TELEPORT;
-                }
-
-                list.add(new BackLocation(worldId, worldName, x, y, z, yaw, pitch, timestamp, cause));
+                parseSingleItemNode(itemNode, list);
+            }
+        } else if (node.isMap()) {
+            for (CommentedConfigurationNode itemNode : node.childrenMap().values()) {
+                parseSingleItemNode(itemNode, list);
             }
         }
         return list;
+    }
+
+    private void parseSingleItemNode(CommentedConfigurationNode itemNode, List<BackLocation> list) {
+        String worldIdRaw = itemNode.node("world-id").getString();
+        UUID worldId = (worldIdRaw != null && !worldIdRaw.isBlank()) ? UUID.fromString(worldIdRaw) : null;
+        String worldName = itemNode.node("world").getString("world");
+        if (worldName == null || worldName.isBlank()) {
+            worldName = "world";
+        }
+        double x = itemNode.node("x").getDouble(0.0);
+        double y = itemNode.node("y").getDouble(0.0);
+        double z = itemNode.node("z").getDouble(0.0);
+        float yaw = itemNode.node("yaw").getFloat(0.0f);
+        float pitch = itemNode.node("pitch").getFloat(0.0f);
+        long timestamp = itemNode.node("timestamp").getLong(System.currentTimeMillis());
+        String causeRaw = itemNode.node("cause").getString("TELEPORT");
+        BackCause cause;
+        try {
+            cause = (causeRaw != null) ? BackCause.valueOf(causeRaw.toUpperCase()) : BackCause.TELEPORT;
+        } catch (IllegalArgumentException e) {
+            cause = BackCause.TELEPORT;
+        }
+
+        list.add(new BackLocation(worldId, worldName, x, y, z, yaw, pitch, timestamp, cause));
     }
 
     private YamlConfigurationLoader createLoader(File file) {

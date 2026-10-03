@@ -123,7 +123,8 @@ public final class BackProtectionManager {
     }
 
     public boolean handlePlayerProtectionDamage(Player victim, Player attacker, boolean isPvp) {
-        if (attacker != null && config().protectionCancelOnAttack() && hasTeleportProtection(attacker.getUniqueId())) {
+        if (attacker != null && (victim == null || !victim.getUniqueId().equals(attacker.getUniqueId()))
+                && config().protectionCancelOnAttack() && hasTeleportProtection(attacker.getUniqueId())) {
             stripTeleportProtection(attacker.getUniqueId());
         }
 
