@@ -12,6 +12,30 @@ protection-all-damage: true
 
 cancel-on-move: true
 cancel-on-damage: true
+
+# Warmup Visual & Audio Feedback
+enable-bossbar: true
+bossbar-color: "YELLOW"
+bossbar-overlay: "PROGRESS"
+bossbar-format: "<prefix><gray>Teleporting back in <gold><seconds></gold>s...</gray>"
+
+enable-action-bar: true
+action-bar-format: "<gray>Teleporting back in <gold><seconds></gold> seconds...</gray>"
+
+enable-title: false
+title-format: "<gold><seconds></gold>"
+subtitle-format: "<gray>Teleporting back...</gray>"
+
+enable-sounds: true
+tick-sound: "minecraft:block.note_block.hat"
+tick-sound-volume: 0.6
+teleport-sound: "minecraft:entity.enderman.teleport"
+teleport-sound-volume: 0.8
+teleport-sound-pitch: 1.0
+cancel-sound: "minecraft:block.note_block.bass"
+cancel-sound-volume: 0.8
+cancel-sound-pitch: 0.5
+
 max-history-depth: 5
 min-teleport-distance: 10.0
 track-teleports: true

@@ -38,6 +38,78 @@ public record BackConfig(
     @Comment("Cancel teleport warmup if the player takes damage")
     boolean cancelOnDamage,
 
+    @Setting("enable-bossbar")
+    @Comment("Enable BossBar countdown for back warmup")
+    boolean enableBossbar,
+
+    @Setting("bossbar-color")
+    @Comment("BossBar color (PINK, BLUE, RED, GREEN, YELLOW, PURPLE, WHITE)")
+    String bossbarColor,
+
+    @Setting("bossbar-overlay")
+    @Comment("BossBar overlay style (PROGRESS, NOTCHED_6, NOTCHED_10, NOTCHED_12, NOTCHED_20)")
+    String bossbarOverlay,
+
+    @Setting("bossbar-format")
+    @Comment("BossBar title format with MiniMessage and <seconds> placeholder")
+    String bossbarFormat,
+
+    @Setting("enable-action-bar")
+    @Comment("Enable action bar countdown during back warmup")
+    boolean enableActionBar,
+
+    @Setting("action-bar-format")
+    @Comment("Action bar message format with MiniMessage and <seconds> placeholder")
+    String actionBarFormat,
+
+    @Setting("enable-title")
+    @Comment("Enable title countdown during back warmup")
+    boolean enableTitle,
+
+    @Setting("title-format")
+    @Comment("Title message format with MiniMessage and <seconds> placeholder")
+    String titleFormat,
+
+    @Setting("subtitle-format")
+    @Comment("Subtitle message format with MiniMessage and <seconds> placeholder")
+    String subtitleFormat,
+
+    @Setting("enable-sounds")
+    @Comment("Enable sound effects during back warmup and on teleport")
+    boolean enableSounds,
+
+    @Setting("tick-sound")
+    @Comment("Sound played on each warmup tick countdown")
+    String tickSound,
+
+    @Setting("tick-sound-volume")
+    @Comment("Volume of tick sound")
+    double tickSoundVolume,
+
+    @Setting("teleport-sound")
+    @Comment("Sound played when back teleport succeeds")
+    String teleportSound,
+
+    @Setting("teleport-sound-volume")
+    @Comment("Volume of teleport sound")
+    double teleportSoundVolume,
+
+    @Setting("teleport-sound-pitch")
+    @Comment("Pitch of teleport sound")
+    double teleportSoundPitch,
+
+    @Setting("cancel-sound")
+    @Comment("Sound played when back teleport is cancelled")
+    String cancelSound,
+
+    @Setting("cancel-sound-volume")
+    @Comment("Volume of cancel sound")
+    double cancelSoundVolume,
+
+    @Setting("cancel-sound-pitch")
+    @Comment("Pitch of cancel sound")
+    double cancelSoundPitch,
+
     @Setting("max-history-depth")
     @Comment("Maximum depth of back history entries stored per player")
     int maxHistoryDepth,
@@ -88,6 +160,24 @@ public record BackConfig(
             true,
             true,
             true,
+            true,
+            "YELLOW",
+            "PROGRESS",
+            "<prefix><gray>Teleporting back in <gold><seconds></gold>s...</gray>",
+            true,
+            "<gray>Teleporting back in <gold><seconds></gold> seconds...</gray>",
+            false,
+            "<gold><seconds></gold>",
+            "<gray>Teleporting back...</gray>",
+            true,
+            "minecraft:block.note_block.hat",
+            0.6,
+            "minecraft:entity.enderman.teleport",
+            0.8,
+            1.0,
+            "minecraft:block.note_block.bass",
+            0.8,
+            0.5,
             5,
             10.0,
             true,

@@ -45,7 +45,8 @@ public final class DefaultBackService implements BackService {
         this.config = Objects.requireNonNull(config, "config cannot be null");
         this.logger = Objects.requireNonNull(logger, "logger cannot be null");
         this.cooldownManager = new BackCooldownManager();
-        this.warmupManager = new BackWarmupManager(plugin, () -> this.config);
+        BackWarmupRenderer warmupRenderer = new BackWarmupRenderer(MiniMessage.miniMessage());
+        this.warmupManager = new BackWarmupManager(plugin, () -> this.config, warmupRenderer, MiniMessage.miniMessage());
         this.protectionManager = new BackProtectionManager(plugin, () -> this.config, MiniMessage.miniMessage());
         this.dataMigrator = new BackDataMigrator(plugin.getDataFolder(), logger, () -> this.config, cache, repository);
     }
