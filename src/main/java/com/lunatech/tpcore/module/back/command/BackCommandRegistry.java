@@ -131,11 +131,7 @@ public final class BackCommandRegistry {
             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
         }
 
-        String worldName = service.getHistory(player).stream()
-            .filter(loc -> loc.cause() != null && loc.cause().isDeath())
-            .findFirst()
-            .map(BackLocation::worldName)
-            .orElse("unknown");
+        String worldName = service.getLastDeathLocation(player).map(BackLocation::worldName).orElse("unknown");
         service.teleportDeath(player).thenAccept(status -> handleResultStatus(player, status, worldName));
         return com.mojang.brigadier.Command.SINGLE_SUCCESS;
     }

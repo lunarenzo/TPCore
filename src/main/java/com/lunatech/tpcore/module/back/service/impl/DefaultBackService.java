@@ -85,16 +85,14 @@ public final class DefaultBackService implements BackService {
         Objects.requireNonNull(player, "player cannot be null");
         if (!config.enabled()) return CompletableFuture.completedFuture(BackResultStatus.ERROR);
 
-        List<BackLocation> history = cache.getHistory(player.getUniqueId());
-        if (history.isEmpty()) return CompletableFuture.completedFuture(BackResultStatus.NO_DEATH_LOCATION);
+        Optional<BackLocation> locOpt = cache.peekLastDeathLocation(player.getUniqueId());
+        if (locOpt.isEmpty()) return CompletableFuture.completedFuture(BackResultStatus.NO_DEATH_LOCATION);
 
-        BackLocation targetLoc = history.stream()
-            .filter(loc -> loc.cause() != null && loc.cause().isDeath() && resolveWorld(loc) != null)
-            .findFirst().orElse(null);
-        if (targetLoc == null) return CompletableFuture.completedFuture(BackResultStatus.NO_DEATH_LOCATION);
-
-        final BackLocation finalLoc = targetLoc;
-        return executeBackTeleport(player, finalLoc, null);
+        BackLocation loc = locOpt.get();
+        return executeBackTeleport(player, loc, uuid -> {
+            cache.removeLocation(uuid, loc);
+            if (config.persistDeathLocations()) persistPlayerHistoryAsync(uuid);
+        });
     }
 
     @Override
@@ -294,25 +292,34 @@ public final class DefaultBackService implements BackService {
         UUID uuid = player.getUniqueId();
         backTeleportsInProgress.add(uuid);
 
-        return player.teleportAsync(finalLocation).thenApply(success -> {
+        return player.teleportAsync(finalLocation).thenCompose(success -> {
             backTeleportsInProgress.remove(uuid);
+            CompletableFuture<BackResultStatus> statusFuture = new CompletableFuture<>();
             if (Boolean.TRUE.equals(success)) {
-                player.setFallDistance(0.0f);
-                cooldownManager.applyCooldown(uuid);
-                protectionManager.grantTeleportProtection(player);
-                if (isChargeOnSuccess) {
-                    economyService.chargeSuccessAsync(player, cause);
+                player.getScheduler().run(plugin, task -> {
+                    if (player.isOnline()) {
+                        player.setFallDistance(0.0f);
+                        cooldownManager.applyCooldown(uuid);
+                        protectionManager.grantTeleportProtection(player);
+                        if (isChargeOnSuccess) {
+                            economyService.chargeSuccessAsync(player, cause);
+                        }
+                        if (onSuccessConsumer != null) {
+                            onSuccessConsumer.accept(uuid);
+                            persistPlayerHistoryAsync(uuid);
+                        }
+                        statusFuture.complete(hazardAdjusted ? BackResultStatus.SUCCESS_ADJUSTED_HAZARD : BackResultStatus.SUCCESS);
+                    } else {
+                        statusFuture.complete(BackResultStatus.SUCCESS);
+                    }
+                }, () -> statusFuture.complete(BackResultStatus.SUCCESS));
+            } else {
+                if (paidCost > 0.0 && config.refundOnCancel()) {
+                    economyService.processRefund(player, paidCost);
                 }
-                if (onSuccessConsumer != null) {
-                    onSuccessConsumer.accept(uuid);
-                    persistPlayerHistoryAsync(uuid);
-                }
-                return hazardAdjusted ? BackResultStatus.SUCCESS_ADJUSTED_HAZARD : BackResultStatus.SUCCESS;
+                statusFuture.complete(BackResultStatus.ERROR);
             }
-            if (paidCost > 0.0 && config.refundOnCancel()) {
-                economyService.processRefund(player, paidCost);
-            }
-            return BackResultStatus.ERROR;
+            return statusFuture;
         }).exceptionally(ex -> {
             backTeleportsInProgress.remove(uuid);
             if (paidCost > 0.0 && config.refundOnCancel()) {
@@ -327,7 +334,7 @@ public final class DefaultBackService implements BackService {
         Objects.requireNonNull(player, "player cannot be null");
         Objects.requireNonNull(location, "location cannot be null");
 
-        if (!config.enabled()) return;
+        if (!config.enabled() || location.getWorld() == null) return;
         if (cause == BackCause.TELEPORT && !config.trackTeleports()) return;
         if (cause == BackCause.PORTAL && !config.trackPortals()) return;
 
@@ -353,7 +360,7 @@ public final class DefaultBackService implements BackService {
     public void recordDeathLocation(Player player, Location location) {
         Objects.requireNonNull(player, "player cannot be null");
         Objects.requireNonNull(location, "location cannot be null");
-        if (!config.enabled() || !config.trackDeaths()) return;
+        if (!config.enabled() || !config.trackDeaths() || location.getWorld() == null) return;
 
         UUID uuid = player.getUniqueId();
         cache.pushLocation(uuid, toBackLocation(location, BackCause.DEATH), config.maxHistoryDepth());
@@ -361,8 +368,10 @@ public final class DefaultBackService implements BackService {
     }
 
     private BackLocation toBackLocation(Location loc, BackCause cause) {
+        UUID worldId = loc.getWorld() != null ? loc.getWorld().getUID() : null;
+        String worldName = loc.getWorld() != null ? loc.getWorld().getName() : "world";
         return new BackLocation(
-            loc.getWorld().getUID(), loc.getWorld().getName(),
+            worldId, worldName,
             loc.getX(), loc.getY(), loc.getZ(), loc.getYaw(), loc.getPitch(),
             System.currentTimeMillis(), cause
         );
@@ -377,6 +386,12 @@ public final class DefaultBackService implements BackService {
     public Optional<BackLocation> getLastLocation(Player player) {
         Objects.requireNonNull(player, "player cannot be null");
         return cache.peekLastLocation(player.getUniqueId());
+    }
+
+    @Override
+    public Optional<BackLocation> getLastDeathLocation(Player player) {
+        Objects.requireNonNull(player, "player cannot be null");
+        return cache.peekLastDeathLocation(player.getUniqueId());
     }
 
     @Override
@@ -408,6 +423,7 @@ public final class DefaultBackService implements BackService {
         warmupManager.handlePlayerQuit(playerUuid);
         cooldownManager.removeCooldown(playerUuid);
         protectionManager.evict(playerUuid);
+        persistPlayerHistoryAsync(playerUuid);
         cache.clearPlayerHistory(playerUuid);
         backTeleportsInProgress.remove(playerUuid);
         pendingBackOperations.remove(playerUuid);
@@ -489,10 +505,16 @@ public final class DefaultBackService implements BackService {
     }
 
     private World resolveWorld(BackLocation backLoc) {
-        if (backLoc.worldId() != null) {
-            World w = Bukkit.getWorld(backLoc.worldId());
-            if (w != null) return w;
+        if (backLoc == null) return null;
+        try {
+            if (Bukkit.getServer() == null) return null;
+            if (backLoc.worldId() != null) {
+                World w = Bukkit.getWorld(backLoc.worldId());
+                if (w != null) return w;
+            }
+            return Bukkit.getWorld(backLoc.worldName());
+        } catch (Throwable ignored) {
+            return null;
         }
-        return Bukkit.getWorld(backLoc.worldName());
     }
 }

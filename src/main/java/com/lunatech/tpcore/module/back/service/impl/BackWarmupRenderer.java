@@ -84,6 +84,9 @@ public final class BackWarmupRenderer {
             return;
         }
         try {
+            if (this.soundKeyCache.size() > 64) {
+                this.soundKeyCache.clear();
+            }
             Key soundKey = this.soundKeyCache.computeIfAbsent(soundName.toLowerCase(Locale.ROOT).trim(), Key::key);
             Sound sound = Sound.sound(soundKey, Sound.Source.PLAYER, volume, pitch);
             player.playSound(sound);

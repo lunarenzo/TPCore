@@ -26,6 +26,8 @@ public interface BackService {
 
     Optional<BackLocation> getLastLocation(Player player);
 
+    Optional<BackLocation> getLastDeathLocation(Player player);
+
     List<BackLocation> getHistory(Player player);
 
     void clearHistory(Player player);

@@ -6,6 +6,7 @@ import com.lunatech.tpcore.module.back.economy.BackEconomyService;
 import com.lunatech.tpcore.module.back.model.BackCause;
 import com.lunatech.tpcore.module.back.model.BackLocation;
 import com.lunatech.tpcore.module.back.repository.BackRepository;
+import com.lunatech.tpcore.module.back.service.BackResultStatus;
 import com.lunatech.tpcore.module.back.service.impl.BackWarmupManager;
 import com.lunatech.tpcore.module.back.service.impl.BackWarmupRenderer;
 import com.lunatech.tpcore.module.back.service.impl.DefaultBackService;
@@ -93,5 +94,69 @@ final class DefaultBackServiceRemediationTest {
 
         assertDoesNotThrow(() -> service.close().join());
         verify(mockRepo, times(1)).close();
+    }
+
+    @Test
+    @DisplayName("DefaultBackService teleportDeath retains death location on failure or cooldown")
+    void testTeleportDeathRetainsLocationOnFailure(@TempDir Path tempDir) {
+        BackConfig config = BackConfig.createDefault();
+        BackRepository mockRepo = mock(BackRepository.class);
+        Plugin mockPlugin = mock(Plugin.class);
+        when(mockPlugin.getDataFolder()).thenReturn(tempDir.toFile());
+
+        DefaultBackCache cache = new DefaultBackCache();
+        DefaultBackService service = new DefaultBackService(
+            mockPlugin,
+            mockRepo,
+            cache,
+            config,
+            LoggerFactory.getLogger("Test-BackService")
+        );
+
+        UUID uuid = UUID.randomUUID();
+        Player mockPlayer = mock(Player.class);
+        when(mockPlayer.getUniqueId()).thenReturn(uuid);
+        when(mockPlayer.hasPermission(anyString())).thenReturn(false);
+
+        BackLocation deathLoc = new BackLocation(UUID.randomUUID(), "world", 100, 64, 100, 0, 0, System.currentTimeMillis(), BackCause.DEATH);
+        cache.pushLocation(uuid, deathLoc, 5);
+
+        assertTrue(service.getLastDeathLocation(mockPlayer).isPresent());
+
+        // Attempting teleportDeath when destination world is null / unresolved fails, but MUST NOT wipe cache
+        var result = service.teleportDeath(mockPlayer).join();
+        assertNotEquals(BackResultStatus.SUCCESS, result);
+
+        // Death location must still be retained in cache!
+        assertTrue(service.getLastDeathLocation(mockPlayer).isPresent());
+        assertEquals(deathLoc, service.getLastDeathLocation(mockPlayer).get());
+    }
+
+    @Test
+    @DisplayName("DefaultBackService cancelWarmupOnQuit persists player history before clearing cache")
+    void testCancelWarmupOnQuitPersistsHistory(@TempDir Path tempDir) {
+        BackConfig config = BackConfig.createDefault();
+        BackRepository mockRepo = mock(BackRepository.class);
+        when(mockRepo.savePlayerHistory(any(), any())).thenReturn(CompletableFuture.completedFuture(null));
+        Plugin mockPlugin = mock(Plugin.class);
+        when(mockPlugin.getDataFolder()).thenReturn(tempDir.toFile());
+
+        DefaultBackCache cache = new DefaultBackCache();
+        DefaultBackService service = new DefaultBackService(
+            mockPlugin,
+            mockRepo,
+            cache,
+            config,
+            LoggerFactory.getLogger("Test-BackService")
+        );
+
+        UUID uuid = UUID.randomUUID();
+        BackLocation loc = new BackLocation(UUID.randomUUID(), "world", 10, 64, 10, 0, 0, System.currentTimeMillis(), BackCause.TELEPORT);
+        cache.pushLocation(uuid, loc, 5);
+
+        service.cancelWarmupOnQuit(uuid);
+
+        verify(mockRepo, times(1)).savePlayerHistory(eq(uuid), anyList());
+        assertTrue(cache.getHistory(uuid).isEmpty());
     }
 }

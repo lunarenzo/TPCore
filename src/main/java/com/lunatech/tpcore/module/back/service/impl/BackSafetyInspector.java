@@ -231,7 +231,7 @@ public final class BackSafetyInspector {
 
     private static int findSurfaceY(World world, int checkX, int checkZ, int minWorldY, int maxWorldY, boolean preventNetherRoof, int maxNetherHeight) {
         if (world.getEnvironment() == World.Environment.NETHER) {
-            int topY = preventNetherRoof ? Math.min(maxWorldY, maxNetherHeight - 2) : maxWorldY;
+            int topY = preventNetherRoof ? Math.min(maxWorldY, maxNetherHeight - 3) : maxWorldY;
             for (int y = topY; y >= minWorldY; y--) {
                 Block ground = world.getBlockAt(checkX, y, checkZ);
                 if (isSolidGround(ground)) {
@@ -265,7 +265,7 @@ public final class BackSafetyInspector {
             return false;
         }
 
-        if (preventNetherRoof && world.getEnvironment() == World.Environment.NETHER && y >= maxNetherHeight) {
+        if (preventNetherRoof && world.getEnvironment() == World.Environment.NETHER && (y + 1.0) >= maxNetherHeight) {
             return false;
         }
 
