@@ -74,11 +74,7 @@ public final class DefaultBackCache implements BackCache {
         if (deque == null || deque.isEmpty()) {
             return Optional.empty();
         }
-        BackLocation loc = deque.pollFirst();
-        if (deque.isEmpty()) {
-            cache.remove(playerUuid, deque);
-        }
-        return Optional.ofNullable(loc);
+        return Optional.ofNullable(deque.pollFirst());
     }
 
     @Override
@@ -112,9 +108,6 @@ public final class DefaultBackCache implements BackCache {
             BackLocation loc = iterator.next();
             if (loc.cause() != null && loc.cause().isDeath()) {
                 iterator.remove();
-                if (deque.isEmpty()) {
-                    cache.remove(playerUuid, deque);
-                }
                 return Optional.of(loc);
             }
         }
@@ -130,11 +123,7 @@ public final class DefaultBackCache implements BackCache {
         if (deque == null || deque.isEmpty()) {
             return false;
         }
-        boolean removed = deque.remove(location);
-        if (removed && deque.isEmpty()) {
-            cache.remove(playerUuid, deque);
-        }
-        return removed;
+        return deque.remove(location);
     }
 
     @Override
@@ -152,9 +141,6 @@ public final class DefaultBackCache implements BackCache {
             iterator.next();
             if (current == index) {
                 iterator.remove();
-                if (deque.isEmpty()) {
-                    cache.remove(playerUuid, deque);
-                }
                 return true;
             }
             current++;

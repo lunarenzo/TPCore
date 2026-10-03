@@ -61,7 +61,7 @@ public final class BackEventListener implements Listener {
             event.getPlayer().getScheduler().runDelayed(
                 this.plugin,
                 task -> respawningPlayers.remove(uuid),
-                null,
+                () -> respawningPlayers.remove(uuid),
                 2L
             );
         }
@@ -75,7 +75,7 @@ public final class BackEventListener implements Listener {
         if (event.getFrom() == null || event.getTo() == null) return;
 
         UUID uuid = event.getPlayer().getUniqueId();
-        if (respawningPlayers.remove(uuid)) {
+        if (respawningPlayers.contains(uuid)) {
             return;
         }
 
@@ -88,7 +88,8 @@ public final class BackEventListener implements Listener {
         }
 
         BackService service = serviceSupplier.get();
-        if (cause == PlayerTeleportEvent.TeleportCause.ENDER_PEARL) {
+        if (cause == PlayerTeleportEvent.TeleportCause.ENDER_PEARL
+            || cause == PlayerTeleportEvent.TeleportCause.CHORUS_FRUIT) {
             if (service != null && service.hasTeleportProtection(event.getPlayer().getUniqueId())) {
                 service.stripTeleportProtection(event.getPlayer().getUniqueId());
             }

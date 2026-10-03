@@ -76,6 +76,7 @@ public final class BackDataMigrator {
                             if (Bukkit.getServer() != null) {
                                 Player online = Bukkit.getPlayer(playerUuid);
                                 if (online != null && online.isOnline()) {
+                                    cache.clearPlayerHistory(playerUuid);
                                     for (int i = history.size() - 1; i >= 0; i--) {
                                         cache.pushLocation(playerUuid, history.get(i), config.maxHistoryDepth());
                                     }
