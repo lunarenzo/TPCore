@@ -20,6 +20,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 
 public final class SqliteBackRepository implements BackRepository {
@@ -27,7 +28,8 @@ public final class SqliteBackRepository implements BackRepository {
     private final File dataFolder;
     private final Logger logger;
     private HikariDataSource dataSource;
-    private ExecutorService virtualExecutor;
+    private ExecutorService readExecutor;
+    private ExecutorService writeExecutor;
 
     public SqliteBackRepository(File dataFolder, Logger logger) {
         this.dataFolder = Objects.requireNonNull(dataFolder, "dataFolder cannot be null");
@@ -47,13 +49,18 @@ public final class SqliteBackRepository implements BackRepository {
             config.setDriverClassName("org.sqlite.JDBC");
             config.setJdbcUrl("jdbc:sqlite:" + dbFile.getAbsolutePath());
             config.setMaximumPoolSize(4);
-            config.setConnectionTimeout(5000);
+            config.setConnectionTimeout(10000);
             config.setConnectionTestQuery("SELECT 1");
-            config.setConnectionInitSql("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;");
+            config.setConnectionInitSql("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=10000;");
 
             try {
                 this.dataSource = new HikariDataSource(config);
-                this.virtualExecutor = Executors.newVirtualThreadPerTaskExecutor();
+                this.readExecutor = Executors.newVirtualThreadPerTaskExecutor();
+                this.writeExecutor = Executors.newSingleThreadExecutor(r -> {
+                    Thread t = new Thread(r, "TPCore-Back-SqliteWriter");
+                    t.setDaemon(true);
+                    return t;
+                });
 
                 try (Connection conn = dataSource.getConnection();
                      Statement stmt = conn.createStatement()) {
@@ -105,7 +112,7 @@ public final class SqliteBackRepository implements BackRepository {
                 logger.error("Failed to load back locations from SQLite database", e);
             }
             return map;
-        }, virtualExecutor);
+        }, readExecutor);
     }
 
     @Override
@@ -126,7 +133,7 @@ public final class SqliteBackRepository implements BackRepository {
                 logger.error("Failed to load back history for player {} from SQLite database", playerUuid, e);
             }
             return list;
-        }, virtualExecutor);
+        }, readExecutor);
     }
 
     @Override
@@ -175,7 +182,7 @@ public final class SqliteBackRepository implements BackRepository {
                 logger.error("Failed to save back history for player {} to SQLite database", playerUuid, e);
                 throw new RuntimeException("Database save failure for player back history: " + playerUuid, e);
             }
-        }, virtualExecutor);
+        }, writeExecutor);
     }
 
     @Override
@@ -191,22 +198,14 @@ public final class SqliteBackRepository implements BackRepository {
                 logger.error("Failed to delete back history for player {} from SQLite database", playerUuid, e);
                 throw new RuntimeException("Database delete failure for player back history: " + playerUuid, e);
             }
-        }, virtualExecutor);
+        }, writeExecutor);
     }
 
     @Override
     public CompletableFuture<Void> close() {
         return CompletableFuture.runAsync(() -> {
-            if (virtualExecutor != null && !virtualExecutor.isShutdown()) {
-                try {
-                    virtualExecutor.shutdown();
-                    if (!virtualExecutor.awaitTermination(3, java.util.concurrent.TimeUnit.SECONDS)) {
-                        virtualExecutor.shutdownNow();
-                    }
-                } catch (Exception e) {
-                    logger.error("Error shutting down virtualExecutor in SqliteBackRepository", e);
-                }
-            }
+            shutdownExecutor(writeExecutor, "writeExecutor");
+            shutdownExecutor(readExecutor, "readExecutor");
             if (dataSource != null && !dataSource.isClosed()) {
                 try {
                     dataSource.close();
@@ -215,6 +214,19 @@ public final class SqliteBackRepository implements BackRepository {
                 }
             }
         });
+    }
+
+    private void shutdownExecutor(ExecutorService executor, String name) {
+        if (executor != null && !executor.isShutdown()) {
+            try {
+                executor.shutdown();
+                if (!executor.awaitTermination(3, TimeUnit.SECONDS)) {
+                    executor.shutdownNow();
+                }
+            } catch (Exception e) {
+                logger.error("Error shutting down {} in SqliteBackRepository", name, e);
+            }
+        }
     }
 
     private BackLocation mapResultSetToBackLocation(ResultSet rs) throws SQLException {

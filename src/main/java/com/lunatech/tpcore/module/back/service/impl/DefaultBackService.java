@@ -1,6 +1,7 @@
 package com.lunatech.tpcore.module.back.service.impl;
 
 import com.lunatech.tpcore.config.model.BackConfig;
+import com.lunatech.tpcore.constant.Permissions;
 import com.lunatech.tpcore.module.back.cache.BackCache;
 import com.lunatech.tpcore.module.back.model.BackCause;
 import com.lunatech.tpcore.module.back.model.BackLocation;
@@ -9,8 +10,6 @@ import com.lunatech.tpcore.module.back.repository.impl.SqliteBackRepository;
 import com.lunatech.tpcore.module.back.repository.impl.YamlBackRepository;
 import com.lunatech.tpcore.module.back.service.BackResultStatus;
 import com.lunatech.tpcore.module.back.service.BackService;
-import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -21,13 +20,9 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.function.Consumer;
-import net.kyori.adventure.text.minimessage.MiniMessage;
-import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
-import org.bukkit.Material;
 import org.bukkit.World;
-import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 import org.slf4j.Logger;
@@ -39,13 +34,10 @@ public final class DefaultBackService implements BackService {
     private final BackCache cache;
     private final Logger logger;
     private volatile BackConfig config;
-    private final MiniMessage miniMessage = MiniMessage.miniMessage();
 
-    private final Map<UUID, Long> cooldowns = new ConcurrentHashMap<>();
-    private final Map<UUID, WarmupSession> activeWarmups = new ConcurrentHashMap<>();
-    private final Set<UUID> backTeleportInProgress = ConcurrentHashMap.newKeySet();
-
-    private record WarmupSession(ScheduledTask task, BackLocation targetBackLoc) {}
+    private final BackCooldownManager cooldownManager;
+    private final BackWarmupManager warmupManager;
+    private final Set<UUID> backTeleportsInProgress = ConcurrentHashMap.newKeySet();
 
     public DefaultBackService(Plugin plugin, BackRepository repository, BackCache cache, BackConfig config, Logger logger) {
         this.plugin = Objects.requireNonNull(plugin, "plugin cannot be null");
@@ -53,28 +45,21 @@ public final class DefaultBackService implements BackService {
         this.cache = Objects.requireNonNull(cache, "cache cannot be null");
         this.config = Objects.requireNonNull(config, "config cannot be null");
         this.logger = Objects.requireNonNull(logger, "logger cannot be null");
+        this.cooldownManager = new BackCooldownManager();
+        this.warmupManager = new BackWarmupManager(plugin, () -> this.config);
     }
 
     @Override
     public CompletableFuture<Void> initialize() {
-        return repository.initialize()
-            .thenCompose(v -> repository.loadAll())
-            .thenAccept(cache::populate);
+        return repository.initialize().thenCompose(v -> repository.loadAll()).thenAccept(cache::populate);
     }
 
     @Override
     public CompletableFuture<BackResultStatus> teleportBack(Player player) {
         Objects.requireNonNull(player, "player cannot be null");
-
-        if (!config.enabled()) {
-            return CompletableFuture.completedFuture(BackResultStatus.ERROR);
-        }
-
+        if (!config.enabled()) return CompletableFuture.completedFuture(BackResultStatus.ERROR);
         Optional<BackLocation> locOpt = cache.peekLastLocation(player.getUniqueId());
-        if (locOpt.isEmpty()) {
-            return CompletableFuture.completedFuture(BackResultStatus.NO_BACK_LOCATION);
-        }
-
+        if (locOpt.isEmpty()) return CompletableFuture.completedFuture(BackResultStatus.NO_BACK_LOCATION);
         BackLocation loc = locOpt.get();
         return executeBackTeleport(player, loc, uuid -> cache.removeLocation(uuid, loc));
     }
@@ -82,16 +67,9 @@ public final class DefaultBackService implements BackService {
     @Override
     public CompletableFuture<BackResultStatus> teleportDeath(Player player) {
         Objects.requireNonNull(player, "player cannot be null");
-
-        if (!config.enabled()) {
-            return CompletableFuture.completedFuture(BackResultStatus.ERROR);
-        }
-
+        if (!config.enabled()) return CompletableFuture.completedFuture(BackResultStatus.ERROR);
         Optional<BackLocation> locOpt = cache.peekLastDeathLocation(player.getUniqueId());
-        if (locOpt.isEmpty()) {
-            return CompletableFuture.completedFuture(BackResultStatus.NO_DEATH_LOCATION);
-        }
-
+        if (locOpt.isEmpty()) return CompletableFuture.completedFuture(BackResultStatus.NO_DEATH_LOCATION);
         BackLocation loc = locOpt.get();
         return executeBackTeleport(player, loc, uuid -> cache.removeLocation(uuid, loc));
     }
@@ -99,164 +77,97 @@ public final class DefaultBackService implements BackService {
     @Override
     public CompletableFuture<BackResultStatus> teleportToHistory(Player player, int index) {
         Objects.requireNonNull(player, "player cannot be null");
-
-        if (!config.enabled()) {
-            return CompletableFuture.completedFuture(BackResultStatus.ERROR);
-        }
-
+        if (!config.enabled()) return CompletableFuture.completedFuture(BackResultStatus.ERROR);
         List<BackLocation> history = cache.getHistory(player.getUniqueId());
         if (history.isEmpty() || index < 0 || index >= history.size()) {
             return CompletableFuture.completedFuture(BackResultStatus.NO_BACK_LOCATION);
         }
-
         BackLocation loc = history.get(index);
         return executeBackTeleport(player, loc, uuid -> cache.removeLocation(uuid, loc));
     }
 
     private CompletableFuture<BackResultStatus> executeBackTeleport(Player player, BackLocation backLoc, Consumer<UUID> onSuccessConsumer) {
         UUID uuid = player.getUniqueId();
-
-        long now = System.currentTimeMillis();
-        long cooldownMs = config.cooldownSeconds() * 1000L;
-        Long lastTime = cooldowns.get(uuid);
-        if (lastTime != null && (now - lastTime) < cooldownMs && !player.hasPermission("tpcore.back.bypass.cooldown")) {
+        boolean bypassCooldown = player.hasPermission(Permissions.BACK_BYPASS_COOLDOWN);
+        if (!bypassCooldown && cooldownManager.isOnCooldown(uuid, config.cooldownSeconds())) {
             return CompletableFuture.completedFuture(BackResultStatus.COOLDOWN_ACTIVE);
         }
 
         World world = resolveWorld(backLoc);
-        if (world == null) {
-            return CompletableFuture.completedFuture(BackResultStatus.WORLD_NOT_LOADED);
-        }
+        if (world == null) return CompletableFuture.completedFuture(BackResultStatus.WORLD_NOT_LOADED);
 
         Location targetLocation = new Location(world, backLoc.x(), backLoc.y(), backLoc.z(), backLoc.yaw(), backLoc.pitch());
-
-        cancelWarmupSession(uuid);
+        warmupManager.cancelWarmup(uuid);
 
         int warmupSeconds = config.warmupSeconds();
-        boolean bypassWarmup = player.hasPermission("tpcore.back.bypass.warmup");
+        boolean bypassWarmup = player.hasPermission(Permissions.BACK_BYPASS_WARMUP);
 
         if (warmupSeconds <= 0 || bypassWarmup) {
-            cooldowns.put(uuid, now);
-            return performTeleportWithSafety(player, targetLocation, backLoc, onSuccessConsumer);
+            return performTeleportWithSafety(player, targetLocation, onSuccessConsumer);
         }
 
-        String startMsg = config.messages().prefix() + config.messages().warmupStart();
-        player.sendMessage(miniMessage.deserialize(startMsg, Placeholder.unparsed("seconds", String.valueOf(warmupSeconds))));
+        CompletableFuture<BackResultStatus> future = new CompletableFuture<>();
+        warmupManager.startWarmup(player, backLoc, warmupSeconds, () -> {
+            performTeleportWithSafety(player, targetLocation, onSuccessConsumer).thenAccept(future::complete);
+        }, () -> future.complete(BackResultStatus.ERROR));
 
-        CompletableFuture<BackResultStatus> futureResult = new CompletableFuture<>();
-
-        long delayTicks = warmupSeconds * 20L;
-        ScheduledTask scheduledTask = player.getScheduler().runDelayed(plugin, task -> {
-            activeWarmups.remove(uuid);
-            cooldowns.put(uuid, System.currentTimeMillis());
-            performTeleportWithSafety(player, targetLocation, backLoc, onSuccessConsumer).thenAccept(futureResult::complete);
-        }, () -> {
-            activeWarmups.remove(uuid);
-            futureResult.complete(BackResultStatus.ERROR);
-        }, delayTicks);
-
-        if (scheduledTask != null) {
-            activeWarmups.put(uuid, new WarmupSession(scheduledTask, backLoc));
-        } else {
-            return performTeleportWithSafety(player, targetLocation, backLoc, onSuccessConsumer);
-        }
-
-        return futureResult;
+        return future;
     }
 
-    private CompletableFuture<BackResultStatus> performTeleportWithSafety(Player player, Location targetLocation, BackLocation backLoc, Consumer<UUID> onSuccessConsumer) {
+    private CompletableFuture<BackResultStatus> performTeleportWithSafety(Player player, Location targetLocation, Consumer<UUID> onSuccessConsumer) {
         World world = targetLocation.getWorld();
-        if (world == null) {
-            return CompletableFuture.completedFuture(BackResultStatus.WORLD_NOT_LOADED);
+        if (world == null) return CompletableFuture.completedFuture(BackResultStatus.WORLD_NOT_LOADED);
+
+        if (!config.safetyChecks().preventUnsafeTeleport()) {
+            return performAsyncBackTeleport(player, targetLocation, onSuccessConsumer, false);
         }
 
-        boolean requireSafety = config.safetyChecks().preventUnsafeTeleport();
-        int chunkX = Math.floorDiv(targetLocation.getBlockX(), 16);
-        int chunkZ = Math.floorDiv(targetLocation.getBlockZ(), 16);
-
-        if (requireSafety && world.isChunkLoaded(chunkX, chunkZ)) {
-            Location finalLoc = resolveSafeLocation(targetLocation);
-            if (finalLoc == null) {
-                return CompletableFuture.completedFuture(BackResultStatus.UNSAFE_LOCATION);
-            }
-            boolean adjusted = !finalLoc.equals(targetLocation);
-            return performAsyncBackTeleport(player, finalLoc, onSuccessConsumer, adjusted);
-        }
-
-        if (requireSafety && !world.isChunkLoaded(chunkX, chunkZ)) {
-            CompletableFuture<BackResultStatus> future = new CompletableFuture<>();
-            world.getChunkAtAsync(targetLocation).thenAccept(chunk -> {
-                player.getScheduler().run(plugin, task -> {
-                    Location finalLoc = resolveSafeLocation(targetLocation);
-                    if (finalLoc == null) {
-                        future.complete(BackResultStatus.UNSAFE_LOCATION);
-                        return;
-                    }
-                    boolean adjusted = !finalLoc.equals(targetLocation);
-                    performAsyncBackTeleport(player, finalLoc, onSuccessConsumer, adjusted).thenAccept(future::complete);
-                }, () -> future.complete(BackResultStatus.ERROR));
-            }).exceptionally(ex -> {
+        CompletableFuture<BackResultStatus> future = new CompletableFuture<>();
+        BackSafetyInspector.findSafeLocationAsync(
+            plugin,
+            targetLocation,
+            config.safetyChecks().autoAdjustHazard(),
+            config.safetyChecks().hazardSearchRadius(),
+            config.safetyChecks().preventNetherRoof(),
+            config.safetyChecks().maxNetherHeight()
+        ).thenAccept(safeLoc -> player.getScheduler().run(plugin, task -> {
+            if (!player.isOnline()) {
                 future.complete(BackResultStatus.ERROR);
-                return null;
-            });
-            return future;
-        }
+                return;
+            }
+            if (safeLoc == null) {
+                future.complete(BackResultStatus.UNSAFE_LOCATION);
+                return;
+            }
+            boolean adjusted = !safeLoc.equals(targetLocation);
+            performAsyncBackTeleport(player, safeLoc, onSuccessConsumer, adjusted).thenAccept(future::complete);
+        }, () -> future.complete(BackResultStatus.ERROR))).exceptionally(ex -> {
+            future.complete(BackResultStatus.ERROR);
+            return null;
+        });
 
-        return performAsyncBackTeleport(player, targetLocation, onSuccessConsumer, false);
+        return future;
     }
 
     private CompletableFuture<BackResultStatus> performAsyncBackTeleport(Player player, Location finalLocation, Consumer<UUID> onSuccessConsumer, boolean hazardAdjusted) {
         UUID uuid = player.getUniqueId();
-        backTeleportInProgress.add(uuid);
+        backTeleportsInProgress.add(uuid);
 
         return player.teleportAsync(finalLocation).thenApply(success -> {
-            backTeleportInProgress.remove(uuid);
+            backTeleportsInProgress.remove(uuid);
             if (Boolean.TRUE.equals(success)) {
+                cooldownManager.applyCooldown(uuid);
                 if (onSuccessConsumer != null) {
                     onSuccessConsumer.accept(uuid);
                     persistPlayerHistoryAsync(uuid);
                 }
                 return hazardAdjusted ? BackResultStatus.SUCCESS_ADJUSTED_HAZARD : BackResultStatus.SUCCESS;
-            } else {
-                return BackResultStatus.ERROR;
             }
+            return BackResultStatus.ERROR;
         }).exceptionally(ex -> {
-            backTeleportInProgress.remove(uuid);
+            backTeleportsInProgress.remove(uuid);
             return BackResultStatus.ERROR;
         });
-    }
-
-    private Location resolveSafeLocation(Location targetLocation) {
-        if (isLocationSafe(targetLocation)) {
-            return targetLocation;
-        }
-
-        if (!config.safetyChecks().autoAdjustHazard()) {
-            return null;
-        }
-
-        int radius = Math.max(1, Math.min(10, config.safetyChecks().hazardSearchRadius()));
-        World world = targetLocation.getWorld();
-        if (world == null) return null;
-
-        int baseX = targetLocation.getBlockX();
-        int baseY = targetLocation.getBlockY();
-        int baseZ = targetLocation.getBlockZ();
-
-        for (int r = 1; r <= radius; r++) {
-            for (int dx = -r; dx <= r; dx++) {
-                for (int dz = -r; dz <= r; dz++) {
-                    if (Math.abs(dx) != r && Math.abs(dz) != r) continue;
-                    for (int dy = -2; dy <= 2; dy++) {
-                        Location cand = new Location(world, baseX + dx + 0.5, baseY + dy, baseZ + dz + 0.5, targetLocation.getYaw(), targetLocation.getPitch());
-                        if (isLocationSafe(cand)) {
-                            return cand;
-                        }
-                    }
-                }
-            }
-        }
-        return null;
     }
 
     @Override
@@ -269,20 +180,15 @@ public final class DefaultBackService implements BackService {
         if (cause == BackCause.PORTAL && !config.trackPortals()) return;
 
         UUID uuid = player.getUniqueId();
-        if (backTeleportInProgress.contains(uuid)) return;
-
         Optional<BackLocation> lastOpt = cache.peekLastLocation(uuid);
         if (lastOpt.isPresent()) {
             BackLocation last = lastOpt.get();
             if (last.isSameWorld(location.getWorld().getUID(), location.getWorld().getName())) {
                 double distSq = last.distanceSquared(location.getX(), location.getY(), location.getZ());
                 double minDist = config.minTeleportDistance();
-                if (distSq < (minDist * minDist)) {
-                    return;
-                }
+                if (distSq < (minDist * minDist)) return;
             }
         }
-
 
         BackLocation backLoc = new BackLocation(
             location.getWorld().getUID(),
@@ -295,7 +201,6 @@ public final class DefaultBackService implements BackService {
             System.currentTimeMillis(),
             cause != null ? cause : BackCause.TELEPORT
         );
-
         cache.pushLocation(uuid, backLoc, config.maxHistoryDepth());
     }
 
@@ -303,7 +208,6 @@ public final class DefaultBackService implements BackService {
     public void recordDeathLocation(Player player, Location location) {
         Objects.requireNonNull(player, "player cannot be null");
         Objects.requireNonNull(location, "location cannot be null");
-
         if (!config.enabled() || !config.trackDeaths()) return;
 
         UUID uuid = player.getUniqueId();
@@ -318,12 +222,8 @@ public final class DefaultBackService implements BackService {
             System.currentTimeMillis(),
             BackCause.DEATH
         );
-
         cache.pushLocation(uuid, deathLoc, config.maxHistoryDepth());
-
-        if (config.persistDeathLocations()) {
-            persistPlayerHistoryAsync(uuid);
-        }
+        if (config.persistDeathLocations()) persistPlayerHistoryAsync(uuid);
     }
 
     private void persistPlayerHistoryAsync(UUID uuid) {
@@ -353,55 +253,30 @@ public final class DefaultBackService implements BackService {
 
     @Override
     public void cancelWarmupOnMove(Player player) {
-        WarmupSession session = activeWarmups.remove(player.getUniqueId());
-        if (session != null) {
-            session.task().cancel();
-            String msg = config.messages().prefix() + config.messages().warmupCancelledMove();
-            player.sendMessage(miniMessage.deserialize(msg));
-        }
+        if (config.cancelOnMove()) warmupManager.handlePlayerMove(player);
     }
 
     @Override
     public void cancelWarmupOnDamage(Player player) {
-        WarmupSession session = activeWarmups.remove(player.getUniqueId());
-        if (session != null) {
-            session.task().cancel();
-            String msg = config.messages().prefix() + config.messages().warmupCancelledDamage();
-            player.sendMessage(miniMessage.deserialize(msg));
-        }
+        if (config.cancelOnDamage()) warmupManager.handlePlayerDamage(player);
     }
 
     @Override
     public void cancelWarmupOnQuit(UUID playerUuid) {
-        cancelWarmupSession(playerUuid);
-        cooldowns.remove(playerUuid);
+        warmupManager.handlePlayerQuit(playerUuid);
+        cooldownManager.removeCooldown(playerUuid);
         cache.clearPlayerHistory(playerUuid);
-        backTeleportInProgress.remove(playerUuid);
+        backTeleportsInProgress.remove(playerUuid);
     }
 
     @Override
     public long getRemainingCooldownSeconds(UUID playerUuid) {
-        if (playerUuid == null) return 0;
-        Long lastTime = cooldowns.get(playerUuid);
-        if (lastTime == null) return 0;
-        long passedMs = System.currentTimeMillis() - lastTime;
-        long cooldownMs = config.cooldownSeconds() * 1000L;
-        if (passedMs >= cooldownMs) return 0;
-        return Math.max(1, (cooldownMs - passedMs + 999) / 1000);
-    }
-
-    private void cancelWarmupSession(UUID uuid) {
-        WarmupSession session = activeWarmups.remove(uuid);
-        if (session != null && session.task() != null) {
-            session.task().cancel();
-        }
+        return cooldownManager.getRemainingCooldownSeconds(playerUuid, config.cooldownSeconds());
     }
 
     @Override
     public void updateConfig(BackConfig newConfig) {
-        if (newConfig != null) {
-            this.config = newConfig;
-        }
+        if (newConfig != null) this.config = newConfig;
     }
 
     @Override
@@ -421,23 +296,15 @@ public final class DefaultBackService implements BackService {
 
         return CompletableFuture.supplyAsync(() -> {
             String activeType = (config.storage() != null && "YAML".equalsIgnoreCase(config.storage().type())) ? "YAML" : "SQLITE";
-
             boolean isFromActive = from.equals(activeType);
             boolean isToActive = to.equals(activeType);
 
             BackRepository fromRepo = isFromActive ? repository : createRepoForType(from);
             BackRepository toRepo = isToActive ? repository : createRepoForType(to);
 
-            boolean tempFrom = !isFromActive;
-            boolean tempTo = !isToActive;
-
             try {
-                if (tempFrom) {
-                    fromRepo.initialize().join();
-                }
-                if (tempTo) {
-                    toRepo.initialize().join();
-                }
+                if (!isFromActive) fromRepo.initialize().join();
+                if (!isToActive) toRepo.initialize().join();
 
                 Map<UUID, List<BackLocation>> allData = fromRepo.loadAll().join();
                 int count = 0;
@@ -446,27 +313,17 @@ public final class DefaultBackService implements BackService {
                     List<BackLocation> history = entry.getValue();
                     toRepo.savePlayerHistory(playerUuid, history).join();
                     if (isToActive) {
-                        cache.pushLocation(playerUuid, history.get(0), config.maxHistoryDepth());
+                        for (int i = history.size() - 1; i >= 0; i--) {
+                            cache.pushLocation(playerUuid, history.get(i), config.maxHistoryDepth());
+                        }
                     }
                     count += history.size();
                 }
                 logger.info("Successfully migrated {} back entries from {} storage to {} storage.", count, from, to);
                 return count;
             } finally {
-                if (tempFrom && fromRepo != null) {
-                    try {
-                        fromRepo.close().join();
-                    } catch (Exception e) {
-                        logger.error("Failed to close temporary migration source repository", e);
-                    }
-                }
-                if (tempTo && toRepo != null) {
-                    try {
-                        toRepo.close().join();
-                    } catch (Exception e) {
-                        logger.error("Failed to close temporary migration target repository", e);
-                    }
-                }
+                if (!isFromActive && fromRepo != null) fromRepo.close().join();
+                if (!isToActive && toRepo != null) toRepo.close().join();
             }
         }, Executors.newVirtualThreadPerTaskExecutor());
     }
@@ -476,11 +333,9 @@ public final class DefaultBackService implements BackService {
     }
 
     private BackRepository createRepoForType(String type) {
-        if ("YAML".equalsIgnoreCase(type)) {
-            return new YamlBackRepository(plugin.getDataFolder(), logger);
-        } else {
-            return new SqliteBackRepository(plugin.getDataFolder(), logger);
-        }
+        return "YAML".equalsIgnoreCase(type)
+            ? new YamlBackRepository(plugin.getDataFolder(), logger)
+            : new SqliteBackRepository(plugin.getDataFolder(), logger);
     }
 
     @Override
@@ -496,19 +351,12 @@ public final class DefaultBackService implements BackService {
         });
     }
 
-
     @Override
     public CompletableFuture<Void> close() {
-
-        for (WarmupSession session : activeWarmups.values()) {
-            if (session.task() != null) {
-                session.task().cancel();
-            }
-        }
-        activeWarmups.clear();
-        cooldowns.clear();
+        warmupManager.clear();
+        cooldownManager.clear();
         cache.clear();
-        backTeleportInProgress.clear();
+        backTeleportsInProgress.clear();
         return repository.close();
     }
 
@@ -519,43 +367,4 @@ public final class DefaultBackService implements BackService {
         }
         return Bukkit.getWorld(backLoc.worldName());
     }
-
-    private boolean isLocationSafe(Location location) {
-        World world = location.getWorld();
-        if (world == null) return false;
-
-        double y = location.getY();
-        if (y < world.getMinHeight() || y >= world.getMaxHeight()) {
-            return false;
-        }
-
-        Block feet = location.getBlock();
-        Block head = feet.getRelative(0, 1, 0);
-        Block ground = feet.getRelative(0, -1, 0);
-
-        if (feet.getType().isSolid() || head.getType().isSolid()) {
-            return false;
-        }
-        if (isDangerousBlock(feet.getType()) || isDangerousBlock(head.getType())) {
-            return false;
-        }
-
-        if (config.safetyChecks().preventNetherRoof() && world.getEnvironment() == World.Environment.NETHER) {
-            if (y >= config.safetyChecks().maxNetherHeight()) {
-                return false;
-            }
-        }
-        return ground.getType().isSolid() || feet.getType() == Material.WATER;
-    }
-
-    private boolean isDangerousBlock(Material material) {
-        return material == Material.LAVA
-            || material == Material.FIRE
-            || material == Material.SOUL_FIRE
-            || material == Material.POWDER_SNOW
-            || material == Material.MAGMA_BLOCK
-            || material == Material.SWEET_BERRY_BUSH
-            || material == Material.WITHER_ROSE;
-    }
-
 }
