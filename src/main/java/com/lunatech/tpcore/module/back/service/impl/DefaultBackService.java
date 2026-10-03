@@ -53,7 +53,7 @@ public final class DefaultBackService implements BackService {
 
     @Override
     public CompletableFuture<Void> initialize() {
-        return repository.initialize().thenCompose(v -> repository.loadAll()).thenAccept(cache::populate);
+        return repository.initialize();
     }
 
     @Override
@@ -151,6 +151,7 @@ public final class DefaultBackService implements BackService {
         if (player.isGliding()) {
             player.setGliding(false);
         }
+        player.setFallDistance(0.0f);
     }
 
     private CompletableFuture<BackResultStatus> performTeleportWithSafety(Player player, Location targetLocation, Consumer<UUID> onSuccessConsumer) {
@@ -198,6 +199,7 @@ public final class DefaultBackService implements BackService {
         return player.teleportAsync(finalLocation).thenApply(success -> {
             backTeleportsInProgress.remove(uuid);
             if (Boolean.TRUE.equals(success)) {
+                player.setFallDistance(0.0f);
                 cooldownManager.applyCooldown(uuid);
                 protectionManager.grantTeleportProtection(player);
                 if (onSuccessConsumer != null) {
@@ -230,14 +232,12 @@ public final class DefaultBackService implements BackService {
         Optional<BackLocation> lastOpt = cache.peekLastLocation(uuid);
         if (lastOpt.isPresent()) {
             BackLocation last = lastOpt.get();
+            long elapsedSinceLast = System.currentTimeMillis() - last.timestamp();
+            if (last.cause() == BackCause.DEATH && cause == BackCause.TELEPORT && elapsedSinceLast < 10_000L) {
+                return;
+            }
             if (last.isSameWorld(location.getWorld().getUID(), location.getWorld().getName())) {
                 double distSq = last.distanceSquared(location.getX(), location.getY(), location.getZ());
-                if (last.cause() == BackCause.DEATH && cause == BackCause.TELEPORT && distSq < 16.0) {
-                    long elapsedMs = System.currentTimeMillis() - last.timestamp();
-                    if (elapsedMs < 30_000L) {
-                        return;
-                    }
-                }
                 double minDist = config.minTeleportDistance();
                 if (distSq < (minDist * minDist)) return;
             }

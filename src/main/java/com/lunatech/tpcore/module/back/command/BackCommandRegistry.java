@@ -39,7 +39,7 @@ public final class BackCommandRegistry {
 
             commands.register(
                 Commands.literal("back")
-                    .requires(src -> src.getSender().hasPermission(Permissions.BACK_USE))
+                    .requires(src -> hasAnyBackPermission(src.getSender()))
                     .executes(ctx -> executeBack(ctx.getSource().getSender()))
                     .then(Commands.literal("death")
                         .requires(src -> src.getSender().hasPermission(Permissions.BACK_DEATH))
@@ -60,6 +60,7 @@ public final class BackCommandRegistry {
                         )
                     )
                     .then(Commands.argument("index", IntegerArgumentType.integer(0, 50))
+                        .requires(src -> src.getSender().hasPermission(Permissions.BACK_USE))
                         .executes(ctx -> executeBackIndex(
                             ctx.getSource().getSender(),
                             IntegerArgumentType.getInteger(ctx, "index")
@@ -70,6 +71,13 @@ public final class BackCommandRegistry {
                 List.of("return")
             );
         });
+    }
+
+    private boolean hasAnyBackPermission(CommandSender sender) {
+        return sender.hasPermission(Permissions.BACK_USE)
+            || sender.hasPermission(Permissions.BACK_DEATH)
+            || sender.hasPermission(Permissions.BACK_LIST)
+            || sender.hasPermission(Permissions.BACK_CLEAR);
     }
 
     private int executeBack(CommandSender sender) {
@@ -84,13 +92,19 @@ public final class BackCommandRegistry {
             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
         }
 
+        if (!player.hasPermission(Permissions.BACK_USE)) {
+            sendMessage(player, config.messages().noPermission());
+            return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+        }
+
         BackService service = backServiceSupplier.get();
         if (service == null) {
             sendDisabledMessage(sender);
             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
         }
 
-        service.teleportBack(player).thenAccept(status -> handleResultStatus(player, status));
+        String worldName = service.getLastLocation(player).map(BackLocation::worldName).orElse("unknown");
+        service.teleportBack(player).thenAccept(status -> handleResultStatus(player, status, worldName));
         return com.mojang.brigadier.Command.SINGLE_SUCCESS;
     }
 
@@ -106,13 +120,23 @@ public final class BackCommandRegistry {
             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
         }
 
+        if (!player.hasPermission(Permissions.BACK_DEATH)) {
+            sendMessage(player, config.messages().noPermission());
+            return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+        }
+
         BackService service = backServiceSupplier.get();
         if (service == null) {
             sendDisabledMessage(sender);
             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
         }
 
-        service.teleportDeath(player).thenAccept(status -> handleResultStatus(player, status));
+        String worldName = service.getHistory(player).stream()
+            .filter(loc -> loc.cause() != null && loc.cause().isDeath())
+            .findFirst()
+            .map(BackLocation::worldName)
+            .orElse("unknown");
+        service.teleportDeath(player).thenAccept(status -> handleResultStatus(player, status, worldName));
         return com.mojang.brigadier.Command.SINGLE_SUCCESS;
     }
 
@@ -128,13 +152,20 @@ public final class BackCommandRegistry {
             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
         }
 
+        if (!player.hasPermission(Permissions.BACK_USE)) {
+            sendMessage(player, config.messages().noPermission());
+            return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+        }
+
         BackService service = backServiceSupplier.get();
         if (service == null) {
             sendDisabledMessage(sender);
             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
         }
 
-        service.teleportToHistory(player, index).thenAccept(status -> handleResultStatus(player, status));
+        List<BackLocation> history = service.getHistory(player);
+        String worldName = (index >= 0 && index < history.size()) ? history.get(index).worldName() : "unknown";
+        service.teleportToHistory(player, index).thenAccept(status -> handleResultStatus(player, status, worldName));
         return com.mojang.brigadier.Command.SINGLE_SUCCESS;
     }
 
@@ -147,6 +178,11 @@ public final class BackCommandRegistry {
 
         if (!(sender instanceof Player player)) {
             sendOnlyPlayersMessage(sender);
+            return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+        }
+
+        if (!player.hasPermission(Permissions.BACK_CLEAR)) {
+            sendMessage(player, config.messages().noPermission());
             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
         }
 
@@ -170,6 +206,11 @@ public final class BackCommandRegistry {
 
         if (!(sender instanceof Player player)) {
             sendOnlyPlayersMessage(sender);
+            return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+        }
+
+        if (!player.hasPermission(Permissions.BACK_LIST)) {
+            sendMessage(player, config.messages().noPermission());
             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
         }
 
@@ -221,10 +262,11 @@ public final class BackCommandRegistry {
         return com.mojang.brigadier.Command.SINGLE_SUCCESS;
     }
 
-    private void handleResultStatus(Player player, BackResultStatus status) {
+    private void handleResultStatus(Player player, BackResultStatus status, String worldName) {
         BackConfig config = configSupplier.get();
         BackService service = backServiceSupplier.get();
         long remainingSecs = service != null ? service.getRemainingCooldownSeconds(player.getUniqueId()) : 0;
+        String worldDisplay = (worldName != null && !worldName.isBlank()) ? worldName : "unknown";
 
         String rawMsg = switch (status) {
             case SUCCESS -> config.messages().teleportSuccess();
@@ -242,7 +284,8 @@ public final class BackCommandRegistry {
             player,
             rawMsg,
             Placeholder.unparsed("seconds", String.valueOf(remainingSecs)),
-            Placeholder.unparsed("hazard", "Lava/Suffocation")
+            Placeholder.unparsed("hazard", "Lava/Suffocation"),
+            Placeholder.unparsed("world", worldDisplay)
         );
     }
 

@@ -47,12 +47,26 @@ public final class BackEventListener implements Listener {
 
         if (event.getFrom() == null || event.getTo() == null) return;
 
-        BackCause backCause = switch (event.getCause()) {
+        PlayerTeleportEvent.TeleportCause cause = event.getCause();
+        if (cause == PlayerTeleportEvent.TeleportCause.DISMOUNT
+            || cause == PlayerTeleportEvent.TeleportCause.EXIT_BED
+            || cause == PlayerTeleportEvent.TeleportCause.SPECTATE
+            || cause == PlayerTeleportEvent.TeleportCause.UNKNOWN) {
+            return;
+        }
+
+        BackService service = serviceSupplier.get();
+        if (cause == PlayerTeleportEvent.TeleportCause.ENDER_PEARL) {
+            if (service != null && service.hasTeleportProtection(event.getPlayer().getUniqueId())) {
+                service.stripTeleportProtection(event.getPlayer().getUniqueId());
+            }
+        }
+
+        BackCause backCause = switch (cause) {
             case NETHER_PORTAL, END_PORTAL, END_GATEWAY -> BackCause.PORTAL;
             default -> BackCause.TELEPORT;
         };
 
-        BackService service = serviceSupplier.get();
         if (service != null) {
             service.recordLocation(event.getPlayer(), event.getFrom(), backCause);
         }

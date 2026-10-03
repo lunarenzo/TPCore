@@ -23,18 +23,19 @@ public final class BackModule implements ReloadableModule {
     private final ModularConfigManager configManager;
     private volatile BackConfig config;
     private boolean isInitialized = false;
-    private boolean commandsRegistered = false;
 
     private BackRepository repository;
     private BackCache cache;
     private BackService service;
     private BackEventListener eventListener;
-    private BackCommandRegistry commandRegistry;
+    private final BackCommandRegistry commandRegistry;
 
     public BackModule(JavaPlugin plugin, ModularConfigManager configManager, BackConfig config) {
         this.plugin = Objects.requireNonNull(plugin, "plugin cannot be null");
         this.configManager = Objects.requireNonNull(configManager, "configManager cannot be null");
         this.config = Objects.requireNonNull(config, "config cannot be null");
+        this.commandRegistry = new BackCommandRegistry(this.plugin, this::getService, () -> this.config);
+        this.commandRegistry.registerAll();
     }
 
     @Override
@@ -94,12 +95,6 @@ public final class BackModule implements ReloadableModule {
         if (this.eventListener == null) {
             this.eventListener = new BackEventListener(this::getService, () -> this.config);
             this.plugin.getServer().getPluginManager().registerEvents(this.eventListener, this.plugin);
-        }
-
-        if (!this.commandsRegistered) {
-            this.commandRegistry = new BackCommandRegistry(this.plugin, this::getService, () -> this.config);
-            this.commandRegistry.registerAll();
-            this.commandsRegistered = true;
         }
 
         this.configManager.registerModule(this);
