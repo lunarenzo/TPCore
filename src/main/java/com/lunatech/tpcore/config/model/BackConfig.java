@@ -38,6 +38,26 @@ public record BackConfig(
     @Comment("Cancel teleport warmup if the player takes damage")
     boolean cancelOnDamage,
 
+    @Setting("economy-enabled")
+    @Comment("Enable Vault economy integration for back teleport costs")
+    boolean economyEnabled,
+
+    @Setting("back-cost")
+    @Comment("Cost in currency to execute /back command (0 for free)")
+    double backCost,
+
+    @Setting("back-death-cost")
+    @Comment("Cost in currency to execute /back death command (0 for free)")
+    double backDeathCost,
+
+    @Setting("charge-on-warmup")
+    @Comment("Charge teleportation cost before warmup begins (true) or upon successful teleport (false)")
+    boolean chargeOnWarmup,
+
+    @Setting("refund-on-cancel")
+    @Comment("Refund teleportation cost if warmup is cancelled (by movement, damage, or quit)")
+    boolean refundOnCancel,
+
     @Setting("enable-bossbar")
     @Comment("Enable BossBar countdown for back warmup")
     boolean enableBossbar,
@@ -160,6 +180,11 @@ public record BackConfig(
             true,
             true,
             true,
+            false,
+            0.0,
+            0.0,
+            true,
+            true,
             true,
             "YELLOW",
             "PROGRESS",
@@ -240,8 +265,17 @@ public record BackConfig(
         @Setting("cooldown-active")
         String cooldownActive,
 
+        @Setting("cost-deducted")
+        String costDeducted,
+
+        @Setting("cost-refunded")
+        String costRefunded,
+
         @Setting("history-cleared")
         String historyCleared,
+
+        @Setting("insufficient-funds")
+        String insufficientFunds,
 
         @Setting("module-disabled")
         String moduleDisabled,
@@ -295,7 +329,10 @@ public record BackConfig(
                 "<prefix><gray>Your Location History (Page <gold><page></gold>/<gold><maxpages></gold>):</gray>",
                 "  <dark_gray>•</dark_gray> <green><cause></green> <gray>in</gray> <yellow><world></yellow> <gray>(<x>, <y>, <z>)</gray> <click:run_command:'/back <index>'><hover:show_text:'<green>Click to teleport</green><br><gray>Time: <yellow><time></yellow>'><gold>[Teleport]</gold></hover></click>",
                 "<prefix><red>You must wait <gold><seconds>s</gold> before using /back again!</red>",
+                "<prefix><green>Back teleport fee of <gold><cost></gold> has been deducted from your account.</green>",
+                "<prefix><yellow>Back teleport fee of <gold><cost></gold> has been refunded.</yellow>",
                 "<prefix><green>Your back location history has been cleared.</green>",
+                "<prefix><red>You need <gold><cost></gold> to teleport back! Your balance: <gold><balance></gold>.</red>",
                 "<prefix><red>Back module is currently disabled.</red>",
                 "<prefix><red>You do not have a previous location to return to!</red>",
                 "<prefix><red>You do not have a recorded death location!</red>",

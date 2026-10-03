@@ -1,6 +1,8 @@
 package com.lunatech.tpcore.module.back.service.impl;
 
 import com.lunatech.tpcore.config.model.BackConfig;
+import com.lunatech.tpcore.module.back.economy.BackEconomyService;
+import com.lunatech.tpcore.module.back.economy.impl.NoOpBackEconomyService;
 import com.lunatech.tpcore.module.back.model.BackLocation;
 import com.lunatech.tpcore.util.MessageFormatter;
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
@@ -23,6 +25,7 @@ public final class BackWarmupManager {
 
     private final Plugin plugin;
     private final Supplier<BackConfig> configSupplier;
+    private final BackEconomyService economyService;
     private final BackWarmupRenderer renderer;
     private final MiniMessage miniMessage;
     private final Map<UUID, ActiveWarmup> activeWarmups = new ConcurrentHashMap<>();
@@ -36,10 +39,11 @@ public final class BackWarmupManager {
         private final int totalSeconds;
         private int remainingSeconds;
         private final BackLocation targetLocation;
+        private final double paidCost;
         private BossBar bossBar;
         private ScheduledTask task;
 
-        ActiveWarmup(UUID playerId, String worldName, double startX, double startY, double startZ, int totalSeconds, BackLocation targetLocation) {
+        ActiveWarmup(UUID playerId, String worldName, double startX, double startY, double startZ, int totalSeconds, BackLocation targetLocation, double paidCost) {
             this.playerId = playerId;
             this.worldName = worldName;
             this.startX = startX;
@@ -48,6 +52,7 @@ public final class BackWarmupManager {
             this.totalSeconds = totalSeconds;
             this.remainingSeconds = totalSeconds;
             this.targetLocation = targetLocation;
+            this.paidCost = paidCost;
         }
 
         boolean hasMoved(Location currentLoc) {
@@ -65,8 +70,13 @@ public final class BackWarmupManager {
     }
 
     public BackWarmupManager(Plugin plugin, Supplier<BackConfig> configSupplier, BackWarmupRenderer renderer, MiniMessage miniMessage) {
+        this(plugin, configSupplier, new NoOpBackEconomyService(), renderer, miniMessage);
+    }
+
+    public BackWarmupManager(Plugin plugin, Supplier<BackConfig> configSupplier, BackEconomyService economyService, BackWarmupRenderer renderer, MiniMessage miniMessage) {
         this.plugin = plugin;
         this.configSupplier = Objects.requireNonNull(configSupplier, "configSupplier cannot be null");
+        this.economyService = Objects.requireNonNull(economyService, "economyService cannot be null");
         this.renderer = Objects.requireNonNull(renderer, "renderer cannot be null");
         this.miniMessage = Objects.requireNonNull(miniMessage, "miniMessage cannot be null");
     }
@@ -75,7 +85,7 @@ public final class BackWarmupManager {
         return uuid != null && activeWarmups.containsKey(uuid);
     }
 
-    public void startWarmup(Player player, BackLocation targetBackLoc, int warmupSeconds, Runnable onComplete, Runnable onCancel) {
+    public void startWarmup(Player player, BackLocation targetBackLoc, int warmupSeconds, double paidCost, Runnable onComplete, Runnable onCancel) {
         UUID uuid = player.getUniqueId();
         this.cancelWarmup(uuid, null);
 
@@ -97,7 +107,8 @@ public final class BackWarmupManager {
             loc.getY(),
             loc.getZ(),
             warmupSeconds,
-            targetBackLoc
+            targetBackLoc,
+            paidCost
         );
 
         BossBar bossBar = this.renderer.createBossBar(config, warmupSeconds);
@@ -184,6 +195,9 @@ public final class BackWarmupManager {
                     onCancelled.accept(player);
                 }
             }
+            if (warmup.paidCost > 0.0 && config.refundOnCancel()) {
+                this.economyService.processRefund(Bukkit.getOfflinePlayer(uuid), warmup.paidCost);
+            }
         }
     }
 
@@ -213,6 +227,7 @@ public final class BackWarmupManager {
     }
 
     public void clear() {
+        BackConfig config = this.configSupplier.get();
         for (ActiveWarmup warmup : this.activeWarmups.values()) {
             if (warmup.task != null) {
                 warmup.task.cancel();
@@ -220,6 +235,9 @@ public final class BackWarmupManager {
             Player player = Bukkit.getPlayer(warmup.playerId);
             if (player != null && player.isOnline() && warmup.bossBar != null) {
                 player.hideBossBar(warmup.bossBar);
+            }
+            if (warmup.paidCost > 0.0 && config.refundOnCancel()) {
+                this.economyService.processRefund(Bukkit.getOfflinePlayer(warmup.playerId), warmup.paidCost);
             }
         }
         this.activeWarmups.clear();

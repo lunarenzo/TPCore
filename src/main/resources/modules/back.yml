@@ -13,6 +13,15 @@ protection-all-damage: true
 cancel-on-move: true
 cancel-on-damage: true
 
+# Economy Settings (Vault / VaultUnlocked)
+economy-enabled: false
+back-cost: 0.0
+back-death-cost: 0.0
+# When true, charges the player before warmup starts (and refunds on warmup cancellation if refund-on-cancel is true).
+# When false, verifies balance before warmup and charges only on successful teleport arrival.
+charge-on-warmup: true
+refund-on-cancel: true
+
 # Warmup Visual & Audio Feedback
 enable-bossbar: true
 bossbar-color: "YELLOW"
@@ -61,7 +70,10 @@ messages:
   back-list-header: "<prefix><gray>Your Location History (Page <gold><page></gold>/<gold><maxpages></gold>):</gray>"
   back-list-item: "  <dark_gray>•</dark_gray> <green><cause></green> <gray>in</gray> <yellow><world></yellow> <gray>(<x>, <y>, <z>)</gray> <click:run_command:'/back <index>'><hover:show_text:'<green>Click to teleport</green><br><gray>Time: <yellow><time></yellow>'><gold>[Teleport]</gold></hover></click>"
   cooldown-active: "<prefix><red>You must wait <gold><seconds>s</gold> before using /back again!</red>"
+  cost-deducted: "<prefix><green>Back teleport fee of <gold><cost></gold> has been deducted from your account.</green>"
+  cost-refunded: "<prefix><yellow>Back teleport fee of <gold><cost></gold> has been refunded.</yellow>"
   history-cleared: "<prefix><green>Your back location history has been cleared.</green>"
+  insufficient-funds: "<prefix><red>You need <gold><cost></gold> to teleport back! Your balance: <gold><balance></gold>.</red>"
   module-disabled: "<prefix><red>Back module is currently disabled.</red>"
   no-back-location: "<prefix><red>You do not have a previous location to return to!</red>"
   no-death-location: "<prefix><red>You do not have a recorded death location!</red>"

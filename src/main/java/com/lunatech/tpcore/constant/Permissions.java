@@ -52,6 +52,7 @@ public final class Permissions {
     public static final String BACK_CLEAR = "tpcore.back.clear";
     public static final String BACK_BYPASS_WARMUP = "tpcore.back.bypass.warmup";
     public static final String BACK_BYPASS_COOLDOWN = "tpcore.back.bypass.cooldown";
+    public static final String BACK_BYPASS_COST = "tpcore.back.bypass.cost";
     public static final String RTP_USE = "tpcore.rtp.use";
     public static final String RTP_WORLD = "tpcore.rtp.world";
     public static final String RTP_BYPASS_WARMUP = "tpcore.rtp.bypass.warmup";

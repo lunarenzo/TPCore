@@ -3,6 +3,8 @@ package com.lunatech.tpcore.module.back.service.impl;
 import com.lunatech.tpcore.config.model.BackConfig;
 import com.lunatech.tpcore.constant.Permissions;
 import com.lunatech.tpcore.module.back.cache.BackCache;
+import com.lunatech.tpcore.module.back.economy.BackEconomyService;
+import com.lunatech.tpcore.module.back.economy.impl.NoOpBackEconomyService;
 import com.lunatech.tpcore.module.back.model.BackCause;
 import com.lunatech.tpcore.module.back.model.BackLocation;
 import com.lunatech.tpcore.module.back.repository.BackRepository;
@@ -29,6 +31,7 @@ public final class DefaultBackService implements BackService {
     private final Plugin plugin;
     private final BackRepository repository;
     private final BackCache cache;
+    private final BackEconomyService economyService;
     private final Logger logger;
     private volatile BackConfig config;
 
@@ -39,14 +42,19 @@ public final class DefaultBackService implements BackService {
     private final Set<UUID> backTeleportsInProgress = ConcurrentHashMap.newKeySet();
 
     public DefaultBackService(Plugin plugin, BackRepository repository, BackCache cache, BackConfig config, Logger logger) {
+        this(plugin, repository, cache, new NoOpBackEconomyService(), config, logger);
+    }
+
+    public DefaultBackService(Plugin plugin, BackRepository repository, BackCache cache, BackEconomyService economyService, BackConfig config, Logger logger) {
         this.plugin = Objects.requireNonNull(plugin, "plugin cannot be null");
         this.repository = Objects.requireNonNull(repository, "repository cannot be null");
         this.cache = Objects.requireNonNull(cache, "cache cannot be null");
+        this.economyService = Objects.requireNonNull(economyService, "economyService cannot be null");
         this.config = Objects.requireNonNull(config, "config cannot be null");
         this.logger = Objects.requireNonNull(logger, "logger cannot be null");
         this.cooldownManager = new BackCooldownManager();
         BackWarmupRenderer warmupRenderer = new BackWarmupRenderer(MiniMessage.miniMessage());
-        this.warmupManager = new BackWarmupManager(plugin, () -> this.config, warmupRenderer, MiniMessage.miniMessage());
+        this.warmupManager = new BackWarmupManager(plugin, () -> this.config, economyService, warmupRenderer, MiniMessage.miniMessage());
         this.protectionManager = new BackProtectionManager(plugin, () -> this.config, MiniMessage.miniMessage());
         this.dataMigrator = new BackDataMigrator(plugin.getDataFolder(), logger, () -> this.config, cache, repository);
     }
@@ -113,29 +121,51 @@ public final class DefaultBackService implements BackService {
         Location targetLocation = new Location(world, backLoc.x(), backLoc.y(), backLoc.z(), backLoc.yaw(), backLoc.pitch());
         warmupManager.cancelWarmup(uuid);
 
-        int warmupSeconds = config.warmupSeconds();
-        boolean bypassWarmup = player.hasPermission(Permissions.BACK_BYPASS_WARMUP);
+        BackCause cause = backLoc.cause() != null ? backLoc.cause() : BackCause.TELEPORT;
+        boolean chargeOnWarmup = config.chargeOnWarmup();
+        var fundCheckFuture = chargeOnWarmup
+            ? economyService.processCostAsync(player, cause)
+            : economyService.validateFundsAsync(player, cause);
 
-        if (warmupSeconds <= 0 || bypassWarmup) {
-            return performTeleportWithSafety(player, targetLocation, onSuccessConsumer);
-        }
-
-        CompletableFuture<BackResultStatus> future = new CompletableFuture<>();
-        warmupManager.startWarmup(player, backLoc, warmupSeconds, () -> {
-            if (!player.isOnline() || player.isDead()) {
-                future.complete(BackResultStatus.ERROR);
-                return;
+        return fundCheckFuture.thenCompose(canProceed -> {
+            if (!Boolean.TRUE.equals(canProceed)) {
+                return CompletableFuture.completedFuture(BackResultStatus.ERROR);
             }
-            World currentWorld = resolveWorld(backLoc);
-            if (currentWorld == null) {
-                future.complete(BackResultStatus.WORLD_NOT_LOADED);
-                return;
-            }
-            Location freshTarget = new Location(currentWorld, backLoc.x(), backLoc.y(), backLoc.z(), backLoc.yaw(), backLoc.pitch());
-            performTeleportWithSafety(player, freshTarget, onSuccessConsumer).thenAccept(future::complete);
-        }, () -> future.complete(BackResultStatus.ERROR));
 
-        return future;
+            double cost = economyService.getCost(player, cause);
+            double paidCost = chargeOnWarmup ? cost : 0.0;
+            boolean isChargeOnSuccess = !chargeOnWarmup && cost > 0.0;
+
+            int warmupSeconds = config.warmupSeconds();
+            boolean bypassWarmup = player.hasPermission(Permissions.BACK_BYPASS_WARMUP);
+
+            if (warmupSeconds <= 0 || bypassWarmup) {
+                return performTeleportWithSafety(player, targetLocation, onSuccessConsumer, paidCost, isChargeOnSuccess, cause);
+            }
+
+            CompletableFuture<BackResultStatus> future = new CompletableFuture<>();
+            warmupManager.startWarmup(player, backLoc, warmupSeconds, paidCost, () -> {
+                if (!player.isOnline() || player.isDead()) {
+                    if (paidCost > 0.0 && config.refundOnCancel()) {
+                        economyService.processRefund(player, paidCost);
+                    }
+                    future.complete(BackResultStatus.ERROR);
+                    return;
+                }
+                World currentWorld = resolveWorld(backLoc);
+                if (currentWorld == null) {
+                    if (paidCost > 0.0 && config.refundOnCancel()) {
+                        economyService.processRefund(player, paidCost);
+                    }
+                    future.complete(BackResultStatus.WORLD_NOT_LOADED);
+                    return;
+                }
+                Location freshTarget = new Location(currentWorld, backLoc.x(), backLoc.y(), backLoc.z(), backLoc.yaw(), backLoc.pitch());
+                performTeleportWithSafety(player, freshTarget, onSuccessConsumer, paidCost, isChargeOnSuccess, cause).thenAccept(future::complete);
+            }, () -> future.complete(BackResultStatus.ERROR));
+
+            return future;
+        });
     }
 
     private void preparePlayerForTeleport(Player player) {
@@ -154,14 +184,22 @@ public final class DefaultBackService implements BackService {
         player.setFallDistance(0.0f);
     }
 
-    private CompletableFuture<BackResultStatus> performTeleportWithSafety(Player player, Location targetLocation, Consumer<UUID> onSuccessConsumer) {
+    private CompletableFuture<BackResultStatus> performTeleportWithSafety(
+        Player player, Location targetLocation, Consumer<UUID> onSuccessConsumer,
+        double paidCost, boolean isChargeOnSuccess, BackCause cause
+    ) {
         World world = targetLocation.getWorld();
-        if (world == null) return CompletableFuture.completedFuture(BackResultStatus.WORLD_NOT_LOADED);
+        if (world == null) {
+            if (paidCost > 0.0 && config.refundOnCancel()) {
+                economyService.processRefund(player, paidCost);
+            }
+            return CompletableFuture.completedFuture(BackResultStatus.WORLD_NOT_LOADED);
+        }
 
         preparePlayerForTeleport(player);
 
         if (!config.safetyChecks().preventUnsafeTeleport()) {
-            return performAsyncBackTeleport(player, targetLocation, onSuccessConsumer, false);
+            return performAsyncBackTeleport(player, targetLocation, onSuccessConsumer, false, paidCost, isChargeOnSuccess, cause);
         }
 
         CompletableFuture<BackResultStatus> future = new CompletableFuture<>();
@@ -174,17 +212,31 @@ public final class DefaultBackService implements BackService {
             config.safetyChecks().maxNetherHeight()
         ).thenAccept(safeLoc -> player.getScheduler().run(plugin, task -> {
             if (!player.isOnline() || player.isDead()) {
+                if (paidCost > 0.0 && config.refundOnCancel()) {
+                    economyService.processRefund(player, paidCost);
+                }
                 future.complete(BackResultStatus.ERROR);
                 return;
             }
             if (safeLoc == null) {
+                if (paidCost > 0.0 && config.refundOnCancel()) {
+                    economyService.processRefund(player, paidCost);
+                }
                 future.complete(BackResultStatus.UNSAFE_LOCATION);
                 return;
             }
             preparePlayerForTeleport(player);
             boolean adjusted = !safeLoc.equals(targetLocation);
-            performAsyncBackTeleport(player, safeLoc, onSuccessConsumer, adjusted).thenAccept(future::complete);
-        }, () -> future.complete(BackResultStatus.ERROR))).exceptionally(ex -> {
+            performAsyncBackTeleport(player, safeLoc, onSuccessConsumer, adjusted, paidCost, isChargeOnSuccess, cause).thenAccept(future::complete);
+        }, () -> {
+            if (paidCost > 0.0 && config.refundOnCancel()) {
+                economyService.processRefund(player, paidCost);
+            }
+            future.complete(BackResultStatus.ERROR);
+        })).exceptionally(ex -> {
+            if (paidCost > 0.0 && config.refundOnCancel()) {
+                economyService.processRefund(player, paidCost);
+            }
             future.complete(BackResultStatus.ERROR);
             return null;
         });
@@ -192,7 +244,10 @@ public final class DefaultBackService implements BackService {
         return future;
     }
 
-    private CompletableFuture<BackResultStatus> performAsyncBackTeleport(Player player, Location finalLocation, Consumer<UUID> onSuccessConsumer, boolean hazardAdjusted) {
+    private CompletableFuture<BackResultStatus> performAsyncBackTeleport(
+        Player player, Location finalLocation, Consumer<UUID> onSuccessConsumer,
+        boolean hazardAdjusted, double paidCost, boolean isChargeOnSuccess, BackCause cause
+    ) {
         UUID uuid = player.getUniqueId();
         backTeleportsInProgress.add(uuid);
 
@@ -202,15 +257,24 @@ public final class DefaultBackService implements BackService {
                 player.setFallDistance(0.0f);
                 cooldownManager.applyCooldown(uuid);
                 protectionManager.grantTeleportProtection(player);
+                if (isChargeOnSuccess) {
+                    economyService.chargeSuccessAsync(player, cause);
+                }
                 if (onSuccessConsumer != null) {
                     onSuccessConsumer.accept(uuid);
                     persistPlayerHistoryAsync(uuid);
                 }
                 return hazardAdjusted ? BackResultStatus.SUCCESS_ADJUSTED_HAZARD : BackResultStatus.SUCCESS;
             }
+            if (paidCost > 0.0 && config.refundOnCancel()) {
+                economyService.processRefund(player, paidCost);
+            }
             return BackResultStatus.ERROR;
         }).exceptionally(ex -> {
             backTeleportsInProgress.remove(uuid);
+            if (paidCost > 0.0 && config.refundOnCancel()) {
+                economyService.processRefund(player, paidCost);
+            }
             return BackResultStatus.ERROR;
         });
     }
@@ -374,6 +438,7 @@ public final class DefaultBackService implements BackService {
         protectionManager.clear();
         cache.clear();
         backTeleportsInProgress.clear();
+        economyService.shutdown();
         return repository.close();
     }
 

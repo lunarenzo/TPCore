@@ -6,6 +6,8 @@ import com.lunatech.tpcore.config.model.BackConfig;
 import com.lunatech.tpcore.module.back.cache.BackCache;
 import com.lunatech.tpcore.module.back.cache.impl.DefaultBackCache;
 import com.lunatech.tpcore.module.back.command.BackCommandRegistry;
+import com.lunatech.tpcore.module.back.economy.BackEconomyService;
+import com.lunatech.tpcore.module.back.economy.impl.VaultBackEconomyService;
 import com.lunatech.tpcore.module.back.listener.BackEventListener;
 import com.lunatech.tpcore.module.back.repository.BackRepository;
 import com.lunatech.tpcore.module.back.repository.impl.SqliteBackRepository;
@@ -26,6 +28,7 @@ public final class BackModule implements ReloadableModule {
 
     private BackRepository repository;
     private BackCache cache;
+    private BackEconomyService economyService;
     private BackService service;
     private BackEventListener eventListener;
     private final BackCommandRegistry commandRegistry;
@@ -136,8 +139,12 @@ public final class BackModule implements ReloadableModule {
             this.repository = new SqliteBackRepository(this.plugin.getDataFolder(), this.plugin.getSLF4JLogger());
         }
 
+        if (this.economyService == null) {
+            this.economyService = new VaultBackEconomyService(this.plugin, () -> this.config, this.plugin.getSLF4JLogger());
+        }
+
         this.cache = new DefaultBackCache();
-        this.service = new DefaultBackService(this.plugin, this.repository, this.cache, targetConfig, this.plugin.getSLF4JLogger());
+        this.service = new DefaultBackService(this.plugin, this.repository, this.cache, this.economyService, targetConfig, this.plugin.getSLF4JLogger());
         this.service.initialize().join();
     }
 
@@ -161,6 +168,11 @@ public final class BackModule implements ReloadableModule {
         }
         this.repository = null;
 
+        if (this.economyService != null) {
+            this.economyService.shutdown();
+            this.economyService = null;
+        }
+
         if (this.cache != null) {
             this.cache.clear();
             this.cache = null;
@@ -176,5 +188,9 @@ public final class BackModule implements ReloadableModule {
 
     public BackCache getCache() {
         return this.cache;
+    }
+
+    public BackEconomyService getEconomyService() {
+        return this.economyService;
     }
 }
