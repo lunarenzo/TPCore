@@ -6,20 +6,17 @@ import com.lunatech.tpcore.module.back.cache.BackCache;
 import com.lunatech.tpcore.module.back.model.BackCause;
 import com.lunatech.tpcore.module.back.model.BackLocation;
 import com.lunatech.tpcore.module.back.repository.BackRepository;
-import com.lunatech.tpcore.module.back.repository.impl.SqliteBackRepository;
-import com.lunatech.tpcore.module.back.repository.impl.YamlBackRepository;
 import com.lunatech.tpcore.module.back.service.BackResultStatus;
 import com.lunatech.tpcore.module.back.service.BackService;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
 import java.util.function.Consumer;
+import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.World;
@@ -49,7 +46,7 @@ public final class DefaultBackService implements BackService {
         this.logger = Objects.requireNonNull(logger, "logger cannot be null");
         this.cooldownManager = new BackCooldownManager();
         this.warmupManager = new BackWarmupManager(plugin, () -> this.config);
-        this.protectionManager = new BackProtectionManager();
+        this.protectionManager = new BackProtectionManager(plugin, () -> this.config, MiniMessage.miniMessage());
         this.dataMigrator = new BackDataMigrator(plugin.getDataFolder(), logger, () -> this.config, cache, repository);
     }
 
@@ -205,10 +202,7 @@ public final class DefaultBackService implements BackService {
             backTeleportsInProgress.remove(uuid);
             if (Boolean.TRUE.equals(success)) {
                 cooldownManager.applyCooldown(uuid);
-                int protectionSecs = config.teleportProtectionSeconds();
-                if (protectionSecs > 0) {
-                    protectionManager.grantProtection(uuid, protectionSecs);
-                }
+                protectionManager.grantTeleportProtection(player);
                 if (onSuccessConsumer != null) {
                     onSuccessConsumer.accept(uuid);
                     persistPlayerHistoryAsync(uuid);
@@ -327,7 +321,7 @@ public final class DefaultBackService implements BackService {
     public void cancelWarmupOnQuit(UUID playerUuid) {
         warmupManager.handlePlayerQuit(playerUuid);
         cooldownManager.removeCooldown(playerUuid);
-        protectionManager.removeProtection(playerUuid);
+        protectionManager.evict(playerUuid);
         cache.clearPlayerHistory(playerUuid);
         backTeleportsInProgress.remove(playerUuid);
     }
@@ -338,8 +332,33 @@ public final class DefaultBackService implements BackService {
     }
 
     @Override
+    public void grantTeleportProtection(Player player) {
+        protectionManager.grantTeleportProtection(player);
+    }
+
+    @Override
+    public boolean hasTeleportProtection(UUID playerId) {
+        return protectionManager.hasTeleportProtection(playerId);
+    }
+
+    @Override
+    public long getTeleportProtectionStartTime(UUID playerId) {
+        return protectionManager.getTeleportProtectionStartTime(playerId);
+    }
+
+    @Override
+    public void stripTeleportProtection(UUID playerId) {
+        protectionManager.stripTeleportProtection(playerId);
+    }
+
+    @Override
+    public boolean handlePlayerProtectionDamage(Player victim, Player attacker, boolean isPvp) {
+        return protectionManager.handlePlayerProtectionDamage(victim, attacker, isPvp);
+    }
+
+    @Override
     public boolean isProtected(UUID playerUuid) {
-        return protectionManager.isProtected(playerUuid);
+        return protectionManager.hasTeleportProtection(playerUuid);
     }
 
     @Override

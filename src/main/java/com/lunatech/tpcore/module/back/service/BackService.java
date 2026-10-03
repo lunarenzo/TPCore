@@ -38,6 +38,16 @@ public interface BackService {
 
     long getRemainingCooldownSeconds(UUID playerUuid);
 
+    void grantTeleportProtection(Player player);
+
+    boolean hasTeleportProtection(UUID playerId);
+
+    long getTeleportProtectionStartTime(UUID playerId);
+
+    void stripTeleportProtection(UUID playerId);
+
+    boolean handlePlayerProtectionDamage(Player victim, Player attacker, boolean isPvp);
+
     boolean isProtected(UUID playerUuid);
 
     void updateConfig(BackConfig newConfig);
@@ -48,6 +58,3 @@ public interface BackService {
 
     CompletableFuture<Void> close();
 }
-
-
-

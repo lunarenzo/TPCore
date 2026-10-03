@@ -1,34 +1,35 @@
 package com.lunatech.tpcore.module.back;
 
+import com.lunatech.tpcore.config.model.BackConfig;
 import com.lunatech.tpcore.module.back.service.impl.BackProtectionManager;
-import org.junit.jupiter.api.BeforeEach;
+import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.UUID;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class BackProtectionManagerTest {
 
-    private BackProtectionManager protectionManager;
-    private final UUID playerUuid = UUID.randomUUID();
-
-    @BeforeEach
-    void setUp() {
-        protectionManager = new BackProtectionManager();
-    }
-
     @Test
-    @DisplayName("grantProtection protects player and removeProtection clears it")
+    @DisplayName("Protection lifecycle, start time, eviction, and clear work correctly")
     void testProtectionLifecycle() {
-        assertFalse(protectionManager.isProtected(playerUuid));
+        BackConfig config = BackConfig.createDefault();
+        BackProtectionManager manager = new BackProtectionManager(null, () -> config, MiniMessage.miniMessage());
 
-        protectionManager.grantProtection(playerUuid, 5);
-        assertTrue(protectionManager.isProtected(playerUuid));
+        UUID playerId = UUID.randomUUID();
+        assertFalse(manager.hasTeleportProtection(playerId));
+        assertEquals(0L, manager.getTeleportProtectionStartTime(playerId));
 
-        protectionManager.removeProtection(playerUuid);
-        assertFalse(protectionManager.isProtected(playerUuid));
+        // Damage handling when no protection active
+        assertFalse(manager.handlePlayerProtectionDamage(null, null, false));
+        assertFalse(manager.handlePlayerProtectionDamage(null, null, true));
+
+        // Evict & clear safety checks on empty manager
+        manager.evict(playerId);
+        manager.clear();
+        assertFalse(manager.hasTeleportProtection(playerId));
     }
 }

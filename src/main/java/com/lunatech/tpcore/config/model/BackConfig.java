@@ -18,9 +18,17 @@ public record BackConfig(
     @Comment("Cooldown in seconds between back teleports")
     int cooldownSeconds,
 
-    @Setting("teleport-protection-seconds")
+    @Setting("protection-seconds")
     @Comment("Invulnerability protection duration in seconds after a successful /back teleport (0 to disable)")
-    int teleportProtectionSeconds,
+    int protectionSeconds,
+
+    @Setting("protection-cancel-on-attack")
+    @Comment("Cancel protection if the protected player attacks another player or mob")
+    boolean protectionCancelOnAttack,
+
+    @Setting("protection-all-damage")
+    @Comment("Protect against all damage (PvE, environmental, fall, fire) or only PvP attacks")
+    boolean protectionAllDamage,
 
     @Setting("cancel-on-move")
     @Comment("Cancel teleport warmup if the player moves")
@@ -76,6 +84,8 @@ public record BackConfig(
             3,
             10,
             3,
+            true,
+            true,
             true,
             true,
             5,
@@ -164,6 +174,12 @@ public record BackConfig(
         @Setting("teleport-adjusted-hazard")
         String teleportAdjustedHazard,
 
+        @Setting("teleport-protection-ended")
+        String teleportProtectionEnded,
+
+        @Setting("teleport-protection-start")
+        String teleportProtectionStart,
+
         @Setting("teleport-success")
         String teleportSuccess,
 
@@ -197,6 +213,8 @@ public record BackConfig(
                 "<prefix><red>Only players can execute this command!</red>",
                 "<gradient:#00D2FF:#3A7BD5><bold>TPCore</bold></gradient> <dark_gray>»</dark_gray> ",
                 "<prefix><yellow>Original location was dangerous (<hazard>). Safely adjusted target location!</yellow>",
+                "<prefix><yellow>Your back teleport protection has ended.</yellow>",
+                "<prefix><green>You have <gold><seconds>s</gold> of back teleport protection!</green>",
                 "<prefix><green>Teleported back to your previous location!</green>",
                 "<prefix><red>Target back location is unsafe or obstructed!</red>",
                 "<prefix><red>Teleport cancelled because you took damage!</red>",

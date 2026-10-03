@@ -5,10 +5,16 @@ import com.lunatech.tpcore.module.back.model.BackCause;
 import com.lunatech.tpcore.module.back.service.BackService;
 import java.util.Objects;
 import java.util.function.Supplier;
+import org.bukkit.entity.AreaEffectCloud;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.Projectile;
+import org.bukkit.entity.TNTPrimed;
+import org.bukkit.entity.ThrownPotion;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
@@ -46,13 +52,11 @@ public final class BackEventListener implements Listener {
             default -> BackCause.TELEPORT;
         };
 
-
         BackService service = serviceSupplier.get();
         if (service != null) {
             service.recordLocation(event.getPlayer(), event.getFrom(), backCause);
         }
     }
-
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlayerDeath(PlayerDeathEvent event) {
@@ -87,19 +91,77 @@ public final class BackEventListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onEntityDamage(EntityDamageEvent event) {
-        if (event.getEntity() instanceof Player player) {
-            BackService service = serviceSupplier.get();
-            if (service != null && service.isProtected(player.getUniqueId())) {
-                event.setCancelled(true);
-                return;
-            }
-            BackConfig config = configSupplier.get();
-            if (config.enabled() && config.cancelOnDamage()) {
-                if (service != null) {
-                    service.cancelWarmupOnDamage(player);
+        BackConfig config = configSupplier.get();
+        if (!config.enabled()) return;
+
+        Player victim = event.getEntity() instanceof Player p ? p : null;
+        Player attacker = null;
+        boolean isPvp = false;
+
+        BackService service = serviceSupplier.get();
+
+        if (event instanceof EntityDamageByEntityEvent byEntityEvent) {
+            Entity damager = byEntityEvent.getDamager();
+            if (damager instanceof Player pDamager) {
+                attacker = pDamager;
+                isPvp = (victim != null);
+            } else if (damager instanceof Projectile projectile
+                    && projectile.getShooter() instanceof Player pShooter) {
+                long launchTime = System.currentTimeMillis() - (projectile.getTicksLived() * 50L);
+                long protectionStart = service != null ? service.getTeleportProtectionStartTime(pShooter.getUniqueId()) : 0L;
+                if (protectionStart == 0L || launchTime >= protectionStart) {
+                    attacker = pShooter;
                 }
+                isPvp = (victim != null);
+            } else if (damager instanceof AreaEffectCloud cloud
+                    && cloud.getSource() instanceof Player pCloudShooter) {
+                long launchTime = System.currentTimeMillis() - (cloud.getTicksLived() * 50L);
+                long protectionStart = service != null ? service.getTeleportProtectionStartTime(pCloudShooter.getUniqueId()) : 0L;
+                if (protectionStart == 0L || launchTime >= protectionStart) {
+                    attacker = pCloudShooter;
+                }
+                isPvp = (victim != null);
+            } else if (damager instanceof ThrownPotion potion
+                    && potion.getShooter() instanceof Player pPotionShooter) {
+                long launchTime = System.currentTimeMillis() - (potion.getTicksLived() * 50L);
+                long protectionStart = service != null ? service.getTeleportProtectionStartTime(pPotionShooter.getUniqueId()) : 0L;
+                if (protectionStart == 0L || launchTime >= protectionStart) {
+                    attacker = pPotionShooter;
+                }
+                isPvp = (victim != null);
+            } else if (damager instanceof TNTPrimed tnt
+                    && tnt.getSource() instanceof Player pTntShooter) {
+                long launchTime = System.currentTimeMillis() - (tnt.getTicksLived() * 50L);
+                long protectionStart = service != null ? service.getTeleportProtectionStartTime(pTntShooter.getUniqueId()) : 0L;
+                if (protectionStart == 0L || launchTime >= protectionStart) {
+                    attacker = pTntShooter;
+                }
+                isPvp = (victim != null);
             }
         }
+
+        if (service != null && (victim != null || attacker != null)) {
+            if (service.handlePlayerProtectionDamage(victim, attacker, isPvp)) {
+                event.setCancelled(true);
+                if (victim != null && isCombustionDamage(event.getCause())) {
+                    victim.setFireTicks(0);
+                }
+                return;
+            }
+        }
+
+        if (victim != null && config.cancelOnDamage()) {
+            if (service != null) {
+                service.cancelWarmupOnDamage(victim);
+            }
+        }
+    }
+
+    private boolean isCombustionDamage(EntityDamageEvent.DamageCause cause) {
+        return cause == EntityDamageEvent.DamageCause.FIRE
+                || cause == EntityDamageEvent.DamageCause.FIRE_TICK
+                || cause == EntityDamageEvent.DamageCause.LAVA
+                || cause == EntityDamageEvent.DamageCause.HOT_FLOOR;
     }
 
     @EventHandler(priority = EventPriority.MONITOR)

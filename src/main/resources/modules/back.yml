@@ -2,7 +2,14 @@
 enabled: true
 warmup-seconds: 3
 cooldown-seconds: 10
-teleport-protection-seconds: 3
+
+# Post-Teleport Invulnerability Protection (0 to disable)
+protection-seconds: 3
+# Cancel protection if the protected player attacks another player or mob
+protection-cancel-on-attack: true
+# Protect against all damage (PvE, environmental, fall, fire) or only PvP attacks
+protection-all-damage: true
+
 cancel-on-move: true
 cancel-on-damage: true
 max-history-depth: 5
@@ -38,6 +45,8 @@ messages:
   only-players: "<prefix><red>Only players can execute this command!</red>"
   prefix: "<gradient:#00D2FF:#3A7BD5><bold>TPCore</bold></gradient> <dark_gray>»</dark_gray> "
   teleport-adjusted-hazard: "<prefix><yellow>Original location was dangerous (<hazard>). Safely adjusted target location!</yellow>"
+  teleport-protection-ended: "<prefix><yellow>Your back teleport protection has ended.</yellow>"
+  teleport-protection-start: "<prefix><green>You have <gold><seconds>s</gold> of back teleport protection!</green>"
   teleport-success: "<prefix><green>Teleported back to your previous location!</green>"
   unsafe-location: "<prefix><red>Target back location is unsafe or obstructed!</red>"
   warmup-cancelled-damage: "<prefix><red>Teleport cancelled because you took damage!</red>"
