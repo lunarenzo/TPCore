@@ -245,8 +245,16 @@ public final class BackSafetyInspector {
             return -1;
         }
         int highest = world.getHighestBlockYAt(checkX, checkZ);
-        if (highest >= minWorldY && highest <= maxWorldY) {
-            return highest;
+        int startY = Math.min(maxWorldY, Math.max(minWorldY, highest));
+        for (int y = startY; y >= minWorldY; y--) {
+            Block ground = world.getBlockAt(checkX, y, checkZ);
+            if (isSolidGround(ground)) {
+                Block feet = world.getBlockAt(checkX, y + 1, checkZ);
+                Block head = world.getBlockAt(checkX, y + 2, checkZ);
+                if (isPassable(feet) && isPassable(head)) {
+                    return y;
+                }
+            }
         }
         return -1;
     }

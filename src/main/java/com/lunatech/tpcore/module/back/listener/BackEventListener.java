@@ -64,6 +64,8 @@ public final class BackEventListener implements Listener {
                 () -> respawningPlayers.remove(uuid),
                 2L
             );
+        } else {
+            respawningPlayers.remove(uuid);
         }
     }
 
@@ -151,28 +153,23 @@ public final class BackEventListener implements Listener {
             Entity damager = byEntityEvent.getDamager();
             if (damager instanceof Player pDamager) {
                 attacker = pDamager;
-                isPvp = (victim != null);
             } else if (damager instanceof Projectile projectile
                     && projectile.getShooter() instanceof Player pShooter) {
                 attacker = pShooter;
-                isPvp = (victim != null);
             } else if (damager instanceof AreaEffectCloud cloud
                     && cloud.getSource() instanceof Player pCloudShooter) {
                 attacker = pCloudShooter;
-                isPvp = (victim != null);
             } else if (damager instanceof ThrownPotion potion
                     && potion.getShooter() instanceof Player pPotionShooter) {
                 attacker = pPotionShooter;
-                isPvp = (victim != null);
             } else if (damager instanceof TNTPrimed tnt
                     && tnt.getSource() instanceof Player pTntShooter) {
                 attacker = pTntShooter;
-                isPvp = (victim != null);
             } else if (damager instanceof LightningStrike lightning
                     && lightning.getCausingEntity() instanceof Player pLightning) {
                 attacker = pLightning;
-                isPvp = (victim != null);
             }
+            isPvp = (victim != null && attacker != null && !victim.getUniqueId().equals(attacker.getUniqueId()));
         }
 
         if (service != null && (victim != null || attacker != null)) {

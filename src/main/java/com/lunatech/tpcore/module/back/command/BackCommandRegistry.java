@@ -10,6 +10,7 @@ import com.mojang.brigadier.arguments.IntegerArgumentType;
 import io.papermc.paper.command.brigadier.Commands;
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.function.Supplier;
 import net.kyori.adventure.text.Component;
@@ -254,9 +255,9 @@ public final class BackCommandRegistry {
                 Placeholder.unparsed("index", String.valueOf(i + 1)),
                 Placeholder.unparsed("cause", causeName),
                 Placeholder.unparsed("world", loc.worldName()),
-                Placeholder.unparsed("x", String.format("%.1f", loc.x())),
-                Placeholder.unparsed("y", String.format("%.1f", loc.y())),
-                Placeholder.unparsed("z", String.format("%.1f", loc.z())),
+                Placeholder.unparsed("x", String.format(Locale.ROOT, "%.1f", loc.x())),
+                Placeholder.unparsed("y", String.format(Locale.ROOT, "%.1f", loc.y())),
+                Placeholder.unparsed("z", String.format(Locale.ROOT, "%.1f", loc.z())),
                 Placeholder.unparsed("time", timeAgo)
             );
         }

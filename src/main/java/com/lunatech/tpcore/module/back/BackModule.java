@@ -120,6 +120,7 @@ public final class BackModule implements ReloadableModule {
         if (this.service != null) {
             safeClose(this.service);
             this.service = null;
+            this.economyService = null;
         } else if (this.repository != null) {
             safeClose(this.repository);
         }
