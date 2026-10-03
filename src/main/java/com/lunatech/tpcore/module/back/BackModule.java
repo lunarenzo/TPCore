@@ -96,7 +96,7 @@ public final class BackModule implements ReloadableModule {
         instantiateAndInitializeStorage(this.config);
 
         if (this.eventListener == null) {
-            this.eventListener = new BackEventListener(this::getService, () -> this.config);
+            this.eventListener = new BackEventListener(this.plugin, this::getService, () -> this.config);
             this.plugin.getServer().getPluginManager().registerEvents(this.eventListener, this.plugin);
         }
 

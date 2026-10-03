@@ -10,6 +10,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import net.kyori.adventure.bossbar.BossBar;
@@ -18,6 +19,7 @@ import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 
@@ -40,10 +42,13 @@ public final class BackWarmupManager {
         private int remainingSeconds;
         private final BackLocation targetLocation;
         private final double paidCost;
+        private final Runnable onCancel;
+        private final AtomicBoolean refunded = new AtomicBoolean(false);
+        private final AtomicBoolean cancelled = new AtomicBoolean(false);
         private BossBar bossBar;
         private ScheduledTask task;
 
-        ActiveWarmup(UUID playerId, String worldName, double startX, double startY, double startZ, int totalSeconds, BackLocation targetLocation, double paidCost) {
+        ActiveWarmup(UUID playerId, String worldName, double startX, double startY, double startZ, int totalSeconds, BackLocation targetLocation, double paidCost, Runnable onCancel) {
             this.playerId = playerId;
             this.worldName = worldName;
             this.startX = startX;
@@ -53,6 +58,7 @@ public final class BackWarmupManager {
             this.remainingSeconds = totalSeconds;
             this.targetLocation = targetLocation;
             this.paidCost = paidCost;
+            this.onCancel = onCancel;
         }
 
         boolean hasMoved(Location currentLoc) {
@@ -66,6 +72,12 @@ public final class BackWarmupManager {
             double dy = currentLoc.getY() - this.startY;
             double dz = currentLoc.getZ() - this.startZ;
             return (dx * dx + dy * dy + dz * dz) > 0.25;
+        }
+
+        void triggerCancel() {
+            if (this.cancelled.compareAndSet(false, true) && this.onCancel != null) {
+                this.onCancel.run();
+            }
         }
     }
 
@@ -108,7 +120,8 @@ public final class BackWarmupManager {
             loc.getZ(),
             warmupSeconds,
             targetBackLoc,
-            paidCost
+            paidCost,
+            onCancel
         );
 
         BossBar bossBar = this.renderer.createBossBar(config, warmupSeconds);
@@ -125,7 +138,6 @@ public final class BackWarmupManager {
                 scheduledTask -> {
                     if (!player.isOnline()) {
                         this.cancelWarmup(uuid, null);
-                        if (onCancel != null) onCancel.run();
                         return;
                     }
 
@@ -157,10 +169,7 @@ public final class BackWarmupManager {
                         this.renderer.updateWarmupFeedback(player, config, warmup.remainingSeconds, warmup.totalSeconds);
                     }
                 },
-                () -> {
-                    this.cancelWarmup(uuid, null);
-                    if (onCancel != null) onCancel.run();
-                },
+                () -> this.cancelWarmup(uuid, null),
                 20L,
                 20L
             );
@@ -177,7 +186,7 @@ public final class BackWarmupManager {
             if (warmup.task != null) {
                 warmup.task.cancel();
             }
-            Player player = Bukkit.getPlayer(uuid);
+            Player player = resolvePlayer(uuid);
             BackConfig config = this.configSupplier.get();
             if (player != null && player.isOnline()) {
                 if (warmup.bossBar != null) {
@@ -195,8 +204,12 @@ public final class BackWarmupManager {
                     onCancelled.accept(player);
                 }
             }
-            if (warmup.paidCost > 0.0 && config.refundOnCancel()) {
-                this.economyService.processRefund(Bukkit.getOfflinePlayer(uuid), warmup.paidCost);
+            warmup.triggerCancel();
+            if (warmup.paidCost > 0.0 && config.refundOnCancel() && warmup.refunded.compareAndSet(false, true)) {
+                OfflinePlayer offlinePlayer = (player != null) ? player : resolveOfflinePlayer(uuid);
+                if (offlinePlayer != null) {
+                    this.economyService.processRefund(offlinePlayer, warmup.paidCost);
+                }
             }
         }
     }
@@ -232,16 +245,38 @@ public final class BackWarmupManager {
             if (warmup.task != null) {
                 warmup.task.cancel();
             }
-            Player player = Bukkit.getPlayer(warmup.playerId);
+            Player player = resolvePlayer(warmup.playerId);
             if (player != null && player.isOnline() && warmup.bossBar != null) {
                 player.hideBossBar(warmup.bossBar);
             }
-            if (warmup.paidCost > 0.0 && config.refundOnCancel()) {
-                this.economyService.processRefund(Bukkit.getOfflinePlayer(warmup.playerId), warmup.paidCost);
+            warmup.triggerCancel();
+            if (warmup.paidCost > 0.0 && config.refundOnCancel() && warmup.refunded.compareAndSet(false, true)) {
+                OfflinePlayer offlinePlayer = (player != null) ? player : resolveOfflinePlayer(warmup.playerId);
+                if (offlinePlayer != null) {
+                    this.economyService.processRefund(offlinePlayer, warmup.paidCost);
+                }
             }
         }
         this.activeWarmups.clear();
         this.renderer.clear();
+    }
+
+    private Player resolvePlayer(UUID uuid) {
+        if (uuid == null) return null;
+        try {
+            return Bukkit.getServer() != null ? Bukkit.getPlayer(uuid) : null;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private OfflinePlayer resolveOfflinePlayer(UUID uuid) {
+        if (uuid == null) return null;
+        try {
+            return Bukkit.getServer() != null ? Bukkit.getOfflinePlayer(uuid) : null;
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     private void sendPrefixedMessage(Player player, String message) {

@@ -79,7 +79,7 @@ public final class BackProtectionManager {
         }
         if (System.currentTimeMillis() >= window.expiryTime()) {
             if (this.protectionMap.remove(playerId, window)) {
-                Player p = Bukkit.getPlayer(playerId);
+                Player p = resolvePlayer(playerId);
                 if (p != null && p.isOnline()) {
                     this.sendMessage(p, config().messages().teleportProtectionEnded());
                 }
@@ -106,10 +106,19 @@ public final class BackProtectionManager {
         }
         ProtectionWindow removed = this.protectionMap.remove(playerId);
         if (removed != null) {
-            Player p = Bukkit.getPlayer(playerId);
+            Player p = resolvePlayer(playerId);
             if (p != null && p.isOnline()) {
                 this.sendMessage(p, config().messages().teleportProtectionEnded());
             }
+        }
+    }
+
+    private Player resolvePlayer(UUID uuid) {
+        if (uuid == null) return null;
+        try {
+            return Bukkit.getServer() != null ? Bukkit.getPlayer(uuid) : null;
+        } catch (Exception ignored) {
+            return null;
         }
     }
 

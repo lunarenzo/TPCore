@@ -40,6 +40,7 @@ public final class DefaultBackService implements BackService {
     private final BackProtectionManager protectionManager;
     private final BackDataMigrator dataMigrator;
     private final Set<UUID> backTeleportsInProgress = ConcurrentHashMap.newKeySet();
+    private final Set<UUID> pendingBackOperations = ConcurrentHashMap.newKeySet();
 
     public DefaultBackService(Plugin plugin, BackRepository repository, BackCache cache, BackConfig config, Logger logger) {
         this(plugin, repository, cache, new NoOpBackEconomyService(), config, logger);
@@ -93,7 +94,7 @@ public final class DefaultBackService implements BackService {
         if (targetLoc == null) return CompletableFuture.completedFuture(BackResultStatus.NO_DEATH_LOCATION);
 
         final BackLocation finalLoc = targetLoc;
-        return executeBackTeleport(player, finalLoc, uuid -> cache.removeLocation(uuid, finalLoc));
+        return executeBackTeleport(player, finalLoc, null);
     }
 
     @Override
@@ -110,13 +111,21 @@ public final class DefaultBackService implements BackService {
 
     private CompletableFuture<BackResultStatus> executeBackTeleport(Player player, BackLocation backLoc, Consumer<UUID> onSuccessConsumer) {
         UUID uuid = player.getUniqueId();
+        if (!pendingBackOperations.add(uuid)) {
+            return CompletableFuture.completedFuture(BackResultStatus.COOLDOWN_ACTIVE);
+        }
+
         boolean bypassCooldown = player.hasPermission(Permissions.BACK_BYPASS_COOLDOWN);
         if (!bypassCooldown && cooldownManager.isOnCooldown(uuid, config.cooldownSeconds())) {
+            pendingBackOperations.remove(uuid);
             return CompletableFuture.completedFuture(BackResultStatus.COOLDOWN_ACTIVE);
         }
 
         World world = resolveWorld(backLoc);
-        if (world == null) return CompletableFuture.completedFuture(BackResultStatus.WORLD_NOT_LOADED);
+        if (world == null) {
+            pendingBackOperations.remove(uuid);
+            return CompletableFuture.completedFuture(BackResultStatus.WORLD_NOT_LOADED);
+        }
 
         Location targetLocation = new Location(world, backLoc.x(), backLoc.y(), backLoc.z(), backLoc.yaw(), backLoc.pitch());
         warmupManager.cancelWarmup(uuid);
@@ -161,11 +170,16 @@ public final class DefaultBackService implements BackService {
                     return;
                 }
                 Location freshTarget = new Location(currentWorld, backLoc.x(), backLoc.y(), backLoc.z(), backLoc.yaw(), backLoc.pitch());
-                performTeleportWithSafety(player, freshTarget, onSuccessConsumer, paidCost, isChargeOnSuccess, cause).thenAccept(future::complete);
+                performTeleportWithSafety(player, freshTarget, onSuccessConsumer, paidCost, isChargeOnSuccess, cause)
+                    .thenAccept(future::complete)
+                    .exceptionally(ex -> {
+                        future.complete(BackResultStatus.ERROR);
+                        return null;
+                    });
             }, () -> future.complete(BackResultStatus.ERROR));
 
             return future;
-        });
+        }).whenComplete((status, throwable) -> pendingBackOperations.remove(uuid));
     }
 
     private void preparePlayerForTeleport(Player player) {
@@ -296,10 +310,6 @@ public final class DefaultBackService implements BackService {
         Optional<BackLocation> lastOpt = cache.peekLastLocation(uuid);
         if (lastOpt.isPresent()) {
             BackLocation last = lastOpt.get();
-            long elapsedSinceLast = System.currentTimeMillis() - last.timestamp();
-            if (last.cause() == BackCause.DEATH && cause == BackCause.TELEPORT && elapsedSinceLast < 10_000L) {
-                return;
-            }
             if (last.isSameWorld(location.getWorld().getUID(), location.getWorld().getName())) {
                 double distSq = last.distanceSquared(location.getX(), location.getY(), location.getZ());
                 double minDist = config.minTeleportDistance();
@@ -371,6 +381,7 @@ public final class DefaultBackService implements BackService {
         protectionManager.evict(playerUuid);
         cache.clearPlayerHistory(playerUuid);
         backTeleportsInProgress.remove(playerUuid);
+        pendingBackOperations.remove(playerUuid);
     }
 
     @Override
@@ -438,6 +449,8 @@ public final class DefaultBackService implements BackService {
         protectionManager.clear();
         cache.clear();
         backTeleportsInProgress.clear();
+        pendingBackOperations.clear();
+        dataMigrator.close();
         economyService.shutdown();
         return repository.close();
     }

@@ -59,7 +59,7 @@ public final class BackCommandRegistry {
                             ))
                         )
                     )
-                    .then(Commands.argument("index", IntegerArgumentType.integer(0, 50))
+                    .then(Commands.argument("index", IntegerArgumentType.integer(1, 50))
                         .requires(src -> src.getSender().hasPermission(Permissions.BACK_USE))
                         .executes(ctx -> executeBackIndex(
                             ctx.getSource().getSender(),
@@ -163,9 +163,15 @@ public final class BackCommandRegistry {
             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
         }
 
+        int targetIndex = index - 1;
         List<BackLocation> history = service.getHistory(player);
-        String worldName = (index >= 0 && index < history.size()) ? history.get(index).worldName() : "unknown";
-        service.teleportToHistory(player, index).thenAccept(status -> handleResultStatus(player, status, worldName));
+        if (targetIndex < 0 || targetIndex >= history.size()) {
+            sendMessage(player, config.messages().noBackLocation());
+            return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+        }
+
+        String worldName = history.get(targetIndex).worldName();
+        service.teleportToHistory(player, targetIndex).thenAccept(status -> handleResultStatus(player, status, worldName));
         return com.mojang.brigadier.Command.SINGLE_SUCCESS;
     }
 
@@ -249,7 +255,7 @@ public final class BackCommandRegistry {
             sendMessage(
                 sender,
                 config.messages().backListItem(),
-                Placeholder.unparsed("index", String.valueOf(i)),
+                Placeholder.unparsed("index", String.valueOf(i + 1)),
                 Placeholder.unparsed("cause", causeName),
                 Placeholder.unparsed("world", loc.worldName()),
                 Placeholder.unparsed("x", String.format("%.1f", loc.x())),
@@ -263,6 +269,10 @@ public final class BackCommandRegistry {
     }
 
     private void handleResultStatus(Player player, BackResultStatus status, String worldName) {
+        if (status == BackResultStatus.ERROR) {
+            return;
+        }
+
         BackConfig config = configSupplier.get();
         BackService service = backServiceSupplier.get();
         long remainingSecs = service != null ? service.getRemainingCooldownSeconds(player.getUniqueId()) : 0;
@@ -277,8 +287,12 @@ public final class BackCommandRegistry {
             case WORLD_NOT_LOADED -> config.messages().worldNotLoaded();
             case UNSAFE_LOCATION -> config.messages().unsafeLocation();
             case COOLDOWN_ACTIVE -> config.messages().cooldownActive();
-            default -> config.messages().noBackLocation();
+            default -> null;
         };
+
+        if (rawMsg == null || rawMsg.isBlank()) {
+            return;
+        }
 
         sendMessage(
             player,

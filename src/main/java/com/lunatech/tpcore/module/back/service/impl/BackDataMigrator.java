@@ -12,7 +12,9 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import org.slf4j.Logger;
 
@@ -23,6 +25,7 @@ public final class BackDataMigrator {
     private final Supplier<BackConfig> configSupplier;
     private final BackCache cache;
     private final BackRepository activeRepository;
+    private final ExecutorService ioExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
     public BackDataMigrator(File dataFolder, Logger logger, Supplier<BackConfig> configSupplier, BackCache cache, BackRepository activeRepository) {
         this.dataFolder = Objects.requireNonNull(dataFolder, "dataFolder cannot be null");
@@ -78,7 +81,19 @@ public final class BackDataMigrator {
                 if (!isFromActive && fromRepo != null) fromRepo.close().join();
                 if (!isToActive && toRepo != null) toRepo.close().join();
             }
-        }, Executors.newVirtualThreadPerTaskExecutor());
+        }, this.ioExecutor);
+    }
+
+    public void close() {
+        this.ioExecutor.shutdown();
+        try {
+            if (!this.ioExecutor.awaitTermination(3, TimeUnit.SECONDS)) {
+                this.ioExecutor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            this.ioExecutor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
 
     private boolean isValidStorageType(String type) {

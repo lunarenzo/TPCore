@@ -177,8 +177,8 @@ public final class BackSafetyInspector {
                         continue;
                     }
 
-                    int surfaceY = world.getHighestBlockYAt(checkX, checkZ);
-                    if (surfaceY >= minWorldY && surfaceY <= maxWorldY) {
+                    int surfaceY = findSurfaceY(world, checkX, checkZ, minWorldY, maxWorldY, preventNetherRoof, maxNetherHeight);
+                    if (surfaceY >= minWorldY) {
                         Location candidate = new Location(world, checkX + 0.5, surfaceY + 1.0, checkZ + 0.5, targetLocation.getYaw(), targetLocation.getPitch());
                         if (isLocationSafe(candidate, preventNetherRoof, maxNetherHeight)) {
                             return candidate;
@@ -227,6 +227,28 @@ public final class BackSafetyInspector {
             }
         }
         return null;
+    }
+
+    private static int findSurfaceY(World world, int checkX, int checkZ, int minWorldY, int maxWorldY, boolean preventNetherRoof, int maxNetherHeight) {
+        if (world.getEnvironment() == World.Environment.NETHER) {
+            int topY = preventNetherRoof ? Math.min(maxWorldY, maxNetherHeight - 2) : maxWorldY;
+            for (int y = topY; y >= minWorldY; y--) {
+                Block ground = world.getBlockAt(checkX, y, checkZ);
+                if (isSolidGround(ground)) {
+                    Block feet = world.getBlockAt(checkX, y + 1, checkZ);
+                    Block head = world.getBlockAt(checkX, y + 2, checkZ);
+                    if (isPassable(feet) && isPassable(head)) {
+                        return y;
+                    }
+                }
+            }
+            return -1;
+        }
+        int highest = world.getHighestBlockYAt(checkX, checkZ);
+        if (highest >= minWorldY && highest <= maxWorldY) {
+            return highest;
+        }
+        return -1;
     }
 
     public static boolean isLocationSafe(Location location, boolean preventNetherRoof, int maxNetherHeight) {
