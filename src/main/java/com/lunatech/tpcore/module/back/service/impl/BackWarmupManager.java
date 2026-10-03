@@ -80,13 +80,12 @@ public final class BackWarmupManager {
         this.cancelWarmup(uuid, null);
 
         BackConfig config = configSupplier.get();
-        String rawPrefix = config.messages().prefix();
         String rawWarmup = config.messages().warmupStart();
-        TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(rawPrefix));
+        TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(config.messages().prefix()));
         TagResolver secondsResolver = Placeholder.unparsed("seconds", String.valueOf(warmupSeconds));
 
         player.sendMessage(miniMessage.deserialize(
-            MessageFormatter.toMiniMessage(rawPrefix + rawWarmup),
+            MessageFormatter.toMiniMessage(rawWarmup),
             TagResolver.resolver(prefixResolver, secondsResolver)
         ));
 
@@ -232,7 +231,7 @@ public final class BackWarmupManager {
         BackConfig config = configSupplier.get();
         TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(config.messages().prefix()));
         player.sendMessage(miniMessage.deserialize(
-            MessageFormatter.toMiniMessage(config.messages().prefix() + message),
+            MessageFormatter.toMiniMessage(message),
             prefixResolver
         ));
     }

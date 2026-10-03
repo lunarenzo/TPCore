@@ -5,6 +5,7 @@ import com.lunatech.tpcore.constant.Permissions;
 import com.lunatech.tpcore.module.back.model.BackLocation;
 import com.lunatech.tpcore.module.back.service.BackResultStatus;
 import com.lunatech.tpcore.module.back.service.BackService;
+import com.lunatech.tpcore.util.MessageFormatter;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import io.papermc.paper.command.brigadier.Commands;
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
@@ -14,6 +15,7 @@ import java.util.function.Supplier;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
+import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -155,7 +157,7 @@ public final class BackCommandRegistry {
         }
 
         service.clearHistory(player);
-        player.sendMessage(miniMessage.deserialize(config.messages().prefix() + config.messages().historyCleared()));
+        sendMessage(player, config.messages().historyCleared());
         return com.mojang.brigadier.Command.SINGLE_SUCCESS;
     }
 
@@ -179,7 +181,7 @@ public final class BackCommandRegistry {
 
         List<BackLocation> history = service.getHistory(player);
         if (history.isEmpty()) {
-            sender.sendMessage(miniMessage.deserialize(config.messages().prefix() + config.messages().backListEmpty()));
+            sendMessage(sender, config.messages().backListEmpty());
             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
         }
 
@@ -190,11 +192,12 @@ public final class BackCommandRegistry {
         int startIndex = (targetPage - 1) * perPage;
         int endIndex = Math.min(startIndex + perPage, history.size());
 
-        sender.sendMessage(miniMessage.deserialize(
-            config.messages().prefix() + config.messages().backListHeader(),
+        sendMessage(
+            sender,
+            config.messages().backListHeader(),
             Placeholder.unparsed("page", String.valueOf(targetPage)),
             Placeholder.unparsed("maxpages", String.valueOf(maxPages))
-        ));
+        );
 
         long now = System.currentTimeMillis();
         for (int i = startIndex; i < endIndex; i++) {
@@ -202,9 +205,9 @@ public final class BackCommandRegistry {
             String timeAgo = formatTimeAgo(now - loc.timestamp());
             String causeName = loc.cause() != null ? loc.cause().name() : "TELEPORT";
 
-            String rawItemPattern = config.messages().backListItem();
-            Component item = miniMessage.deserialize(
-                rawItemPattern,
+            sendMessage(
+                sender,
+                config.messages().backListItem(),
                 Placeholder.unparsed("index", String.valueOf(i)),
                 Placeholder.unparsed("cause", causeName),
                 Placeholder.unparsed("world", loc.worldName()),
@@ -213,9 +216,7 @@ public final class BackCommandRegistry {
                 Placeholder.unparsed("z", String.format("%.1f", loc.z())),
                 Placeholder.unparsed("time", timeAgo)
             );
-            sender.sendMessage(item);
         }
-
 
         return com.mojang.brigadier.Command.SINGLE_SUCCESS;
     }
@@ -226,22 +227,41 @@ public final class BackCommandRegistry {
         long remainingSecs = service != null ? service.getRemainingCooldownSeconds(player.getUniqueId()) : 0;
 
         String rawMsg = switch (status) {
-            case SUCCESS -> config.messages().prefix() + config.messages().teleportSuccess();
-            case SUCCESS_ADJUSTED_HAZARD -> config.messages().prefix() + config.messages().teleportAdjustedHazard();
-            case NO_BACK_LOCATION -> config.messages().prefix() + config.messages().noBackLocation();
-            case NO_DEATH_LOCATION -> config.messages().prefix() + config.messages().noDeathLocation();
-            case NO_PERMISSION -> config.messages().prefix() + config.messages().noPermission();
-            case WORLD_NOT_LOADED -> config.messages().prefix() + config.messages().worldNotLoaded();
-            case UNSAFE_LOCATION -> config.messages().prefix() + config.messages().unsafeLocation();
-            case COOLDOWN_ACTIVE -> config.messages().prefix() + config.messages().cooldownActive();
-            default -> config.messages().prefix() + config.messages().noBackLocation();
+            case SUCCESS -> config.messages().teleportSuccess();
+            case SUCCESS_ADJUSTED_HAZARD -> config.messages().teleportAdjustedHazard();
+            case NO_BACK_LOCATION -> config.messages().noBackLocation();
+            case NO_DEATH_LOCATION -> config.messages().noDeathLocation();
+            case NO_PERMISSION -> config.messages().noPermission();
+            case WORLD_NOT_LOADED -> config.messages().worldNotLoaded();
+            case UNSAFE_LOCATION -> config.messages().unsafeLocation();
+            case COOLDOWN_ACTIVE -> config.messages().cooldownActive();
+            default -> config.messages().noBackLocation();
         };
 
-        player.sendMessage(miniMessage.deserialize(
+        sendMessage(
+            player,
             rawMsg,
             Placeholder.unparsed("seconds", String.valueOf(remainingSecs)),
             Placeholder.unparsed("hazard", "Lava/Suffocation")
-        ));
+        );
+    }
+
+    private void sendMessage(CommandSender sender, String template, TagResolver... customResolvers) {
+        if (sender == null || template == null || template.isBlank()) {
+            return;
+        }
+        BackConfig config = configSupplier.get();
+        TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(config.messages().prefix()));
+        TagResolver combined;
+        if (customResolvers == null || customResolvers.length == 0) {
+            combined = prefixResolver;
+        } else {
+            TagResolver[] all = new TagResolver[customResolvers.length + 1];
+            all[0] = prefixResolver;
+            System.arraycopy(customResolvers, 0, all, 1, customResolvers.length);
+            combined = TagResolver.resolver(all);
+        }
+        sender.sendMessage(this.miniMessage.deserialize(MessageFormatter.toMiniMessage(template), combined));
     }
 
     private String formatTimeAgo(long elapsedMs) {
@@ -259,16 +279,11 @@ public final class BackCommandRegistry {
 
     private void sendOnlyPlayersMessage(CommandSender sender) {
         BackConfig config = configSupplier.get();
-        sender.sendMessage(miniMessage.deserialize(
-            config.messages().onlyPlayers(),
-            Placeholder.unparsed("prefix", config.messages().prefix())
-        ));
+        sendMessage(sender, config.messages().onlyPlayers());
     }
 
     private void sendDisabledMessage(CommandSender sender) {
         BackConfig config = configSupplier.get();
-        sender.sendMessage(miniMessage.deserialize(
-            config.messages().prefix() + config.messages().moduleDisabled()
-        ));
+        sendMessage(sender, config.messages().moduleDisabled());
     }
 }
