@@ -24,14 +24,20 @@ public final class YamlBackRepository implements BackRepository {
 
     private final File playersFolder;
     private final Logger logger;
-    private final ExecutorService virtualExecutor;
+    private final ExecutorService readExecutor;
+    private final ExecutorService writeExecutor;
 
     public YamlBackRepository(File dataFolder, Logger logger) {
         Objects.requireNonNull(dataFolder, "dataFolder cannot be null");
         File backDir = new File(dataFolder, "back");
         this.playersFolder = new File(backDir, "players");
         this.logger = Objects.requireNonNull(logger, "logger cannot be null");
-        this.virtualExecutor = Executors.newVirtualThreadPerTaskExecutor();
+        this.readExecutor = Executors.newVirtualThreadPerTaskExecutor();
+        this.writeExecutor = Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, "TPCore-Back-YamlWriter");
+            t.setDaemon(true);
+            return t;
+        });
     }
 
     @Override
@@ -40,7 +46,7 @@ public final class YamlBackRepository implements BackRepository {
             if (!playersFolder.exists() && !playersFolder.mkdirs()) {
                 logger.warn("Failed to create back players YAML directory: {}", playersFolder.getAbsolutePath());
             }
-        }, virtualExecutor);
+        }, writeExecutor);
     }
 
     @Override
@@ -72,7 +78,7 @@ public final class YamlBackRepository implements BackRepository {
                 }
             }
             return map;
-        }, virtualExecutor);
+        }, readExecutor);
     }
 
     @Override
@@ -84,7 +90,7 @@ public final class YamlBackRepository implements BackRepository {
                 return Collections.emptyList();
             }
             return loadPlayerHistoryFromFile(playerFile);
-        }, virtualExecutor);
+        }, readExecutor);
     }
 
     @Override
@@ -120,7 +126,7 @@ public final class YamlBackRepository implements BackRepository {
             } catch (ConfigurateException e) {
                 logger.error("Failed to save back history for player {} to YAML file", playerUuid, e);
             }
-        }, virtualExecutor);
+        }, writeExecutor);
     }
 
     @Override
@@ -131,23 +137,28 @@ public final class YamlBackRepository implements BackRepository {
             if (playerFile.exists() && !playerFile.delete()) {
                 logger.warn("Failed to delete back history file for player {}", playerUuid);
             }
-        }, virtualExecutor);
+        }, writeExecutor);
     }
 
     @Override
     public CompletableFuture<Void> close() {
         return CompletableFuture.runAsync(() -> {
-            if (virtualExecutor != null && !virtualExecutor.isShutdown()) {
-                try {
-                    virtualExecutor.shutdown();
-                    if (!virtualExecutor.awaitTermination(3, java.util.concurrent.TimeUnit.SECONDS)) {
-                        virtualExecutor.shutdownNow();
-                    }
-                } catch (Exception e) {
-                    logger.error("Error shutting down virtualExecutor in YamlBackRepository", e);
-                }
-            }
+            shutdownExecutor(writeExecutor, "writeExecutor");
+            shutdownExecutor(readExecutor, "readExecutor");
         });
+    }
+
+    private void shutdownExecutor(ExecutorService executor, String name) {
+        if (executor != null && !executor.isShutdown()) {
+            try {
+                executor.shutdown();
+                if (!executor.awaitTermination(3, java.util.concurrent.TimeUnit.SECONDS)) {
+                    executor.shutdownNow();
+                }
+            } catch (Exception e) {
+                logger.error("Error shutting down {} in YamlBackRepository", name, e);
+            }
+        }
     }
 
     private List<BackLocation> loadPlayerHistoryFromFile(File file) {

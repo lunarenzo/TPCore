@@ -149,12 +149,34 @@ public final class BackSafetyInspector {
         int minWorldY = world.getMinHeight() + 1;
         int maxWorldY = world.getMaxHeight() - 2;
 
+        Location probeLoc = (IS_OWNED_BY_CURRENT_REGION_LOC != null) ? targetLocation.clone() : null;
+
         // Enhanced Void Death Recovery: Probe horizontal columns to find nearest solid surface edge
         if (targetY < minWorldY) {
             for (int r = 0; r <= radius; r++) {
                 for (int i = 0; i < PROBE_DX.length; i++) {
                     int checkX = targetX + (PROBE_DX[i] * r);
                     int checkZ = targetZ + (PROBE_DZ[i] * r);
+                    int chunkX = checkX >> 4;
+                    int chunkZ = checkZ >> 4;
+
+                    if (!world.isChunkLoaded(chunkX, chunkZ)) {
+                        continue;
+                    }
+
+                    if (probeLoc != null) {
+                        probeLoc.setX(checkX);
+                        probeLoc.setY(targetY);
+                        probeLoc.setZ(checkZ);
+                    }
+
+                    boolean isOwned = (chunkX == originChunkX && chunkZ == originChunkZ)
+                        || isRegionOwned(world, chunkX, chunkZ, probeLoc);
+
+                    if (!isOwned) {
+                        continue;
+                    }
+
                     int surfaceY = world.getHighestBlockYAt(checkX, checkZ);
                     if (surfaceY >= minWorldY && surfaceY <= maxWorldY) {
                         Location candidate = new Location(world, checkX + 0.5, surfaceY + 1.0, checkZ + 0.5, targetLocation.getYaw(), targetLocation.getPitch());
@@ -165,8 +187,6 @@ public final class BackSafetyInspector {
                 }
             }
         }
-
-        Location probeLoc = (IS_OWNED_BY_CURRENT_REGION_LOC != null) ? targetLocation.clone() : null;
 
         for (int r = 1; r <= radius; r++) {
             for (int i = 0; i < PROBE_DX.length; i++) {
@@ -201,9 +221,7 @@ public final class BackSafetyInspector {
 
                     Location candidate = new Location(world, checkX + 0.5, checkY, checkZ + 0.5, targetLocation.getYaw(), targetLocation.getPitch());
                     if (isLocationSafe(candidate, preventNetherRoof, maxNetherHeight)) {
-                        if (world.getWorldBorder().isInside(candidate)) {
-                            return candidate;
-                        }
+                        return candidate;
                     }
                 }
             }
@@ -215,6 +233,10 @@ public final class BackSafetyInspector {
         if (location == null) return false;
         World world = location.getWorld();
         if (world == null) return false;
+
+        if (world.getWorldBorder() != null && !world.getWorldBorder().isInside(location)) {
+            return false;
+        }
 
         double y = location.getY();
         if (y < (world.getMinHeight() + 1) || y >= (world.getMaxHeight() - 1)) {

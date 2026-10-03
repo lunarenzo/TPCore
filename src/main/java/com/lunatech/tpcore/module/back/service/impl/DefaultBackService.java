@@ -62,21 +62,10 @@ public final class DefaultBackService implements BackService {
         if (!config.enabled()) return CompletableFuture.completedFuture(BackResultStatus.ERROR);
 
         List<BackLocation> history = cache.getHistory(player.getUniqueId());
-        if (history.isEmpty()) {
-            return CompletableFuture.completedFuture(BackResultStatus.NO_BACK_LOCATION);
-        }
+        if (history.isEmpty()) return CompletableFuture.completedFuture(BackResultStatus.NO_BACK_LOCATION);
 
-        BackLocation targetLoc = null;
-        for (BackLocation loc : history) {
-            if (resolveWorld(loc) != null) {
-                targetLoc = loc;
-                break;
-            }
-        }
-
-        if (targetLoc == null) {
-            return CompletableFuture.completedFuture(BackResultStatus.WORLD_NOT_LOADED);
-        }
+        BackLocation targetLoc = history.stream().filter(loc -> resolveWorld(loc) != null).findFirst().orElse(null);
+        if (targetLoc == null) return CompletableFuture.completedFuture(BackResultStatus.WORLD_NOT_LOADED);
 
         final BackLocation finalLoc = targetLoc;
         return executeBackTeleport(player, finalLoc, uuid -> cache.removeLocation(uuid, finalLoc));
@@ -88,21 +77,12 @@ public final class DefaultBackService implements BackService {
         if (!config.enabled()) return CompletableFuture.completedFuture(BackResultStatus.ERROR);
 
         List<BackLocation> history = cache.getHistory(player.getUniqueId());
-        if (history.isEmpty()) {
-            return CompletableFuture.completedFuture(BackResultStatus.NO_DEATH_LOCATION);
-        }
+        if (history.isEmpty()) return CompletableFuture.completedFuture(BackResultStatus.NO_DEATH_LOCATION);
 
-        BackLocation targetLoc = null;
-        for (BackLocation loc : history) {
-            if (loc.cause() != null && loc.cause().isDeath() && resolveWorld(loc) != null) {
-                targetLoc = loc;
-                break;
-            }
-        }
-
-        if (targetLoc == null) {
-            return CompletableFuture.completedFuture(BackResultStatus.NO_DEATH_LOCATION);
-        }
+        BackLocation targetLoc = history.stream()
+            .filter(loc -> loc.cause() != null && loc.cause().isDeath() && resolveWorld(loc) != null)
+            .findFirst().orElse(null);
+        if (targetLoc == null) return CompletableFuture.completedFuture(BackResultStatus.NO_DEATH_LOCATION);
 
         final BackLocation finalLoc = targetLoc;
         return executeBackTeleport(player, finalLoc, uuid -> cache.removeLocation(uuid, finalLoc));
@@ -142,7 +122,17 @@ public final class DefaultBackService implements BackService {
 
         CompletableFuture<BackResultStatus> future = new CompletableFuture<>();
         warmupManager.startWarmup(player, backLoc, warmupSeconds, () -> {
-            performTeleportWithSafety(player, targetLocation, onSuccessConsumer).thenAccept(future::complete);
+            if (!player.isOnline() || player.isDead()) {
+                future.complete(BackResultStatus.ERROR);
+                return;
+            }
+            World currentWorld = resolveWorld(backLoc);
+            if (currentWorld == null) {
+                future.complete(BackResultStatus.WORLD_NOT_LOADED);
+                return;
+            }
+            Location freshTarget = new Location(currentWorld, backLoc.x(), backLoc.y(), backLoc.z(), backLoc.yaw(), backLoc.pitch());
+            performTeleportWithSafety(player, freshTarget, onSuccessConsumer).thenAccept(future::complete);
         }, () -> future.complete(BackResultStatus.ERROR));
 
         return future;
@@ -154,6 +144,12 @@ public final class DefaultBackService implements BackService {
         }
         if (!player.getPassengers().isEmpty()) {
             player.eject();
+        }
+        if (player.isSleeping()) {
+            player.wakeup(false);
+        }
+        if (player.isGliding()) {
+            player.setGliding(false);
         }
     }
 
@@ -176,7 +172,7 @@ public final class DefaultBackService implements BackService {
             config.safetyChecks().preventNetherRoof(),
             config.safetyChecks().maxNetherHeight()
         ).thenAccept(safeLoc -> player.getScheduler().run(plugin, task -> {
-            if (!player.isOnline()) {
+            if (!player.isOnline() || player.isDead()) {
                 future.complete(BackResultStatus.ERROR);
                 return;
             }
@@ -247,18 +243,7 @@ public final class DefaultBackService implements BackService {
             }
         }
 
-        BackLocation backLoc = new BackLocation(
-            location.getWorld().getUID(),
-            location.getWorld().getName(),
-            location.getX(),
-            location.getY(),
-            location.getZ(),
-            location.getYaw(),
-            location.getPitch(),
-            System.currentTimeMillis(),
-            cause != null ? cause : BackCause.TELEPORT
-        );
-        cache.pushLocation(uuid, backLoc, config.maxHistoryDepth());
+        cache.pushLocation(uuid, toBackLocation(location, cause != null ? cause : BackCause.TELEPORT), config.maxHistoryDepth());
     }
 
     @Override
@@ -268,19 +253,16 @@ public final class DefaultBackService implements BackService {
         if (!config.enabled() || !config.trackDeaths()) return;
 
         UUID uuid = player.getUniqueId();
-        BackLocation deathLoc = new BackLocation(
-            location.getWorld().getUID(),
-            location.getWorld().getName(),
-            location.getX(),
-            location.getY(),
-            location.getZ(),
-            location.getYaw(),
-            location.getPitch(),
-            System.currentTimeMillis(),
-            BackCause.DEATH
-        );
-        cache.pushLocation(uuid, deathLoc, config.maxHistoryDepth());
+        cache.pushLocation(uuid, toBackLocation(location, BackCause.DEATH), config.maxHistoryDepth());
         if (config.persistDeathLocations()) persistPlayerHistoryAsync(uuid);
+    }
+
+    private BackLocation toBackLocation(Location loc, BackCause cause) {
+        return new BackLocation(
+            loc.getWorld().getUID(), loc.getWorld().getName(),
+            loc.getX(), loc.getY(), loc.getZ(), loc.getYaw(), loc.getPitch(),
+            System.currentTimeMillis(), cause
+        );
     }
 
     private void persistPlayerHistoryAsync(UUID uuid) {
