@@ -37,6 +37,8 @@ public final class DefaultBackService implements BackService {
 
     private final BackCooldownManager cooldownManager;
     private final BackWarmupManager warmupManager;
+    private final BackProtectionManager protectionManager;
+    private final BackDataMigrator dataMigrator;
     private final Set<UUID> backTeleportsInProgress = ConcurrentHashMap.newKeySet();
 
     public DefaultBackService(Plugin plugin, BackRepository repository, BackCache cache, BackConfig config, Logger logger) {
@@ -47,6 +49,8 @@ public final class DefaultBackService implements BackService {
         this.logger = Objects.requireNonNull(logger, "logger cannot be null");
         this.cooldownManager = new BackCooldownManager();
         this.warmupManager = new BackWarmupManager(plugin, () -> this.config);
+        this.protectionManager = new BackProtectionManager();
+        this.dataMigrator = new BackDataMigrator(plugin.getDataFolder(), logger, () -> this.config, cache, repository);
     }
 
     @Override
@@ -58,20 +62,52 @@ public final class DefaultBackService implements BackService {
     public CompletableFuture<BackResultStatus> teleportBack(Player player) {
         Objects.requireNonNull(player, "player cannot be null");
         if (!config.enabled()) return CompletableFuture.completedFuture(BackResultStatus.ERROR);
-        Optional<BackLocation> locOpt = cache.peekLastLocation(player.getUniqueId());
-        if (locOpt.isEmpty()) return CompletableFuture.completedFuture(BackResultStatus.NO_BACK_LOCATION);
-        BackLocation loc = locOpt.get();
-        return executeBackTeleport(player, loc, uuid -> cache.removeLocation(uuid, loc));
+
+        List<BackLocation> history = cache.getHistory(player.getUniqueId());
+        if (history.isEmpty()) {
+            return CompletableFuture.completedFuture(BackResultStatus.NO_BACK_LOCATION);
+        }
+
+        BackLocation targetLoc = null;
+        for (BackLocation loc : history) {
+            if (resolveWorld(loc) != null) {
+                targetLoc = loc;
+                break;
+            }
+        }
+
+        if (targetLoc == null) {
+            return CompletableFuture.completedFuture(BackResultStatus.WORLD_NOT_LOADED);
+        }
+
+        final BackLocation finalLoc = targetLoc;
+        return executeBackTeleport(player, finalLoc, uuid -> cache.removeLocation(uuid, finalLoc));
     }
 
     @Override
     public CompletableFuture<BackResultStatus> teleportDeath(Player player) {
         Objects.requireNonNull(player, "player cannot be null");
         if (!config.enabled()) return CompletableFuture.completedFuture(BackResultStatus.ERROR);
-        Optional<BackLocation> locOpt = cache.peekLastDeathLocation(player.getUniqueId());
-        if (locOpt.isEmpty()) return CompletableFuture.completedFuture(BackResultStatus.NO_DEATH_LOCATION);
-        BackLocation loc = locOpt.get();
-        return executeBackTeleport(player, loc, uuid -> cache.removeLocation(uuid, loc));
+
+        List<BackLocation> history = cache.getHistory(player.getUniqueId());
+        if (history.isEmpty()) {
+            return CompletableFuture.completedFuture(BackResultStatus.NO_DEATH_LOCATION);
+        }
+
+        BackLocation targetLoc = null;
+        for (BackLocation loc : history) {
+            if (loc.cause() != null && loc.cause().isDeath() && resolveWorld(loc) != null) {
+                targetLoc = loc;
+                break;
+            }
+        }
+
+        if (targetLoc == null) {
+            return CompletableFuture.completedFuture(BackResultStatus.NO_DEATH_LOCATION);
+        }
+
+        final BackLocation finalLoc = targetLoc;
+        return executeBackTeleport(player, finalLoc, uuid -> cache.removeLocation(uuid, finalLoc));
     }
 
     @Override
@@ -114,9 +150,20 @@ public final class DefaultBackService implements BackService {
         return future;
     }
 
+    private void preparePlayerForTeleport(Player player) {
+        if (player.isInsideVehicle()) {
+            player.leaveVehicle();
+        }
+        if (!player.getPassengers().isEmpty()) {
+            player.eject();
+        }
+    }
+
     private CompletableFuture<BackResultStatus> performTeleportWithSafety(Player player, Location targetLocation, Consumer<UUID> onSuccessConsumer) {
         World world = targetLocation.getWorld();
         if (world == null) return CompletableFuture.completedFuture(BackResultStatus.WORLD_NOT_LOADED);
+
+        preparePlayerForTeleport(player);
 
         if (!config.safetyChecks().preventUnsafeTeleport()) {
             return performAsyncBackTeleport(player, targetLocation, onSuccessConsumer, false);
@@ -139,6 +186,7 @@ public final class DefaultBackService implements BackService {
                 future.complete(BackResultStatus.UNSAFE_LOCATION);
                 return;
             }
+            preparePlayerForTeleport(player);
             boolean adjusted = !safeLoc.equals(targetLocation);
             performAsyncBackTeleport(player, safeLoc, onSuccessConsumer, adjusted).thenAccept(future::complete);
         }, () -> future.complete(BackResultStatus.ERROR))).exceptionally(ex -> {
@@ -157,6 +205,10 @@ public final class DefaultBackService implements BackService {
             backTeleportsInProgress.remove(uuid);
             if (Boolean.TRUE.equals(success)) {
                 cooldownManager.applyCooldown(uuid);
+                int protectionSecs = config.teleportProtectionSeconds();
+                if (protectionSecs > 0) {
+                    protectionManager.grantProtection(uuid, protectionSecs);
+                }
                 if (onSuccessConsumer != null) {
                     onSuccessConsumer.accept(uuid);
                     persistPlayerHistoryAsync(uuid);
@@ -189,7 +241,6 @@ public final class DefaultBackService implements BackService {
             BackLocation last = lastOpt.get();
             if (last.isSameWorld(location.getWorld().getUID(), location.getWorld().getName())) {
                 double distSq = last.distanceSquared(location.getX(), location.getY(), location.getZ());
-                // 2.C Deduplication: if last entry was a recent death spot at same coords, do not shadow with TELEPORT
                 if (last.cause() == BackCause.DEATH && cause == BackCause.TELEPORT && distSq < 16.0) {
                     long elapsedMs = System.currentTimeMillis() - last.timestamp();
                     if (elapsedMs < 30_000L) {
@@ -276,6 +327,7 @@ public final class DefaultBackService implements BackService {
     public void cancelWarmupOnQuit(UUID playerUuid) {
         warmupManager.handlePlayerQuit(playerUuid);
         cooldownManager.removeCooldown(playerUuid);
+        protectionManager.removeProtection(playerUuid);
         cache.clearPlayerHistory(playerUuid);
         backTeleportsInProgress.remove(playerUuid);
     }
@@ -286,67 +338,18 @@ public final class DefaultBackService implements BackService {
     }
 
     @Override
+    public boolean isProtected(UUID playerUuid) {
+        return protectionManager.isProtected(playerUuid);
+    }
+
+    @Override
     public void updateConfig(BackConfig newConfig) {
         if (newConfig != null) this.config = newConfig;
     }
 
     @Override
     public CompletableFuture<Integer> migrateData(String fromStorage, String toStorage) {
-        if (fromStorage == null || toStorage == null) {
-            return CompletableFuture.failedFuture(new IllegalArgumentException("Storage engine types cannot be null"));
-        }
-        String from = fromStorage.trim().toUpperCase();
-        String to = toStorage.trim().toUpperCase();
-
-        if (!isValidStorageType(from) || !isValidStorageType(to)) {
-            return CompletableFuture.failedFuture(new IllegalArgumentException("INVALID_STORAGE_TYPE"));
-        }
-        if (from.equals(to)) {
-            return CompletableFuture.failedFuture(new IllegalArgumentException("SAME_STORAGE_TYPE"));
-        }
-
-        return CompletableFuture.supplyAsync(() -> {
-            String activeType = (config.storage() != null && "YAML".equalsIgnoreCase(config.storage().type())) ? "YAML" : "SQLITE";
-            boolean isFromActive = from.equals(activeType);
-            boolean isToActive = to.equals(activeType);
-
-            BackRepository fromRepo = isFromActive ? repository : createRepoForType(from);
-            BackRepository toRepo = isToActive ? repository : createRepoForType(to);
-
-            try {
-                if (!isFromActive) fromRepo.initialize().join();
-                if (!isToActive) toRepo.initialize().join();
-
-                Map<UUID, List<BackLocation>> allData = fromRepo.loadAll().join();
-                int count = 0;
-                for (Map.Entry<UUID, List<BackLocation>> entry : allData.entrySet()) {
-                    UUID playerUuid = entry.getKey();
-                    List<BackLocation> history = entry.getValue();
-                    toRepo.savePlayerHistory(playerUuid, history).join();
-                    if (isToActive) {
-                        for (int i = history.size() - 1; i >= 0; i--) {
-                            cache.pushLocation(playerUuid, history.get(i), config.maxHistoryDepth());
-                        }
-                    }
-                    count += history.size();
-                }
-                logger.info("Successfully migrated {} back entries from {} storage to {} storage.", count, from, to);
-                return count;
-            } finally {
-                if (!isFromActive && fromRepo != null) fromRepo.close().join();
-                if (!isToActive && toRepo != null) toRepo.close().join();
-            }
-        }, Executors.newVirtualThreadPerTaskExecutor());
-    }
-
-    private boolean isValidStorageType(String type) {
-        return "SQLITE".equalsIgnoreCase(type) || "YAML".equalsIgnoreCase(type);
-    }
-
-    private BackRepository createRepoForType(String type) {
-        return "YAML".equalsIgnoreCase(type)
-            ? new YamlBackRepository(plugin.getDataFolder(), logger)
-            : new SqliteBackRepository(plugin.getDataFolder(), logger);
+        return dataMigrator.migrateData(fromStorage, toStorage);
     }
 
     @Override
@@ -366,6 +369,7 @@ public final class DefaultBackService implements BackService {
     public CompletableFuture<Void> close() {
         warmupManager.clear();
         cooldownManager.clear();
+        protectionManager.clear();
         cache.clear();
         backTeleportsInProgress.clear();
         return repository.close();

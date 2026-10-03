@@ -120,6 +120,14 @@ public final class BackModule implements ReloadableModule {
 
         if (this.service != null) {
             this.service.close().join();
+            this.service = null;
+        } else if (this.repository != null) {
+            this.repository.close().join();
+        }
+        this.repository = null;
+        if (this.cache != null) {
+            this.cache.clear();
+            this.cache = null;
         }
 
         instantiateAndInitializeStorage(newConfig);
@@ -153,6 +161,14 @@ public final class BackModule implements ReloadableModule {
         if (this.service != null) {
             this.service.close().join();
             this.service = null;
+        } else if (this.repository != null) {
+            this.repository.close().join();
+        }
+        this.repository = null;
+
+        if (this.cache != null) {
+            this.cache.clear();
+            this.cache = null;
         }
 
         this.isInitialized = false;

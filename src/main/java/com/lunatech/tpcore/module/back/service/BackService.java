@@ -38,6 +38,8 @@ public interface BackService {
 
     long getRemainingCooldownSeconds(UUID playerUuid);
 
+    boolean isProtected(UUID playerUuid);
+
     void updateConfig(BackConfig newConfig);
 
     CompletableFuture<Integer> migrateData(String fromStorage, String toStorage);

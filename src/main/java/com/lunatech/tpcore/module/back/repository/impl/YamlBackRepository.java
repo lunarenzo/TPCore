@@ -157,7 +157,15 @@ public final class YamlBackRepository implements BackRepository {
             CommentedConfigurationNode historyNode = root.node("history");
             return parseHistoryNode(historyNode);
         } catch (ConfigurateException e) {
-            logger.error("Failed to load back history from player YAML file {}", file.getAbsolutePath(), e);
+            logger.error("Failed to load back history from player YAML file {}. Creating backup.", file.getAbsolutePath(), e);
+            try {
+                File backup = new File(file.getParentFile(), file.getName() + ".corrupted." + System.currentTimeMillis());
+                if (!file.renameTo(backup)) {
+                    logger.warn("Failed to rename corrupted YAML file {}", file.getAbsolutePath());
+                }
+            } catch (Exception ex) {
+                logger.error("Error creating backup for corrupted YAML file {}", file.getAbsolutePath(), ex);
+            }
             return Collections.emptyList();
         }
     }

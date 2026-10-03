@@ -85,15 +85,19 @@ public final class BackEventListener implements Listener {
         }
     }
 
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onEntityDamage(EntityDamageEvent event) {
-        BackConfig config = configSupplier.get();
-        if (!config.enabled() || !config.cancelOnDamage()) return;
-
         if (event.getEntity() instanceof Player player) {
             BackService service = serviceSupplier.get();
-            if (service != null) {
-                service.cancelWarmupOnDamage(player);
+            if (service != null && service.isProtected(player.getUniqueId())) {
+                event.setCancelled(true);
+                return;
+            }
+            BackConfig config = configSupplier.get();
+            if (config.enabled() && config.cancelOnDamage()) {
+                if (service != null) {
+                    service.cancelWarmupOnDamage(player);
+                }
             }
         }
     }

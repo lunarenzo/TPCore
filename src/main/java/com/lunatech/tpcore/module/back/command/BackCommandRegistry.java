@@ -202,7 +202,7 @@ public final class BackCommandRegistry {
             String timeAgo = formatTimeAgo(now - loc.timestamp());
             String causeName = loc.cause() != null ? loc.cause().name() : "TELEPORT";
 
-            String rawItemPattern = config.messages().backListItem().replace("<index>", String.valueOf(i));
+            String rawItemPattern = config.messages().backListItem();
             Component item = miniMessage.deserialize(
                 rawItemPattern,
                 Placeholder.unparsed("index", String.valueOf(i)),

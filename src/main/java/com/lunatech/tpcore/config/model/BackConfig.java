@@ -18,6 +18,10 @@ public record BackConfig(
     @Comment("Cooldown in seconds between back teleports")
     int cooldownSeconds,
 
+    @Setting("teleport-protection-seconds")
+    @Comment("Invulnerability protection duration in seconds after a successful /back teleport (0 to disable)")
+    int teleportProtectionSeconds,
+
     @Setting("cancel-on-move")
     @Comment("Cancel teleport warmup if the player moves")
     boolean cancelOnMove,
@@ -71,6 +75,7 @@ public record BackConfig(
             true,
             3,
             10,
+            3,
             true,
             true,
             5,
