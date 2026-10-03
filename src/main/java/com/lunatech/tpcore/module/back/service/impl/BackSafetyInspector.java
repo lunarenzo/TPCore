@@ -2,7 +2,6 @@ package com.lunatech.tpcore.module.back.service.impl;
 
 import java.lang.reflect.Method;
 import java.util.EnumSet;
-import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import org.bukkit.Bukkit;
@@ -150,13 +149,19 @@ public final class BackSafetyInspector {
         int minWorldY = world.getMinHeight() + 1;
         int maxWorldY = world.getMaxHeight() - 2;
 
-        // If location is in the void, attempt vertical recovery to nearest highest solid surface
+        // Enhanced Void Death Recovery: Probe horizontal columns to find nearest solid surface edge
         if (targetY < minWorldY) {
-            int surfaceY = world.getHighestBlockYAt(targetX, targetZ);
-            if (surfaceY >= minWorldY && surfaceY <= maxWorldY) {
-                Location candidate = new Location(world, targetX + 0.5, surfaceY + 1.0, targetZ + 0.5, targetLocation.getYaw(), targetLocation.getPitch());
-                if (isLocationSafe(candidate, preventNetherRoof, maxNetherHeight)) {
-                    return candidate;
+            for (int r = 0; r <= radius; r++) {
+                for (int i = 0; i < PROBE_DX.length; i++) {
+                    int checkX = targetX + (PROBE_DX[i] * r);
+                    int checkZ = targetZ + (PROBE_DZ[i] * r);
+                    int surfaceY = world.getHighestBlockYAt(checkX, checkZ);
+                    if (surfaceY >= minWorldY && surfaceY <= maxWorldY) {
+                        Location candidate = new Location(world, checkX + 0.5, surfaceY + 1.0, checkZ + 0.5, targetLocation.getYaw(), targetLocation.getPitch());
+                        if (isLocationSafe(candidate, preventNetherRoof, maxNetherHeight)) {
+                            return candidate;
+                        }
+                    }
                 }
             }
         }

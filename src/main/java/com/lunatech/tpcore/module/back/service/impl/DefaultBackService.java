@@ -180,11 +180,22 @@ public final class DefaultBackService implements BackService {
         if (cause == BackCause.PORTAL && !config.trackPortals()) return;
 
         UUID uuid = player.getUniqueId();
+        if (backTeleportsInProgress.contains(uuid) && !config.trackBackTeleports()) {
+            return;
+        }
+
         Optional<BackLocation> lastOpt = cache.peekLastLocation(uuid);
         if (lastOpt.isPresent()) {
             BackLocation last = lastOpt.get();
             if (last.isSameWorld(location.getWorld().getUID(), location.getWorld().getName())) {
                 double distSq = last.distanceSquared(location.getX(), location.getY(), location.getZ());
+                // 2.C Deduplication: if last entry was a recent death spot at same coords, do not shadow with TELEPORT
+                if (last.cause() == BackCause.DEATH && cause == BackCause.TELEPORT && distSq < 16.0) {
+                    long elapsedMs = System.currentTimeMillis() - last.timestamp();
+                    if (elapsedMs < 30_000L) {
+                        return;
+                    }
+                }
                 double minDist = config.minTeleportDistance();
                 if (distSq < (minDist * minDist)) return;
             }

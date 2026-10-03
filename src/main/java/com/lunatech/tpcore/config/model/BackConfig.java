@@ -38,6 +38,10 @@ public record BackConfig(
     @Comment("Track standard command and plugin teleports")
     boolean trackTeleports,
 
+    @Setting("track-back-teleports")
+    @Comment("Track departure location when executing /back, enabling toggle/ping-pong return")
+    boolean trackBackTeleports,
+
     @Setting("track-deaths")
     @Comment("Track player death locations")
     boolean trackDeaths,
@@ -71,6 +75,7 @@ public record BackConfig(
             true,
             5,
             10.0,
+            true,
             true,
             true,
             false,

@@ -7,6 +7,7 @@ cancel-on-damage: true
 max-history-depth: 5
 min-teleport-distance: 10.0
 track-teleports: true
+track-back-teleports: true
 track-deaths: true
 track-portals: false
 persist-death-locations: true
