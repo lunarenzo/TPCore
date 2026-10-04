@@ -106,11 +106,38 @@ public final class WarpSafetyInspector {
                     }
                 });
             } else {
-                try {
-                    Location safe = inspectLocation(targetLocation, autoAdjust, searchRadius, preventNetherRoof, maxNetherHeight);
-                    future.complete(safe);
-                } catch (Throwable t) {
-                    future.complete(null);
+                if (Bukkit.isPrimaryThread()) {
+                    try {
+                        Location safe = inspectLocation(targetLocation, autoAdjust, searchRadius, preventNetherRoof, maxNetherHeight);
+                        future.complete(safe);
+                    } catch (Throwable t) {
+                        future.complete(null);
+                    }
+                } else if (Bukkit.getServer() != null && Bukkit.getScheduler() != null) {
+                    try {
+                        Bukkit.getScheduler().runTask(plugin, () -> {
+                            try {
+                                Location safe = inspectLocation(targetLocation, autoAdjust, searchRadius, preventNetherRoof, maxNetherHeight);
+                                future.complete(safe);
+                            } catch (Throwable t) {
+                                future.complete(null);
+                            }
+                        });
+                    } catch (Throwable t) {
+                        try {
+                            Location safe = inspectLocation(targetLocation, autoAdjust, searchRadius, preventNetherRoof, maxNetherHeight);
+                            future.complete(safe);
+                        } catch (Throwable ignored) {
+                            future.complete(null);
+                        }
+                    }
+                } else {
+                    try {
+                        Location safe = inspectLocation(targetLocation, autoAdjust, searchRadius, preventNetherRoof, maxNetherHeight);
+                        future.complete(safe);
+                    } catch (Throwable t) {
+                        future.complete(null);
+                    }
                 }
             }
         }).exceptionally(ex -> {
@@ -157,8 +184,10 @@ public final class WarpSafetyInspector {
 
         Location probeLoc = (IS_OWNED_BY_CURRENT_REGION_LOC != null) ? targetLocation.clone() : null;
 
-        // Downward vertical scan on the exact column first
-        int surfaceY = findSurfaceY(world, targetX, targetZ, minWorldY, Math.min(maxWorldY, targetY + 2), preventNetherRoof, maxNetherHeight);
+        // Downward vertical scan bounded near target Y first
+        int searchMinY = Math.max(minWorldY, targetY - 16);
+        int searchMaxY = Math.min(maxWorldY, targetY + 4);
+        int surfaceY = findSurfaceY(world, targetX, targetZ, searchMinY, searchMaxY, preventNetherRoof, maxNetherHeight);
         if (surfaceY >= minWorldY) {
             Location candidate = new Location(world, targetLocation.getX(), surfaceY + 1.0, targetLocation.getZ(), targetLocation.getYaw(), targetLocation.getPitch());
             if (isLocationSafe(candidate, preventNetherRoof, maxNetherHeight)) {

@@ -102,10 +102,7 @@ public final class VaultWarpEconomyService implements WarpEconomyService {
             return false;
         }
         if (this.vaultEconomy == null || !this.vaultEconomy.isEnabled()) {
-            long now = System.currentTimeMillis();
-            if (now - this.lastVaultCheckTimestamp > 10_000L) {
-                setupVault();
-            }
+            setupVault();
         }
         return this.vaultEconomy != null && this.vaultEconomy.isEnabled();
     }

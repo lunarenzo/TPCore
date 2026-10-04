@@ -5,6 +5,7 @@ import com.lunatech.tpcore.module.pwarp.cache.impl.DefaultPwarpCache;
 import com.lunatech.tpcore.module.pwarp.config.PwarpConfig;
 import com.lunatech.tpcore.module.pwarp.model.Pwarp;
 import com.lunatech.tpcore.module.pwarp.repository.PwarpRepository;
+import com.lunatech.tpcore.module.pwarp.repository.impl.SqlitePwarpRepository;
 import com.lunatech.tpcore.module.pwarp.service.PwarpService;
 import com.lunatech.tpcore.module.pwarp.service.impl.DefaultPwarpService;
 import java.io.File;
@@ -12,10 +13,13 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.bukkit.plugin.java.JavaPlugin;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.Mockito;
+import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 final class DefaultPwarpServiceTest {
@@ -24,16 +28,16 @@ final class DefaultPwarpServiceTest {
     @DisplayName("Verify DefaultPwarpService initialization, warp queries, and cache sync")
     void testServiceInitializationAndQueries(@TempDir Path tempDir) {
         File dbFile = tempDir.resolve("test_pwarps_service.db").toFile();
-        PwarpRepository repo = new com.lunatech.tpcore.module.pwarp.repository.impl.SqlitePwarpRepository(dbFile, LoggerFactory.getLogger("TestLogger"));
+        PwarpRepository repo = new SqlitePwarpRepository(dbFile, LoggerFactory.getLogger("TestLogger"));
         repo.initialize().join();
 
         PwarpCache cache = new DefaultPwarpCache();
         PwarpConfig config = PwarpConfig.createDefault();
 
-        org.bukkit.plugin.java.JavaPlugin mockPlugin = org.mockito.Mockito.mock(org.bukkit.plugin.java.JavaPlugin.class);
-        org.slf4j.Logger mockLogger = LoggerFactory.getLogger("TestLogger");
-        org.mockito.Mockito.when(mockPlugin.getSLF4JLogger()).thenReturn(mockLogger);
-        org.mockito.Mockito.when(mockPlugin.getDataFolder()).thenReturn(tempDir.toFile());
+        JavaPlugin mockPlugin = Mockito.mock(JavaPlugin.class);
+        Logger mockLogger = LoggerFactory.getLogger("TestLogger");
+        Mockito.when(mockPlugin.getSLF4JLogger()).thenReturn(mockLogger);
+        Mockito.when(mockPlugin.getDataFolder()).thenReturn(tempDir.toFile());
 
         PwarpService service = new DefaultPwarpService(mockPlugin, () -> config, repo, cache);
 

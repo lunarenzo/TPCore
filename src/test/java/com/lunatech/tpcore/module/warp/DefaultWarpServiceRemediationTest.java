@@ -290,6 +290,7 @@ class DefaultWarpServiceRemediationTest {
                 "&cNo perm",
                 "&cOnly players",
                 "&cPass required",
+                "&cPlayer <target> offline",
                 "&{#FF0000:#00FF00}&lTPCore &8» ",
                 "&eAlready exists",
                 "&aWarp set",
@@ -390,5 +391,104 @@ class DefaultWarpServiceRemediationTest {
 
         assertEquals(WarpResultStatus.SUCCESS, ecoService.setWarp(player, "Hub", false, null, null).join());
         verify(mockEconomy).processSetWarpCostAsync(player);
+    }
+
+    @Test
+    @DisplayName("setWarp rolls back cache and refunds on database save failure")
+    void testSetWarpDatabaseFailureRollback() {
+        Player player = mock(Player.class);
+        when(player.getUniqueId()).thenReturn(UUID.randomUUID());
+        when(player.getLocation()).thenReturn(new Location(mockWorld, 10, 64, 10));
+
+        WarpEconomyService mockEconomy = mock(WarpEconomyService.class);
+        when(mockEconomy.isAvailable()).thenReturn(true);
+        when(mockEconomy.getSetWarpCost(player)).thenReturn(100.0);
+        when(mockEconomy.processSetWarpCostAsync(player)).thenReturn(CompletableFuture.completedFuture(true));
+
+        WarpRepository failingRepo = mock(WarpRepository.class);
+        when(failingRepo.save(any())).thenReturn(CompletableFuture.failedFuture(new RuntimeException("Disk full")));
+
+        DefaultWarpService failingService = new DefaultWarpService(
+            mockPlugin, failingRepo, cache, mockEconomy, config, LoggerFactory.getLogger("Test-WarpService")
+        );
+
+        CompletableFuture<WarpResultStatus> result = failingService.setWarp(player, "FailedWarp", false, null, null);
+        assertEquals(WarpResultStatus.ERROR, result.join());
+
+        // Cache must NOT contain FailedWarp
+        assertFalse(cache.getWarp("failedwarp").isPresent());
+        verify(mockEconomy).processRefund(player, 100.0);
+    }
+
+    @Test
+    @DisplayName("deleteWarp leaves warp in cache if database delete fails")
+    void testDeleteWarpDatabaseFailure() {
+        Warp warp = new Warp("KeepMe", worldId, "world", 0, 64, 0, 0f, 0f, UUID.randomUUID(), "general", null, false, 1000L);
+        cache.putWarp(warp);
+
+        WarpRepository failingRepo = mock(WarpRepository.class);
+        when(failingRepo.delete(any())).thenReturn(CompletableFuture.failedFuture(new RuntimeException("SQL error")));
+
+        DefaultWarpService failingService = new DefaultWarpService(
+            mockPlugin, failingRepo, cache, new NoOpWarpEconomyService(), config, LoggerFactory.getLogger("Test-WarpService")
+        );
+
+        CompletableFuture<WarpResultStatus> result = failingService.deleteWarp("keepme");
+        assertEquals(WarpResultStatus.ERROR, result.join());
+
+        // Cache must still contain the warp
+        assertTrue(cache.getWarp("keepme").isPresent());
+    }
+
+    @Test
+    @DisplayName("setWarp salts password and matches successfully")
+    void testSaltedPasswordVerification() {
+        Player creator = mock(Player.class);
+        when(creator.getUniqueId()).thenReturn(UUID.randomUUID());
+        when(creator.getLocation()).thenReturn(new Location(mockWorld, 10, 64, 10));
+
+        service.setWarp(creator, "SecretWarp", false, "superSecret123", "secret").join();
+        Optional<Warp> created = cache.getWarp("secretwarp");
+        assertTrue(created.isPresent());
+        assertFalse(created.get().passwordHash().contains("superSecret123"));
+
+        Player player1 = mock(Player.class);
+        when(player1.getUniqueId()).thenReturn(UUID.randomUUID());
+        when(player1.hasPermission("tpcore.warp.bypass.warmup")).thenReturn(true);
+        when(player1.hasPermission("tpcore.warp.bypass.cooldown")).thenReturn(false);
+        when(player1.hasPermission("tpcore.warp.admin")).thenReturn(false);
+        when(player1.hasPermission("tpcore.warp.bypass.password")).thenReturn(false);
+
+        Player player2 = mock(Player.class);
+        when(player2.getUniqueId()).thenReturn(UUID.randomUUID());
+        when(player2.hasPermission("tpcore.warp.bypass.warmup")).thenReturn(true);
+        when(player2.hasPermission("tpcore.warp.bypass.cooldown")).thenReturn(false);
+        when(player2.hasPermission("tpcore.warp.admin")).thenReturn(false);
+        when(player2.hasPermission("tpcore.warp.bypass.password")).thenReturn(false);
+
+        WarpConfig noSafetyConfig = new WarpConfig(
+            true, 0, 10, true, true, false, "general", 8, 100, false, 0.0, 0.0, "CHARGE_ON_WARMUP", true,
+            new WarpConfig.WarpSafetyConfig(false, false, 128),
+            WarpConfig.WarpStorageConfig.createDefault(),
+            WarpConfig.WarpMessages.createDefault()
+        );
+        service.updateConfig(noSafetyConfig);
+
+        EntityScheduler scheduler = mock(EntityScheduler.class);
+        when(player1.getScheduler()).thenReturn(scheduler);
+        when(player2.getScheduler()).thenReturn(scheduler);
+        when(player1.teleportAsync(any())).thenReturn(CompletableFuture.completedFuture(true));
+        when(player2.teleportAsync(any())).thenReturn(CompletableFuture.completedFuture(true));
+        org.mockito.Mockito.doAnswer(inv -> {
+            java.util.function.Consumer<ScheduledTask> consumer = inv.getArgument(1);
+            consumer.accept(mock(ScheduledTask.class));
+            return mock(ScheduledTask.class);
+        }).when(scheduler).run(any(), any(), any());
+
+        // Wrong password on player1
+        assertEquals(WarpResultStatus.INVALID_PASSWORD, service.teleportToWarp(player1, "secretwarp", "wrong").join());
+
+        // Correct password on player2
+        assertEquals(WarpResultStatus.SUCCESS, service.teleportToWarp(player2, "secretwarp", "superSecret123").join());
     }
 }

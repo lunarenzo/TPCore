@@ -17,6 +17,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Collection;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -51,6 +52,7 @@ public final class DefaultWarpService implements WarpService {
     private final Map<UUID, Long> cooldowns = new ConcurrentHashMap<>();
     private final Map<UUID, Long> failedPasswordAttempts = new ConcurrentHashMap<>();
     private final Map<UUID, WarmupSession> activeWarmups = new ConcurrentHashMap<>();
+    private final Set<String> inFlightMutations = ConcurrentHashMap.newKeySet();
     private final AtomicReference<CompletableFuture<?>> activeMigration = new AtomicReference<>();
 
     private record WarmupSession(ScheduledTask task, Warp warp, double paidCost, boolean isChargeOnSuccess) {}
@@ -107,7 +109,7 @@ public final class DefaultWarpService implements WarpService {
 
         // Check permission node if gated
         if (warp.permissionGated()) {
-            String permNode = "tpcore.warp." + warp.name().toLowerCase();
+            String permNode = "tpcore.warp." + warp.name().toLowerCase(Locale.ROOT);
             if (!player.hasPermission(permNode) && !player.hasPermission("tpcore.warp.admin")) {
                 return CompletableFuture.completedFuture(WarpResultStatus.NO_PERMISSION);
             }
@@ -125,8 +127,9 @@ public final class DefaultWarpService implements WarpService {
             if (rawPassword == null || rawPassword.isBlank()) {
                 return CompletableFuture.completedFuture(WarpResultStatus.PASSWORD_REQUIRED);
             }
-            String inputHash = hashPassword(rawPassword);
-            if (!warp.passwordHash().equals(inputHash)) {
+            String saltedHash = hashPassword(warp.name(), rawPassword);
+            String legacyHash = hashLegacyPassword(rawPassword);
+            if (!warp.passwordHash().equals(saltedHash) && !warp.passwordHash().equals(legacyHash)) {
                 failedPasswordAttempts.put(uuid, now);
                 if (failedPasswordAttempts.size() > MAX_COOLDOWN_ENTRIES) {
                     failedPasswordAttempts.entrySet().removeIf(e -> (now - e.getValue()) >= 5000L);
@@ -333,25 +336,33 @@ public final class DefaultWarpService implements WarpService {
             return CompletableFuture.completedFuture(WarpResultStatus.INVALID_NAME);
         }
 
+        String normalizedName = warpName.toLowerCase(Locale.ROOT);
+        if (!inFlightMutations.add(normalizedName)) {
+            return CompletableFuture.completedFuture(WarpResultStatus.ERROR);
+        }
+
         Optional<Warp> existing = cache.getWarp(warpName);
         if (existing.isPresent() && !overwrite) {
+            inFlightMutations.remove(normalizedName);
             return CompletableFuture.completedFuture(WarpResultStatus.ALREADY_EXISTS);
         }
 
         int maxWarps = config.maxWarps();
         if (maxWarps > 0 && existing.isEmpty() && cache.getWarpCount() >= maxWarps) {
             if (!creator.hasPermission("tpcore.warp.bypass.limit") && !creator.hasPermission("tpcore.warp.admin")) {
+                inFlightMutations.remove(normalizedName);
                 return CompletableFuture.completedFuture(WarpResultStatus.LIMIT_REACHED);
             }
         }
 
         return economyService.processSetWarpCostAsync(creator).thenCompose(paid -> {
             if (!Boolean.TRUE.equals(paid)) {
+                inFlightMutations.remove(normalizedName);
                 return CompletableFuture.completedFuture(WarpResultStatus.INSUFFICIENT_FUNDS);
             }
 
             Location loc = creator.getLocation();
-            String passwordHash = (rawPassword != null && !rawPassword.isBlank()) ? hashPassword(rawPassword) : null;
+            String passwordHash = (rawPassword != null && !rawPassword.isBlank()) ? hashPassword(warpName, rawPassword) : null;
             String finalCat = (category != null && !category.isBlank()) ? category : config.defaultCategory();
 
             Warp warp = new Warp(
@@ -370,8 +381,10 @@ public final class DefaultWarpService implements WarpService {
                 System.currentTimeMillis()
             );
 
-            cache.putWarp(warp);
-            return repository.save(warp).thenApply(v -> WarpResultStatus.SUCCESS).exceptionally(ex -> {
+            return repository.save(warp).thenApply(v -> {
+                cache.putWarp(warp);
+                return WarpResultStatus.SUCCESS;
+            }).exceptionally(ex -> {
                 logger.error("Failed to persist setwarp {}", warpName, ex);
                 double setCost = economyService.getSetWarpCost(creator);
                 if (setCost > 0.0) {
@@ -379,7 +392,7 @@ public final class DefaultWarpService implements WarpService {
                 }
                 return WarpResultStatus.ERROR;
             });
-        });
+        }).whenComplete((r, ex) -> inFlightMutations.remove(normalizedName));
     }
 
     @Override
@@ -390,13 +403,24 @@ public final class DefaultWarpService implements WarpService {
             return CompletableFuture.completedFuture(WarpResultStatus.WARP_NOT_FOUND);
         }
 
+        String normalizedName = warpName.toLowerCase(Locale.ROOT);
+        if (!inFlightMutations.add(normalizedName)) {
+            return CompletableFuture.completedFuture(WarpResultStatus.ERROR);
+        }
+
         Optional<Warp> existing = cache.getWarp(warpName);
         if (existing.isEmpty()) {
+            inFlightMutations.remove(normalizedName);
             return CompletableFuture.completedFuture(WarpResultStatus.WARP_NOT_FOUND);
         }
 
-        cache.removeWarp(warpName);
-        return repository.delete(warpName).thenApply(v -> WarpResultStatus.SUCCESS);
+        return repository.delete(warpName).thenApply(v -> {
+            cache.removeWarp(warpName);
+            return WarpResultStatus.SUCCESS;
+        }).exceptionally(ex -> {
+            logger.error("Failed to delete warp {}", warpName, ex);
+            return WarpResultStatus.ERROR;
+        }).whenComplete((r, ex) -> inFlightMutations.remove(normalizedName));
     }
 
     @Override
@@ -607,7 +631,26 @@ public final class DefaultWarpService implements WarpService {
         return name.matches("^[a-zA-Z0-9_-]+$");
     }
 
-    private String hashPassword(String password) {
+    private String hashPassword(String warpName, String password) {
+        if (password == null || password.isBlank()) return null;
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            String salted = (warpName != null ? warpName.toLowerCase(Locale.ROOT) : "") + ":" + password + ":tpcore_warp_salt";
+            byte[] hash = digest.digest(salted.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hexString = new StringBuilder(hash.length * 2);
+            for (byte b : hash) {
+                String hex = Integer.toHexString(0xff & b);
+                if (hex.length() == 1) hexString.append('0');
+                hexString.append(hex);
+            }
+            return hexString.toString();
+        } catch (NoSuchAlgorithmException e) {
+            logger.error("Failed to compute SHA-256 hash", e);
+            return password;
+        }
+    }
+
+    private String hashLegacyPassword(String password) {
         if (password == null || password.isBlank()) return null;
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
@@ -620,7 +663,7 @@ public final class DefaultWarpService implements WarpService {
             }
             return hexString.toString();
         } catch (NoSuchAlgorithmException e) {
-            logger.error("Failed to compute SHA-256 hash", e);
+            logger.error("Failed to compute legacy SHA-256 hash", e);
             return password;
         }
     }

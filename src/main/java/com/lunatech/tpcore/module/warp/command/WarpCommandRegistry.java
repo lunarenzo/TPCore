@@ -414,8 +414,8 @@ public final class WarpCommandRegistry {
 
         List<Warp> list = new ArrayList<>(visibleList);
         int perPage = Math.max(1, config.warpsPerPage());
-        int maxPages = (int) Math.ceil((double) list.size() / perPage);
-        int targetPage = Math.min(Math.max(1, page), maxPages);
+        int maxPages = Math.max(1, (int) Math.ceil((double) list.size() / perPage));
+        int targetPage = Math.max(1, Math.min(page, maxPages));
 
         int startIndex = (targetPage - 1) * perPage;
         int endIndex = Math.min(startIndex + perPage, list.size());
@@ -460,11 +460,11 @@ public final class WarpCommandRegistry {
             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
         }
 
-        Player target = Bukkit.getPlayerExact(targetName);
+        Player target = Bukkit.getPlayer(targetName);
         if (target == null) {
             sendMessage(
                 sender,
-                "<red>Player <yellow><target></yellow> is not currently online!</red>",
+                config.messages().playerNotOnline(),
                 Placeholder.unparsed("target", targetName)
             );
             return com.mojang.brigadier.Command.SINGLE_SUCCESS;

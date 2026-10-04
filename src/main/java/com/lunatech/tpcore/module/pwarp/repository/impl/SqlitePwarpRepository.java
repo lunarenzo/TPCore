@@ -284,6 +284,13 @@ public final class SqlitePwarpRepository implements PwarpRepository {
     @Override
     public CompletableFuture<Void> close() {
         return CompletableFuture.runAsync(() -> {
+            if (this.dataSource != null && !this.dataSource.isClosed()) {
+                try {
+                    this.dataSource.close();
+                } catch (Throwable t) {
+                    logger.error("Error closing HikariDataSource in SqlitePwarpRepository", t);
+                }
+            }
             if (this.virtualExecutor != null && !this.virtualExecutor.isShutdown()) {
                 this.virtualExecutor.shutdown();
                 try {
@@ -294,9 +301,6 @@ public final class SqlitePwarpRepository implements PwarpRepository {
                     this.virtualExecutor.shutdownNow();
                     Thread.currentThread().interrupt();
                 }
-            }
-            if (this.dataSource != null && !this.dataSource.isClosed()) {
-                this.dataSource.close();
             }
         });
     }

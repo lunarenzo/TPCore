@@ -39,6 +39,7 @@ messages:
   no-permission: "<prefix><red>You do not have permission to access warp <yellow><warp></yellow>!</red>"
   only-players: "<prefix><red>Only players can execute this command!</red>"
   password-required: "<prefix><red>Warp <yellow><warp></yellow> is password protected! Usage: <gold>/warp <warp> <password></gold></red>"
+  player-not-online: "<prefix><red>Player <yellow><target></yellow> is not currently online!</red>"
   prefix: "<gradient:#00D2FF:#3A7BD5><bold>TPCore</bold></gradient> <dark_gray>»</dark_gray> "
   set-warp-confirm: "<prefix><yellow>Warp <gold><warp></gold> already exists! Run <gold>/setwarp <warp> -f</gold> to overwrite it.</yellow>"
   set-warp-success: "<prefix><green>Warp <yellow><warp></yellow> set to your current location!</green>"
