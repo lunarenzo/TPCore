@@ -26,9 +26,7 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
-import org.bukkit.Material;
 import org.bukkit.World;
-import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 import org.slf4j.Logger;
@@ -110,6 +108,11 @@ public final class DefaultWarpService implements WarpService {
             return CompletableFuture.completedFuture(WarpResultStatus.COOLDOWN_ACTIVE);
         }
 
+        // Check if player is already warming up
+        if (activeWarmups.containsKey(uuid)) {
+            return CompletableFuture.completedFuture(WarpResultStatus.WARMUP_ALREADY_ACTIVE);
+        }
+
         // Resolve target world
         World world = resolveWorld(warp);
         if (world == null) {
@@ -117,9 +120,6 @@ public final class DefaultWarpService implements WarpService {
         }
 
         Location targetLocation = new Location(world, warp.x(), warp.y(), warp.z(), warp.yaw(), warp.pitch());
-
-        // Cancel any existing warmup session for this player
-        cancelWarmupSession(uuid);
 
         int warmupSeconds = config.warmupSeconds();
         boolean bypassWarmup = player.hasPermission("tpcore.warp.bypass.warmup");
@@ -152,6 +152,7 @@ public final class DefaultWarpService implements WarpService {
         if (scheduledTask != null) {
             activeWarmups.put(uuid, new WarmupSession(scheduledTask, warp));
         } else {
+            cooldowns.put(uuid, now);
             return executeTeleportWithSafety(player, targetLocation);
         }
 
@@ -165,46 +166,52 @@ public final class DefaultWarpService implements WarpService {
         }
 
         boolean requireSafety = config.safetyChecks().preventUnsafeTeleport();
-        int chunkX = Math.floorDiv(targetLocation.getBlockX(), 16);
-        int chunkZ = Math.floorDiv(targetLocation.getBlockZ(), 16);
-
-        // If target chunk is already loaded, check safety BEFORE teleporting player
-        if (requireSafety && world.isChunkLoaded(chunkX, chunkZ)) {
-            if (!isLocationSafe(targetLocation)) {
-                return CompletableFuture.completedFuture(WarpResultStatus.UNSAFE_LOCATION);
-            }
+        if (!requireSafety) {
             return performAsyncTeleport(player, targetLocation);
         }
 
-        // If chunk is not loaded, request async chunk load before safety verification
-        if (requireSafety && !world.isChunkLoaded(chunkX, chunkZ)) {
-            CompletableFuture<WarpResultStatus> future = new CompletableFuture<>();
-            world.getChunkAtAsync(targetLocation).thenAccept(chunk -> {
-                player.getScheduler().run(plugin, task -> {
-                    if (!isLocationSafe(targetLocation)) {
-                        future.complete(WarpResultStatus.UNSAFE_LOCATION);
-                        return;
-                    }
-                    performAsyncTeleport(player, targetLocation).thenAccept(future::complete);
-                }, () -> future.complete(WarpResultStatus.ERROR));
-            }).exceptionally(ex -> {
-                future.complete(WarpResultStatus.ERROR);
-                return null;
-            });
-            return future;
-        }
-
-        return performAsyncTeleport(player, targetLocation);
+        return WarpSafetyInspector.findSafeLocationAsync(
+            plugin,
+            targetLocation,
+            true,
+            3,
+            config.safetyChecks().preventNetherRoof(),
+            config.safetyChecks().maxNetherHeight()
+        ).thenCompose(safeLocation -> {
+            if (safeLocation == null) {
+                return CompletableFuture.completedFuture(WarpResultStatus.UNSAFE_LOCATION);
+            }
+            return performAsyncTeleport(player, safeLocation);
+        });
     }
 
     private CompletableFuture<WarpResultStatus> performAsyncTeleport(Player player, Location targetLocation) {
-        return player.teleportAsync(targetLocation).thenApply(success -> {
-            if (Boolean.TRUE.equals(success)) {
-                return WarpResultStatus.SUCCESS;
-            } else {
-                return WarpResultStatus.ERROR;
+        CompletableFuture<WarpResultStatus> future = new CompletableFuture<>();
+        player.getScheduler().run(plugin, task -> {
+            if (player.isInsideVehicle()) {
+                player.leaveVehicle();
             }
-        });
+            if (player.isSleeping()) {
+                player.wakeup(false);
+            }
+            if (player.isGliding()) {
+                player.setGliding(false);
+            }
+            player.setFallDistance(0.0f);
+
+            player.teleportAsync(targetLocation).thenAccept(success -> {
+                if (Boolean.TRUE.equals(success)) {
+                    future.complete(WarpResultStatus.SUCCESS);
+                } else {
+                    future.complete(WarpResultStatus.ERROR);
+                }
+            }).exceptionally(ex -> {
+                logger.error("Failed to teleport player {} to warp location", player.getName(), ex);
+                future.complete(WarpResultStatus.ERROR);
+                return null;
+            });
+        }, () -> future.complete(WarpResultStatus.ERROR));
+        return future;
     }
 
     @Override
@@ -237,7 +244,7 @@ public final class DefaultWarpService implements WarpService {
         Objects.requireNonNull(warpName, "warpName cannot be null");
 
         if (!isValidWarpName(warpName)) {
-            return CompletableFuture.completedFuture(WarpResultStatus.ERROR);
+            return CompletableFuture.completedFuture(WarpResultStatus.INVALID_NAME);
         }
 
         Optional<Warp> existing = cache.getWarp(warpName);
@@ -309,7 +316,7 @@ public final class DefaultWarpService implements WarpService {
     @Override
     public void cancelWarmupOnQuit(UUID playerUuid) {
         cancelWarmupSession(playerUuid);
-        cooldowns.remove(playerUuid);
+        // Cooldown intentionally retained to prevent bypasses via reconnecting
     }
 
     @Override
@@ -319,7 +326,10 @@ public final class DefaultWarpService implements WarpService {
         if (lastTime == null) return 0;
         long passedMs = System.currentTimeMillis() - lastTime;
         long cooldownMs = config.cooldownSeconds() * 1000L;
-        if (passedMs >= cooldownMs) return 0;
+        if (passedMs >= cooldownMs) {
+            cooldowns.remove(playerUuid);
+            return 0;
+        }
         return Math.max(1, (cooldownMs - passedMs + 999) / 1000);
     }
 
@@ -396,14 +406,11 @@ public final class DefaultWarpService implements WarpService {
                 }
 
                 Map<String, Warp> warps = fromRepo.loadAll().join();
-                int count = 0;
-                for (Warp warp : warps.values()) {
-                    toRepo.save(warp).join();
-                    if (isToActive) {
-                        cache.putWarp(warp);
-                    }
-                    count++;
+                toRepo.saveAll(warps.values()).join();
+                if (isToActive) {
+                    cache.populate(warps);
                 }
+                int count = warps.size();
                 logger.info("Successfully migrated {} warps from {} storage to {} storage.", count, from, to);
                 return count;
             } finally {
@@ -451,46 +458,14 @@ public final class DefaultWarpService implements WarpService {
     }
 
     private World resolveWorld(Warp warp) {
+        if (Bukkit.getServer() == null) {
+            return null;
+        }
         if (warp.worldId() != null) {
             World w = Bukkit.getWorld(warp.worldId());
             if (w != null) return w;
         }
         return Bukkit.getWorld(warp.worldName());
-    }
-
-    private boolean isLocationSafe(Location location) {
-        World world = location.getWorld();
-        if (world == null) return false;
-
-        double y = location.getY();
-        if (y < world.getMinHeight() || y >= world.getMaxHeight()) {
-            return false;
-        }
-
-        Block feet = location.getBlock();
-        Block head = feet.getRelative(0, 1, 0);
-        Block ground = feet.getRelative(0, -1, 0);
-
-        if (feet.getType().isSolid() || head.getType().isSolid()) {
-            return false;
-        }
-        if (isDangerousBlock(feet.getType()) || isDangerousBlock(head.getType())) {
-            return false;
-        }
-
-        if (config.safetyChecks().preventNetherRoof() && world.getEnvironment() == World.Environment.NETHER) {
-            if (y >= config.safetyChecks().maxNetherHeight()) {
-                return false;
-            }
-        }
-        return ground.getType().isSolid() || feet.getType() == Material.WATER;
-    }
-
-    private boolean isDangerousBlock(Material material) {
-        return material == Material.LAVA
-            || material == Material.FIRE
-            || material == Material.SOUL_FIRE
-            || material == Material.POWDER_SNOW;
     }
 
     private boolean isValidWarpName(String name) {

@@ -78,7 +78,9 @@ public record WarpConfig(
     public record WarpMessages(
         String cooldownActive,
         String delWarpSuccess,
+        String delWarpUsage,
         String invalidPassword,
+        String invalidWarpName,
         String limitReached,
         String moduleDisabled,
         String noPermission,
@@ -87,9 +89,12 @@ public record WarpConfig(
         String prefix,
         String setWarpConfirm,
         String setWarpSuccess,
+        String setWarpUsage,
         String teleportOtherSuccess,
         String teleportSuccess,
+        String teleportedByOther,
         String unsafeLocation,
+        String warmupAlreadyActive,
         String warmupCancelledDamage,
         String warmupCancelledMove,
         String warmupStart,
@@ -98,13 +103,17 @@ public record WarpConfig(
         String warpListHeader,
         String warpListItem,
         String warpNotFound,
+        String warpOtherUsage,
+        String warpUsage,
         String worldNotLoaded
     ) {
         public static WarpMessages createDefault() {
             return new WarpMessages(
                 "<prefix><red>You must wait <gold><seconds>s</gold> before using /warp again!</red>",
                 "<prefix><green>Warp <yellow><warp></yellow> has been deleted.</green>",
+                "<prefix><red>Usage: <gold>/delwarp <name></gold></red>",
                 "<prefix><red>Incorrect password for warp <yellow><warp></yellow>!</red>",
+                "<prefix><red>Invalid warp name! Warp names must be 1-32 alphanumeric characters.</red>",
                 "<prefix><red>You have reached the maximum warp limit!</red>",
                 "<prefix><red>Warp module is currently disabled.</red>",
                 "<prefix><red>You do not have permission to access warp <yellow><warp></yellow>!</red>",
@@ -113,9 +122,12 @@ public record WarpConfig(
                 "<gradient:#00D2FF:#3A7BD5><bold>TPCore</bold></gradient> <dark_gray>»</dark_gray> ",
                 "<prefix><yellow>Warp <gold><warp></gold> already exists! Run <gold>/setwarp <warp> -f</gold> to overwrite it.</yellow>",
                 "<prefix><green>Warp <yellow><warp></yellow> set to your current location!</green>",
+                "<prefix><red>Usage: <gold>/setwarp <name> [-f] [category] [password]</gold></red>",
                 "<prefix><green>Teleported <gold><target></gold> to warp <yellow><warp></yellow>!</green>",
                 "<prefix><green>Teleported to warp <yellow><warp></yellow>!</green>",
+                "<prefix><green>You were teleported to warp <yellow><warp></yellow> by <gold><sender></gold>!</green>",
                 "<prefix><red>Teleport target location is unsafe or obstructed!</red>",
+                "<prefix><red>You already have a warp teleport in progress!</red>",
                 "<prefix><red>Teleport cancelled because you took damage!</red>",
                 "<prefix><red>Teleport cancelled because you moved!</red>",
                 "<prefix><gray>Teleporting to warp <yellow><warp></yellow> in <gold><seconds></gold> seconds. <red>Do not move or take damage!</red></gray>",
@@ -124,6 +136,8 @@ public record WarpConfig(
                 "<prefix><gray>Available Warps (Page <gold><page></gold>/<gold><maxpages></gold>):</gray>",
                 "  <dark_gray>•</dark_gray> <green><name></green> <gray>[<yellow><category></yellow>]</gray> <click:run_command:'/warp <name>'><hover:show_text:'<green>Click to teleport</green><br><gray>World: <yellow><world></yellow><br>Coords: <yellow><x>, <y>, <z></yellow>'><gold>[Teleport]</gold></hover></click>",
                 "<prefix><red>Warp <yellow><warp></yellow> was not found!</red>",
+                "<prefix><red>Usage: <gold>/warpother <target> <name></gold></red>",
+                "<prefix><red>Usage: <gold>/warp <name> [password]</gold></red>",
                 "<prefix><red>Target world <yellow><world></yellow> is not currently loaded!</red>"
             );
         }

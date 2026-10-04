@@ -4,4 +4,5 @@ build/
 *.out
 *.log
 GEMINI.md
+HANDOVER.md
 dev-docs/

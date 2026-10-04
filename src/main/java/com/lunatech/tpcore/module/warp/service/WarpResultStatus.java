@@ -13,5 +13,7 @@ public enum WarpResultStatus {
     COOLDOWN_ACTIVE,
     ALREADY_EXISTS,
     LIMIT_REACHED,
+    WARMUP_ALREADY_ACTIVE,
+    INVALID_NAME,
     ERROR
 }

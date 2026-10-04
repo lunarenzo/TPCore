@@ -11,6 +11,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -46,7 +47,7 @@ public final class SqliteWarpRepository implements WarpRepository {
             config.setPoolName("TPCore-WarpSQLitePool");
             config.setDriverClassName("org.sqlite.JDBC");
             config.setJdbcUrl("jdbc:sqlite:" + dbFile.getAbsolutePath());
-            config.setMaximumPoolSize(4);
+            config.setMaximumPoolSize(1);
             config.setConnectionTimeout(5000);
             config.setConnectionTestQuery("SELECT 1");
             config.addDataSourceProperty("journal_mode", "WAL");
@@ -186,6 +187,62 @@ public final class SqliteWarpRepository implements WarpRepository {
             } catch (SQLException e) {
                 logger.error("Failed to save warp {} to SQLite database", warp.name(), e);
                 throw new RuntimeException("Database save failure for warp: " + warp.name(), e);
+            }
+        }, virtualExecutor);
+    }
+
+    @Override
+    public CompletableFuture<Void> saveAll(Collection<Warp> warps) {
+        return CompletableFuture.runAsync(() -> {
+            if (warps == null || warps.isEmpty()) {
+                return;
+            }
+            String sql = """
+                INSERT INTO tpcore_warps (warp_name, world_id, world_name, x, y, z, yaw, pitch, creator_uuid, category, password_hash, permission_gated, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(warp_name) DO UPDATE SET
+                    world_id = excluded.world_id,
+                    world_name = excluded.world_name,
+                    x = excluded.x,
+                    y = excluded.y,
+                    z = excluded.z,
+                    yaw = excluded.yaw,
+                    pitch = excluded.pitch,
+                    creator_uuid = excluded.creator_uuid,
+                    category = excluded.category,
+                    password_hash = excluded.password_hash,
+                    permission_gated = excluded.permission_gated;
+            """;
+            try (Connection conn = dataSource.getConnection()) {
+                conn.setAutoCommit(false);
+                try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                    for (Warp warp : warps) {
+                        ps.setString(1, warp.name());
+                        ps.setString(2, warp.worldId() != null ? warp.worldId().toString() : null);
+                        ps.setString(3, warp.worldName());
+                        ps.setDouble(4, warp.x());
+                        ps.setDouble(5, warp.y());
+                        ps.setDouble(6, warp.z());
+                        ps.setFloat(7, warp.yaw());
+                        ps.setFloat(8, warp.pitch());
+                        ps.setString(9, warp.creatorUuid() != null ? warp.creatorUuid().toString() : null);
+                        ps.setString(10, warp.category());
+                        ps.setString(11, warp.passwordHash());
+                        ps.setBoolean(12, warp.permissionGated());
+                        ps.setLong(13, warp.createdAt());
+                        ps.addBatch();
+                    }
+                    ps.executeBatch();
+                    conn.commit();
+                } catch (SQLException e) {
+                    conn.rollback();
+                    throw e;
+                } finally {
+                    conn.setAutoCommit(true);
+                }
+            } catch (SQLException e) {
+                logger.error("Failed to batch save {} warps to SQLite database", warps.size(), e);
+                throw new RuntimeException("Database batch save failure", e);
             }
         }, virtualExecutor);
     }

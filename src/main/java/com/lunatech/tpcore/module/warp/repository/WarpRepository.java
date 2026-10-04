@@ -1,6 +1,7 @@
 package com.lunatech.tpcore.module.warp.repository;
 
 import com.lunatech.tpcore.module.warp.model.Warp;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -17,6 +18,8 @@ public interface WarpRepository {
     CompletableFuture<List<Warp>> findByCategory(String category);
 
     CompletableFuture<Void> save(Warp warp);
+
+    CompletableFuture<Void> saveAll(Collection<Warp> warps);
 
     CompletableFuture<Void> delete(String warpName);
 

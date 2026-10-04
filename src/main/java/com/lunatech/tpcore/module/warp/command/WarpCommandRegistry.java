@@ -86,10 +86,18 @@ public final class WarpCommandRegistry {
                 return builder.buildFuture();
             };
 
-            // /warp <name> [password]
+            // /warp [name] [password]
             commands.register(
                 Commands.literal("warp")
                     .requires(src -> src.getSender().hasPermission(Permissions.WARP_USE))
+                    .executes(ctx -> {
+                        CommandSender sender = ctx.getSource().getSender();
+                        if (sender instanceof Player player) {
+                            return executeWarpsList(player, null, 1);
+                        }
+                        sender.sendMessage(miniMessage.deserialize(configSupplier.get().messages().warpUsage()));
+                        return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+                    })
                     .then(Commands.argument("name", StringArgumentType.word())
                         .suggests(warpSuggestions)
                         .executes(ctx -> executeWarp(ctx.getSource().getSender(), StringArgumentType.getString(ctx, "name"), null))
@@ -106,15 +114,38 @@ public final class WarpCommandRegistry {
                 List.of()
             );
 
-            // /setwarp <name> [category] [password]
+            // /setwarp [name] [-f] [category] [password]
             commands.register(
                 Commands.literal("setwarp")
                     .requires(src -> src.getSender().hasPermission(Permissions.WARP_SET))
+                    .executes(ctx -> {
+                        ctx.getSource().getSender().sendMessage(miniMessage.deserialize(configSupplier.get().messages().setWarpUsage()));
+                        return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+                    })
                     .then(Commands.argument("name", StringArgumentType.word())
                         .suggests(warpSuggestions)
                         .executes(ctx -> executeSetWarp(ctx.getSource().getSender(), StringArgumentType.getString(ctx, "name"), false, null, null))
                         .then(Commands.literal("-f")
                             .executes(ctx -> executeSetWarp(ctx.getSource().getSender(), StringArgumentType.getString(ctx, "name"), true, null, null))
+                            .then(Commands.argument("category", StringArgumentType.word())
+                                .suggests(categorySuggestions)
+                                .executes(ctx -> executeSetWarp(
+                                    ctx.getSource().getSender(),
+                                    StringArgumentType.getString(ctx, "name"),
+                                    true,
+                                    null,
+                                    StringArgumentType.getString(ctx, "category")
+                                ))
+                                .then(Commands.argument("password", StringArgumentType.string())
+                                    .executes(ctx -> executeSetWarp(
+                                        ctx.getSource().getSender(),
+                                        StringArgumentType.getString(ctx, "name"),
+                                        true,
+                                        StringArgumentType.getString(ctx, "password"),
+                                        StringArgumentType.getString(ctx, "category")
+                                    ))
+                                )
+                            )
                         )
                         .then(Commands.argument("category", StringArgumentType.word())
                             .suggests(categorySuggestions)
@@ -125,6 +156,15 @@ public final class WarpCommandRegistry {
                                 null,
                                 StringArgumentType.getString(ctx, "category")
                             ))
+                            .then(Commands.literal("-f")
+                                .executes(ctx -> executeSetWarp(
+                                    ctx.getSource().getSender(),
+                                    StringArgumentType.getString(ctx, "name"),
+                                    true,
+                                    null,
+                                    StringArgumentType.getString(ctx, "category")
+                                ))
+                            )
                             .then(Commands.argument("password", StringArgumentType.string())
                                 .executes(ctx -> executeSetWarp(
                                     ctx.getSource().getSender(),
@@ -133,6 +173,15 @@ public final class WarpCommandRegistry {
                                     StringArgumentType.getString(ctx, "password"),
                                     StringArgumentType.getString(ctx, "category")
                                 ))
+                                .then(Commands.literal("-f")
+                                    .executes(ctx -> executeSetWarp(
+                                        ctx.getSource().getSender(),
+                                        StringArgumentType.getString(ctx, "name"),
+                                        true,
+                                        StringArgumentType.getString(ctx, "password"),
+                                        StringArgumentType.getString(ctx, "category")
+                                    ))
+                                )
                             )
                         )
                     )
@@ -141,10 +190,14 @@ public final class WarpCommandRegistry {
                 List.of("createwarp")
             );
 
-            // /delwarp <name>
+            // /delwarp [name]
             commands.register(
                 Commands.literal("delwarp")
                     .requires(src -> src.getSender().hasPermission(Permissions.WARP_DEL))
+                    .executes(ctx -> {
+                        ctx.getSource().getSender().sendMessage(miniMessage.deserialize(configSupplier.get().messages().delWarpUsage()));
+                        return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+                    })
                     .then(Commands.argument("name", StringArgumentType.word())
                         .suggests(warpSuggestions)
                         .executes(ctx -> executeDelWarp(ctx.getSource().getSender(), StringArgumentType.getString(ctx, "name")))
@@ -154,18 +207,25 @@ public final class WarpCommandRegistry {
                 List.of("removewarp")
             );
 
-            // /warps [category] [page]
+            // /warps [category|page] [page]
             commands.register(
                 Commands.literal("warps")
                     .requires(src -> src.getSender().hasPermission(Permissions.WARP_LIST))
                     .executes(ctx -> executeWarpsList(ctx.getSource().getSender(), null, 1))
-                    .then(Commands.argument("category", StringArgumentType.word())
+                    .then(Commands.argument("query", StringArgumentType.word())
                         .suggests(categorySuggestions)
-                        .executes(ctx -> executeWarpsList(ctx.getSource().getSender(), StringArgumentType.getString(ctx, "category"), 1))
+                        .executes(ctx -> {
+                            String query = StringArgumentType.getString(ctx, "query");
+                            if (query.matches("\\d+")) {
+                                int page = Integer.parseInt(query);
+                                return executeWarpsList(ctx.getSource().getSender(), null, page);
+                            }
+                            return executeWarpsList(ctx.getSource().getSender(), query, 1);
+                        })
                         .then(Commands.argument("page", IntegerArgumentType.integer(1, 100))
                             .executes(ctx -> executeWarpsList(
                                 ctx.getSource().getSender(),
-                                StringArgumentType.getString(ctx, "category"),
+                                StringArgumentType.getString(ctx, "query"),
                                 IntegerArgumentType.getInteger(ctx, "page")
                             ))
                         )
@@ -175,10 +235,14 @@ public final class WarpCommandRegistry {
                 List.of("listwarps", "warplist")
             );
 
-            // /warpother <target> <name>
+            // /warpother [target] [name]
             commands.register(
                 Commands.literal("warpother")
                     .requires(src -> src.getSender().hasPermission(Permissions.WARP_OTHER))
+                    .executes(ctx -> {
+                        ctx.getSource().getSender().sendMessage(miniMessage.deserialize(configSupplier.get().messages().warpOtherUsage()));
+                        return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+                    })
                     .then(Commands.argument("target", StringArgumentType.word())
                         .suggests(playerSuggestions)
                         .then(Commands.argument("name", StringArgumentType.word())
@@ -225,6 +289,7 @@ public final class WarpCommandRegistry {
                 case WORLD_NOT_LOADED -> config.messages().prefix() + config.messages().worldNotLoaded();
                 case UNSAFE_LOCATION -> config.messages().prefix() + config.messages().unsafeLocation();
                 case COOLDOWN_ACTIVE -> config.messages().prefix() + config.messages().cooldownActive();
+                case WARMUP_ALREADY_ACTIVE -> config.messages().prefix() + config.messages().warmupAlreadyActive();
                 default -> config.messages().prefix() + config.messages().warpNotFound();
             };
 
@@ -261,9 +326,16 @@ public final class WarpCommandRegistry {
         }
 
         service.setWarp(player, warpName, overwrite, password, category).thenAccept(status -> {
-            String rawMsg = (status == WarpResultStatus.SUCCESS)
-                ? config.messages().prefix() + config.messages().setWarpSuccess()
-                : config.messages().prefix() + config.messages().setWarpConfirm();
+            String rawMsg;
+            if (status == WarpResultStatus.SUCCESS) {
+                rawMsg = config.messages().prefix() + config.messages().setWarpSuccess();
+            } else if (status == WarpResultStatus.ALREADY_EXISTS) {
+                rawMsg = config.messages().prefix() + config.messages().setWarpConfirm();
+            } else if (status == WarpResultStatus.INVALID_NAME) {
+                rawMsg = config.messages().prefix() + config.messages().invalidWarpName();
+            } else {
+                rawMsg = config.messages().prefix() + config.messages().invalidWarpName();
+            }
             player.sendMessage(miniMessage.deserialize(rawMsg, Placeholder.unparsed("warp", warpName)));
         });
 
@@ -382,6 +454,15 @@ public final class WarpCommandRegistry {
                 Placeholder.unparsed("target", target.getName()),
                 Placeholder.unparsed("warp", warpName)
             ));
+
+            if (status == WarpResultStatus.SUCCESS) {
+                String senderName = (sender instanceof Player p) ? p.getName() : "Console";
+                target.sendMessage(miniMessage.deserialize(
+                    config.messages().prefix() + config.messages().teleportedByOther(),
+                    Placeholder.unparsed("sender", senderName),
+                    Placeholder.unparsed("warp", warpName)
+                ));
+            }
         });
 
         return com.mojang.brigadier.Command.SINGLE_SUCCESS;
