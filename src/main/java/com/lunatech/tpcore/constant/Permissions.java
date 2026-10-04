@@ -46,6 +46,9 @@ public final class Permissions {
     public static final String WARP_ADMIN = "tpcore.warp.admin";
     public static final String WARP_BYPASS_WARMUP = "tpcore.warp.bypass.warmup";
     public static final String WARP_BYPASS_COOLDOWN = "tpcore.warp.bypass.cooldown";
+    public static final String WARP_BYPASS_COST = "tpcore.warp.bypass.cost";
+    public static final String WARP_BYPASS_COST_WARP = "tpcore.warp.bypass.cost.warp";
+    public static final String WARP_BYPASS_COST_SETWARP = "tpcore.warp.bypass.cost.setwarp";
     public static final String BACK_USE = "tpcore.back.use";
     public static final String BACK_DEATH = "tpcore.back.death";
     public static final String BACK_LIST = "tpcore.back.list";

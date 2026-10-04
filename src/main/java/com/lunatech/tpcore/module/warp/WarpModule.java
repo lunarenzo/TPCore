@@ -6,6 +6,8 @@ import com.lunatech.tpcore.config.model.WarpConfig;
 import com.lunatech.tpcore.module.warp.cache.WarpCache;
 import com.lunatech.tpcore.module.warp.cache.impl.DefaultWarpCache;
 import com.lunatech.tpcore.module.warp.command.WarpCommandRegistry;
+import com.lunatech.tpcore.module.warp.economy.WarpEconomyService;
+import com.lunatech.tpcore.module.warp.economy.impl.VaultWarpEconomyService;
 import com.lunatech.tpcore.module.warp.listener.WarpEventListener;
 import com.lunatech.tpcore.module.warp.repository.WarpRepository;
 import com.lunatech.tpcore.module.warp.repository.impl.SqliteWarpRepository;
@@ -28,6 +30,7 @@ public final class WarpModule implements ReloadableModule {
 
     private WarpRepository repository;
     private WarpCache cache;
+    private WarpEconomyService economyService;
     private WarpService service;
     private WarpEventListener eventListener;
     private WarpCommandRegistry commandRegistry;
@@ -136,6 +139,10 @@ public final class WarpModule implements ReloadableModule {
     }
 
     private void instantiateAndInitializeStorage(WarpConfig targetConfig) {
+        if (this.economyService == null) {
+            this.economyService = new VaultWarpEconomyService(this.plugin, () -> this.config, this.plugin.getSLF4JLogger());
+        }
+
         if (targetConfig.storage() != null && "YAML".equalsIgnoreCase(targetConfig.storage().type())) {
             this.repository = new YamlWarpRepository(this.plugin.getDataFolder(), this.plugin.getSLF4JLogger());
         } else {
@@ -143,7 +150,7 @@ public final class WarpModule implements ReloadableModule {
         }
 
         this.cache = new DefaultWarpCache();
-        this.service = new DefaultWarpService(this.plugin, this.repository, this.cache, targetConfig, this.plugin.getSLF4JLogger());
+        this.service = new DefaultWarpService(this.plugin, this.repository, this.cache, this.economyService, targetConfig, this.plugin.getSLF4JLogger());
         this.service.initialize().exceptionally(ex -> {
             this.plugin.getSLF4JLogger().error("Failed to asynchronously initialize Warp storage repository", ex);
             return null;
@@ -173,6 +180,11 @@ public final class WarpModule implements ReloadableModule {
         if (this.cache != null) {
             this.cache.clear();
             this.cache = null;
+        }
+
+        if (this.economyService != null) {
+            this.economyService.shutdown();
+            this.economyService = null;
         }
 
         this.isInitialized = false;
@@ -205,5 +217,9 @@ public final class WarpModule implements ReloadableModule {
 
     public WarpCache getCache() {
         return this.cache;
+    }
+
+    public WarpEconomyService getEconomyService() {
+        return this.economyService;
     }
 }

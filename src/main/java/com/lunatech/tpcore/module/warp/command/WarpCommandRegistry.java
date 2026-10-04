@@ -288,6 +288,9 @@ public final class WarpCommandRegistry {
         }
 
         service.teleportToWarp(player, warpName, rawPassword).thenAccept(status -> {
+            if (status == WarpResultStatus.INSUFFICIENT_FUNDS) {
+                return;
+            }
             String rawMsg = switch (status) {
                 case SUCCESS -> config.messages().teleportSuccess();
                 case WARP_NOT_FOUND -> config.messages().warpNotFound();
@@ -335,6 +338,9 @@ public final class WarpCommandRegistry {
         }
 
         service.setWarp(player, warpName, overwrite, password, category).thenAccept(status -> {
+            if (status == WarpResultStatus.INSUFFICIENT_FUNDS) {
+                return;
+            }
             String rawMsg;
             if (status == WarpResultStatus.SUCCESS) {
                 rawMsg = config.messages().setWarpSuccess();

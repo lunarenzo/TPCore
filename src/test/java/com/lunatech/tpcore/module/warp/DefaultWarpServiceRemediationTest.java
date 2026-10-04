@@ -1,8 +1,11 @@
 package com.lunatech.tpcore.module.warp;
 
 import com.lunatech.tpcore.config.model.WarpConfig;
+import com.lunatech.tpcore.constant.Permissions;
 import com.lunatech.tpcore.module.warp.cache.WarpCache;
 import com.lunatech.tpcore.module.warp.cache.impl.DefaultWarpCache;
+import com.lunatech.tpcore.module.warp.economy.WarpEconomyService;
+import com.lunatech.tpcore.module.warp.economy.impl.NoOpWarpEconomyService;
 import com.lunatech.tpcore.module.warp.model.Warp;
 import com.lunatech.tpcore.module.warp.repository.WarpRepository;
 import com.lunatech.tpcore.module.warp.service.WarpResultStatus;
@@ -73,7 +76,7 @@ class DefaultWarpServiceRemediationTest {
 
         cache = new DefaultWarpCache();
         config = WarpConfig.createDefault();
-        service = new DefaultWarpService(mockPlugin, mockRepository, cache, config, LoggerFactory.getLogger("Test-WarpService"));
+        service = new DefaultWarpService(mockPlugin, mockRepository, cache, new NoOpWarpEconomyService(), config, LoggerFactory.getLogger("Test-WarpService"));
     }
 
     @AfterEach
@@ -100,7 +103,7 @@ class DefaultWarpServiceRemediationTest {
         cache.putWarp(warp);
 
         WarpConfig noSafetyConfig = new WarpConfig(
-            true, 0, 10, true, true, false, "general", 8, 100,
+            true, 0, 10, true, true, false, "general", 8, 100, false, 0.0, 0.0, "CHARGE_ON_WARMUP", true,
             new WarpConfig.WarpSafetyConfig(false, false, 128),
             WarpConfig.WarpStorageConfig.createDefault(),
             WarpConfig.WarpMessages.createDefault()
@@ -191,7 +194,7 @@ class DefaultWarpServiceRemediationTest {
 
         // Configure maxWarps to 2
         WarpConfig limitedConfig = new WarpConfig(
-            true, 3, 10, true, true, false, "general", 8, 2,
+            true, 3, 10, true, true, false, "general", 8, 2, false, 0.0, 0.0, "CHARGE_ON_WARMUP", true,
             WarpConfig.WarpSafetyConfig.createDefault(),
             WarpConfig.WarpStorageConfig.createDefault(),
             WarpConfig.WarpMessages.createDefault()
@@ -270,13 +273,16 @@ class DefaultWarpServiceRemediationTest {
         cache.putWarp(warp);
 
         WarpConfig legacyFormatConfig = new WarpConfig(
-            true, 3, 10, true, true, false, "general", 8, 100,
+            true, 3, 10, true, true, false, "general", 8, 100, false, 0.0, 0.0, "CHARGE_ON_WARMUP", true,
             WarpConfig.WarpSafetyConfig.createDefault(),
             WarpConfig.WarpStorageConfig.createDefault(),
             new WarpConfig.WarpMessages(
                 "&cCooldown &6<seconds>s",
+                "&6<cost> &adeducted",
+                "&6<cost> &arefunded",
                 "&aDeleted &e<warp>",
                 "&cUsage",
+                "&cInsufficient funds",
                 "&cInvalid pass",
                 "&cInvalid name",
                 "&cLimit",
@@ -323,5 +329,66 @@ class DefaultWarpServiceRemediationTest {
         // Cancel warmup on move with legacy message
         service.cancelWarmupOnMove(player);
         verify(player, org.mockito.Mockito.atLeast(2)).sendMessage(captor.capture());
+    }
+
+    @Test
+    @DisplayName("teleportToWarp enforces economy fee and refunds on cancelled warmup")
+    void testEconomyTeleportCostDeductionAndRefund() {
+        UUID playerId = UUID.randomUUID();
+        Player player = mock(Player.class);
+        when(player.getUniqueId()).thenReturn(playerId);
+        when(player.isOnline()).thenReturn(true);
+        when(player.hasPermission("tpcore.warp.bypass.warmup")).thenReturn(false);
+        when(player.hasPermission("tpcore.warp.bypass.cooldown")).thenReturn(false);
+        when(player.hasPermission("tpcore.warp.bypass.cost")).thenReturn(false);
+        when(player.hasPermission("tpcore.warp.bypass.cost.warp")).thenReturn(false);
+
+        WarpEconomyService mockEconomy = mock(WarpEconomyService.class);
+        when(mockEconomy.isAvailable()).thenReturn(true);
+        when(mockEconomy.getWarpCost(player)).thenReturn(50.0);
+        when(mockEconomy.processWarpCostAsync(player)).thenReturn(CompletableFuture.completedFuture(true));
+
+        DefaultWarpService ecoService = new DefaultWarpService(
+            mockPlugin, mockRepository, cache, mockEconomy, config, LoggerFactory.getLogger("Test-WarpService")
+        );
+
+        Warp warp = new Warp("Shop", worldId, "world", 0, 64, 0, 0f, 0f, UUID.randomUUID(), "general", null, false, 1000L);
+        cache.putWarp(warp);
+
+        EntityScheduler scheduler = mock(EntityScheduler.class);
+        ScheduledTask task = mock(ScheduledTask.class);
+        when(scheduler.runDelayed(any(), any(), any(), anyLong())).thenReturn(task);
+        when(player.getScheduler()).thenReturn(scheduler);
+
+        // Initiate warp teleport - should charge 50.0
+        ecoService.teleportToWarp(player, "shop", null);
+        verify(mockEconomy).processWarpCostAsync(player);
+
+        // Cancel warmup on move - should refund 50.0
+        ecoService.cancelWarmupOnMove(player);
+        verify(mockEconomy).processRefund(player, 50.0);
+    }
+
+    @Test
+    @DisplayName("setWarp requires economy fee and refunds on failure")
+    void testSetWarpEconomyFee() {
+        Player player = mock(Player.class);
+        when(player.getUniqueId()).thenReturn(UUID.randomUUID());
+        when(player.getLocation()).thenReturn(new Location(mockWorld, 10, 64, 10));
+        when(player.hasPermission(Permissions.WARP_ADMIN)).thenReturn(false);
+        when(player.hasPermission(Permissions.WARP_BYPASS_COST)).thenReturn(false);
+        when(player.hasPermission(Permissions.WARP_BYPASS_COST_SETWARP)).thenReturn(false);
+
+        WarpEconomyService mockEconomy = mock(WarpEconomyService.class);
+        when(mockEconomy.isAvailable()).thenReturn(true);
+        when(mockEconomy.getSetWarpCost(player)).thenReturn(200.0);
+        when(mockEconomy.processSetWarpCostAsync(player)).thenReturn(CompletableFuture.completedFuture(true));
+
+        DefaultWarpService ecoService = new DefaultWarpService(
+            mockPlugin, mockRepository, cache, mockEconomy, config, LoggerFactory.getLogger("Test-WarpService")
+        );
+
+        assertEquals(WarpResultStatus.SUCCESS, ecoService.setWarp(player, "Hub", false, null, null).join());
+        verify(mockEconomy).processSetWarpCostAsync(player);
     }
 }

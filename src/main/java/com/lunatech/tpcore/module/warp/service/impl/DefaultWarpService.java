@@ -2,6 +2,8 @@ package com.lunatech.tpcore.module.warp.service.impl;
 
 import com.lunatech.tpcore.config.model.WarpConfig;
 import com.lunatech.tpcore.module.warp.cache.WarpCache;
+import com.lunatech.tpcore.module.warp.economy.WarpEconomyService;
+import com.lunatech.tpcore.module.warp.economy.impl.NoOpWarpEconomyService;
 import com.lunatech.tpcore.module.warp.model.Warp;
 import com.lunatech.tpcore.module.warp.repository.WarpRepository;
 import com.lunatech.tpcore.module.warp.repository.impl.SqliteWarpRepository;
@@ -40,6 +42,7 @@ public final class DefaultWarpService implements WarpService {
     private final Plugin plugin;
     private final WarpRepository repository;
     private final WarpCache cache;
+    private final WarpEconomyService economyService;
     private final Logger logger;
     private volatile WarpConfig config;
     private final MiniMessage miniMessage = MiniMessage.miniMessage();
@@ -50,7 +53,7 @@ public final class DefaultWarpService implements WarpService {
     private final Map<UUID, WarmupSession> activeWarmups = new ConcurrentHashMap<>();
     private final AtomicReference<CompletableFuture<?>> activeMigration = new AtomicReference<>();
 
-    private record WarmupSession(ScheduledTask task, Warp warp) {}
+    private record WarmupSession(ScheduledTask task, Warp warp, double paidCost, boolean isChargeOnSuccess) {}
 
     private void recordCooldown(UUID uuid) {
         if (uuid == null) return;
@@ -62,12 +65,17 @@ public final class DefaultWarpService implements WarpService {
         }
     }
 
-    public DefaultWarpService(Plugin plugin, WarpRepository repository, WarpCache cache, WarpConfig config, Logger logger) {
+    public DefaultWarpService(Plugin plugin, WarpRepository repository, WarpCache cache, WarpEconomyService economyService, WarpConfig config, Logger logger) {
         this.plugin = Objects.requireNonNull(plugin, "plugin cannot be null");
         this.repository = Objects.requireNonNull(repository, "repository cannot be null");
         this.cache = Objects.requireNonNull(cache, "cache cannot be null");
+        this.economyService = Objects.requireNonNull(economyService, "economyService cannot be null");
         this.config = Objects.requireNonNull(config, "config cannot be null");
         this.logger = Objects.requireNonNull(logger, "logger cannot be null");
+    }
+
+    public DefaultWarpService(Plugin plugin, WarpRepository repository, WarpCache cache, WarpConfig config, Logger logger) {
+        this(plugin, repository, cache, new NoOpWarpEconomyService(), config, logger);
     }
 
     @Override
@@ -152,51 +160,89 @@ public final class DefaultWarpService implements WarpService {
         int warmupSeconds = config.warmupSeconds();
         boolean bypassWarmup = player.hasPermission("tpcore.warp.bypass.warmup");
 
-        if (warmupSeconds <= 0 || bypassWarmup) {
-            return executeTeleportWithSafety(player, targetLocation).thenApply(status -> {
-                if (status == WarpResultStatus.SUCCESS) {
-                    recordCooldown(uuid);
+        boolean isChargeOnSuccess = "CHARGE_ON_SUCCESS".equals(config.getNormalizedChargeTiming());
+        CompletableFuture<Boolean> fundFuture = isChargeOnSuccess
+            ? economyService.validateWarpFundsAsync(player)
+            : economyService.processWarpCostAsync(player);
+
+        return fundFuture.thenCompose(canProceed -> {
+            if (!Boolean.TRUE.equals(canProceed)) {
+                return CompletableFuture.completedFuture(WarpResultStatus.INSUFFICIENT_FUNDS);
+            }
+
+            double cost = economyService.getWarpCost(player);
+            double paidCost = isChargeOnSuccess ? 0.0 : cost;
+
+            if (warmupSeconds <= 0 || bypassWarmup) {
+                return executeTeleportWithSafety(player, targetLocation).thenApply(status -> {
+                    if (status == WarpResultStatus.SUCCESS) {
+                        recordCooldown(uuid);
+                        if (isChargeOnSuccess) {
+                            economyService.chargeSuccessAsync(player);
+                        }
+                    } else {
+                        if (paidCost > 0.0 && config.refundOnCancel()) {
+                            economyService.processRefund(player, paidCost);
+                        }
+                    }
+                    return status;
+                });
+            }
+
+            // Send warmup start notification
+            sendPlayerMessage(
+                player,
+                config.messages().warmupStart(),
+                Placeholder.unparsed("warp", warp.name()),
+                Placeholder.unparsed("seconds", String.valueOf(warmupSeconds))
+            );
+
+            CompletableFuture<WarpResultStatus> futureResult = new CompletableFuture<>();
+
+            long delayTicks = warmupSeconds * 20L;
+            ScheduledTask scheduledTask = player.getScheduler().runDelayed(plugin, task -> {
+                activeWarmups.remove(uuid);
+                executeTeleportWithSafety(player, targetLocation).thenAccept(status -> {
+                    if (status == WarpResultStatus.SUCCESS) {
+                        recordCooldown(uuid);
+                        if (isChargeOnSuccess) {
+                            economyService.chargeSuccessAsync(player);
+                        }
+                    } else {
+                        if (paidCost > 0.0 && config.refundOnCancel()) {
+                            economyService.processRefund(player, paidCost);
+                        }
+                    }
+                    futureResult.complete(status);
+                });
+            }, () -> {
+                activeWarmups.remove(uuid);
+                if (paidCost > 0.0 && config.refundOnCancel()) {
+                    economyService.processRefund(player, paidCost);
                 }
-                return status;
-            });
-        }
+                futureResult.complete(WarpResultStatus.ERROR);
+            }, delayTicks);
 
-        // Send warmup start notification
-        sendPlayerMessage(
-            player,
-            config.messages().warmupStart(),
-            Placeholder.unparsed("warp", warp.name()),
-            Placeholder.unparsed("seconds", String.valueOf(warmupSeconds))
-        );
+            if (scheduledTask != null) {
+                activeWarmups.put(uuid, new WarmupSession(scheduledTask, warp, paidCost, isChargeOnSuccess));
+            } else {
+                return executeTeleportWithSafety(player, targetLocation).thenApply(status -> {
+                    if (status == WarpResultStatus.SUCCESS) {
+                        recordCooldown(uuid);
+                        if (isChargeOnSuccess) {
+                            economyService.chargeSuccessAsync(player);
+                        }
+                    } else {
+                        if (paidCost > 0.0 && config.refundOnCancel()) {
+                            economyService.processRefund(player, paidCost);
+                        }
+                    }
+                    return status;
+                });
+            }
 
-        CompletableFuture<WarpResultStatus> futureResult = new CompletableFuture<>();
-
-        long delayTicks = warmupSeconds * 20L;
-        ScheduledTask scheduledTask = player.getScheduler().runDelayed(plugin, task -> {
-            activeWarmups.remove(uuid);
-            executeTeleportWithSafety(player, targetLocation).thenAccept(status -> {
-                if (status == WarpResultStatus.SUCCESS) {
-                    recordCooldown(uuid);
-                }
-                futureResult.complete(status);
-            });
-        }, () -> {
-            activeWarmups.remove(uuid);
-            futureResult.complete(WarpResultStatus.ERROR);
-        }, delayTicks);
-
-        if (scheduledTask != null) {
-            activeWarmups.put(uuid, new WarmupSession(scheduledTask, warp));
-        } else {
-            return executeTeleportWithSafety(player, targetLocation).thenApply(status -> {
-                if (status == WarpResultStatus.SUCCESS) {
-                    recordCooldown(uuid);
-                }
-                return status;
-            });
-        }
-
-        return futureResult;
+            return futureResult;
+        });
     }
 
     private CompletableFuture<WarpResultStatus> executeTeleportWithSafety(Player player, Location targetLocation) {
@@ -299,28 +345,41 @@ public final class DefaultWarpService implements WarpService {
             }
         }
 
-        Location loc = creator.getLocation();
-        String passwordHash = (rawPassword != null && !rawPassword.isBlank()) ? hashPassword(rawPassword) : null;
-        String finalCat = (category != null && !category.isBlank()) ? category : config.defaultCategory();
+        return economyService.processSetWarpCostAsync(creator).thenCompose(paid -> {
+            if (!Boolean.TRUE.equals(paid)) {
+                return CompletableFuture.completedFuture(WarpResultStatus.INSUFFICIENT_FUNDS);
+            }
 
-        Warp warp = new Warp(
-            warpName,
-            loc.getWorld().getUID(),
-            loc.getWorld().getName(),
-            loc.getX(),
-            loc.getY(),
-            loc.getZ(),
-            loc.getYaw(),
-            loc.getPitch(),
-            creator.getUniqueId(),
-            finalCat,
-            passwordHash,
-            config.defaultPermissionGated(),
-            System.currentTimeMillis()
-        );
+            Location loc = creator.getLocation();
+            String passwordHash = (rawPassword != null && !rawPassword.isBlank()) ? hashPassword(rawPassword) : null;
+            String finalCat = (category != null && !category.isBlank()) ? category : config.defaultCategory();
 
-        cache.putWarp(warp);
-        return repository.save(warp).thenApply(v -> WarpResultStatus.SUCCESS);
+            Warp warp = new Warp(
+                warpName,
+                loc.getWorld().getUID(),
+                loc.getWorld().getName(),
+                loc.getX(),
+                loc.getY(),
+                loc.getZ(),
+                loc.getYaw(),
+                loc.getPitch(),
+                creator.getUniqueId(),
+                finalCat,
+                passwordHash,
+                config.defaultPermissionGated(),
+                System.currentTimeMillis()
+            );
+
+            cache.putWarp(warp);
+            return repository.save(warp).thenApply(v -> WarpResultStatus.SUCCESS).exceptionally(ex -> {
+                logger.error("Failed to persist setwarp {}", warpName, ex);
+                double setCost = economyService.getSetWarpCost(creator);
+                if (setCost > 0.0) {
+                    economyService.processRefund(creator, setCost);
+                }
+                return WarpResultStatus.ERROR;
+            });
+        });
     }
 
     @Override
@@ -345,6 +404,9 @@ public final class DefaultWarpService implements WarpService {
         WarmupSession session = activeWarmups.remove(player.getUniqueId());
         if (session != null) {
             session.task().cancel();
+            if (session.paidCost() > 0.0 && config.refundOnCancel()) {
+                economyService.processRefund(player, session.paidCost());
+            }
             sendPlayerMessage(player, config.messages().warmupCancelledMove());
         }
     }
@@ -354,13 +416,24 @@ public final class DefaultWarpService implements WarpService {
         WarmupSession session = activeWarmups.remove(player.getUniqueId());
         if (session != null) {
             session.task().cancel();
+            if (session.paidCost() > 0.0 && config.refundOnCancel()) {
+                economyService.processRefund(player, session.paidCost());
+            }
             sendPlayerMessage(player, config.messages().warmupCancelledDamage());
         }
     }
 
     @Override
     public void cancelWarmupOnQuit(UUID playerUuid) {
-        cancelWarmupSession(playerUuid);
+        WarmupSession session = activeWarmups.remove(playerUuid);
+        if (session != null) {
+            if (session.task() != null) {
+                session.task().cancel();
+            }
+            if (session.paidCost() > 0.0 && config.refundOnCancel() && playerUuid != null) {
+                economyService.processRefund(Bukkit.getOfflinePlayer(playerUuid), session.paidCost());
+            }
+        }
         if (playerUuid != null) {
             Long lastTime = cooldowns.get(playerUuid);
             if (lastTime != null && (System.currentTimeMillis() - lastTime) >= (config.cooldownSeconds() * 1000L)) {
@@ -381,13 +454,6 @@ public final class DefaultWarpService implements WarpService {
             return 0;
         }
         return Math.max(1, (cooldownMs - passedMs + 999) / 1000);
-    }
-
-    private void cancelWarmupSession(UUID uuid) {
-        WarmupSession session = activeWarmups.remove(uuid);
-        if (session != null && session.task() != null) {
-            session.task().cancel();
-        }
     }
 
     @Override
@@ -519,6 +585,7 @@ public final class DefaultWarpService implements WarpService {
             }
         }
 
+        economyService.shutdown();
         return repository.close();
     }
 

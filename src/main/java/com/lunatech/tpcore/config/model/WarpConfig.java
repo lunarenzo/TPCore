@@ -1,5 +1,6 @@
 package com.lunatech.tpcore.config.model;
 
+import java.util.Locale;
 import org.spongepowered.configurate.objectmapping.ConfigSerializable;
 import org.spongepowered.configurate.objectmapping.meta.Comment;
 
@@ -32,6 +33,21 @@ public record WarpConfig(
     @Comment("Maximum total server warps allowed (0 for unlimited)")
     int maxWarps,
 
+    @Comment("Enable Vault economy integration for warp teleport and creation costs")
+    boolean economyEnabled,
+
+    @Comment("Cost charged to player when teleporting to a warp")
+    double warpCost,
+
+    @Comment("Cost charged to player when creating a warp via /setwarp")
+    double setWarpCost,
+
+    @Comment("Charge timing mode: CHARGE_ON_WARMUP or CHARGE_ON_SUCCESS")
+    String chargeTiming,
+
+    @Comment("Refund teleportation cost if warmup is cancelled (by movement, damage, or teleport)")
+    boolean refundOnCancel,
+
     @Comment("Safety checks before teleporting to a warp")
     WarpSafetyConfig safetyChecks,
 
@@ -41,6 +57,18 @@ public record WarpConfig(
     @Comment("Module message strings (Alphabetically ordered)")
     WarpMessages messages
 ) {
+    public String getNormalizedChargeTiming() {
+        if (this.chargeTiming == null || this.chargeTiming.isBlank()) {
+            return "CHARGE_ON_WARMUP";
+        }
+        String upper = this.chargeTiming.trim().toUpperCase(Locale.ROOT);
+        return switch (upper) {
+            case "CHARGE_ON_SUCCESS", "SUCCESS", "ON_SUCCESS" -> "CHARGE_ON_SUCCESS";
+            case "CHARGE_ON_START", "START", "ON_START", "CHARGE_ON_WARMUP", "WARMUP", "ON_WARMUP" -> "CHARGE_ON_WARMUP";
+            default -> "CHARGE_ON_WARMUP";
+        };
+    }
+
     public static WarpConfig createDefault() {
         return new WarpConfig(
             true,
@@ -52,6 +80,11 @@ public record WarpConfig(
             "general",
             8,
             100,
+            false,
+            0.0,
+            0.0,
+            "CHARGE_ON_WARMUP",
+            true,
             WarpSafetyConfig.createDefault(),
             WarpStorageConfig.createDefault(),
             WarpMessages.createDefault()
@@ -81,8 +114,11 @@ public record WarpConfig(
     @ConfigSerializable
     public record WarpMessages(
         String cooldownActive,
+        String costDeducted,
+        String costRefunded,
         String delWarpSuccess,
         String delWarpUsage,
+        String insufficientFunds,
         String invalidPassword,
         String invalidWarpName,
         String limitReached,
@@ -114,8 +150,11 @@ public record WarpConfig(
         public static WarpMessages createDefault() {
             return new WarpMessages(
                 "<prefix><red>You must wait <gold><seconds>s</gold> before using /warp again!</red>",
+                "<prefix><gold><cost></gold> <green>has been deducted from your account.</green>",
+                "<prefix><gold><cost></gold> <green>has been refunded to your account.</green>",
                 "<prefix><green>Warp <yellow><warp></yellow> has been deleted.</green>",
                 "<prefix><red>Usage: <gold>/delwarp <name></gold></red>",
+                "<prefix><red>You do not have enough money! Required: <gold><cost></gold>, Balance: <gold><balance></gold></red>",
                 "<prefix><red>Incorrect password for warp <yellow><warp></yellow>!</red>",
                 "<prefix><red>Invalid warp name! Warp names must be 1-32 alphanumeric characters.</red>",
                 "<prefix><red>You have reached the maximum warp limit!</red>",
