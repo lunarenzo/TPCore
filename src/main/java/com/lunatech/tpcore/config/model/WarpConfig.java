@@ -29,6 +29,9 @@ public record WarpConfig(
     @Comment("Number of warps displayed per page in /warps GUI menu")
     int warpsPerPage,
 
+    @Comment("Maximum total server warps allowed (0 for unlimited)")
+    int maxWarps,
+
     @Comment("Safety checks before teleporting to a warp")
     WarpSafetyConfig safetyChecks,
 
@@ -48,6 +51,7 @@ public record WarpConfig(
             false,
             "general",
             8,
+            100,
             WarpSafetyConfig.createDefault(),
             WarpStorageConfig.createDefault(),
             WarpMessages.createDefault()

@@ -331,6 +331,8 @@ public final class WarpCommandRegistry {
                 rawMsg = config.messages().prefix() + config.messages().setWarpSuccess();
             } else if (status == WarpResultStatus.ALREADY_EXISTS) {
                 rawMsg = config.messages().prefix() + config.messages().setWarpConfirm();
+            } else if (status == WarpResultStatus.LIMIT_REACHED) {
+                rawMsg = config.messages().prefix() + config.messages().limitReached();
             } else if (status == WarpResultStatus.INVALID_NAME) {
                 rawMsg = config.messages().prefix() + config.messages().invalidWarpName();
             } else {
@@ -382,12 +384,20 @@ public final class WarpCommandRegistry {
             ? service.getWarpsByCategory(category)
             : service.getAllWarps();
 
-        if (rawList.isEmpty()) {
+        Player playerSender = (sender instanceof Player p) ? p : null;
+        List<Warp> visibleList = rawList.stream()
+            .filter(warp -> !warp.permissionGated()
+                || playerSender == null
+                || playerSender.hasPermission("tpcore.warp." + warp.name().toLowerCase())
+                || playerSender.hasPermission("tpcore.warp.admin"))
+            .toList();
+
+        if (visibleList.isEmpty()) {
             sender.sendMessage(miniMessage.deserialize(config.messages().prefix() + config.messages().warpListEmpty()));
             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
         }
 
-        List<Warp> list = new ArrayList<>(rawList);
+        List<Warp> list = new ArrayList<>(visibleList);
         int perPage = Math.max(1, config.warpsPerPage());
         int maxPages = (int) Math.ceil((double) list.size() / perPage);
         int targetPage = Math.min(Math.max(1, page), maxPages);

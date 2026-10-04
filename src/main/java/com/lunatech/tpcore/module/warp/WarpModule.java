@@ -14,6 +14,7 @@ import com.lunatech.tpcore.module.warp.service.WarpService;
 import com.lunatech.tpcore.module.warp.service.impl.DefaultWarpService;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import org.bukkit.event.HandlerList;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -109,12 +110,29 @@ public final class WarpModule implements ReloadableModule {
     }
 
     private void reloadActiveModule(WarpConfig newConfig) {
+        String oldStorage = (this.config != null && this.config.storage() != null) ? this.config.storage().type() : "SQLITE";
+        String newStorage = (newConfig != null && newConfig.storage() != null) ? newConfig.storage().type() : "SQLITE";
+
+        if (oldStorage.equalsIgnoreCase(newStorage) && this.service != null) {
+            this.service.updateConfig(newConfig);
+            this.plugin.getSLF4JLogger().info("Warp Module configuration reloaded successfully.");
+            return;
+        }
+
         if (this.service != null) {
-            this.service.close().join();
+            safeClose(this.service);
+            this.service = null;
+        } else if (this.repository != null) {
+            safeClose(this.repository);
+        }
+        this.repository = null;
+        if (this.cache != null) {
+            this.cache.clear();
+            this.cache = null;
         }
 
         instantiateAndInitializeStorage(newConfig);
-        this.plugin.getSLF4JLogger().info("Warp Module storage engine successfully reloaded: {}", newConfig.storage() != null ? newConfig.storage().type() : "SQLITE");
+        this.plugin.getSLF4JLogger().info("Warp Module storage engine successfully reloaded: {}", newStorage);
     }
 
     private void instantiateAndInitializeStorage(WarpConfig targetConfig) {
@@ -126,7 +144,10 @@ public final class WarpModule implements ReloadableModule {
 
         this.cache = new DefaultWarpCache();
         this.service = new DefaultWarpService(this.plugin, this.repository, this.cache, targetConfig, this.plugin.getSLF4JLogger());
-        this.service.initialize().join();
+        this.service.initialize().exceptionally(ex -> {
+            this.plugin.getSLF4JLogger().error("Failed to asynchronously initialize Warp storage repository", ex);
+            return null;
+        });
     }
 
     public void disable() {
@@ -142,12 +163,40 @@ public final class WarpModule implements ReloadableModule {
         }
 
         if (this.service != null) {
-            this.service.close().join();
+            safeClose(this.service);
             this.service = null;
+        } else if (this.repository != null) {
+            safeClose(this.repository);
+        }
+        this.repository = null;
+
+        if (this.cache != null) {
+            this.cache.clear();
+            this.cache = null;
         }
 
         this.isInitialized = false;
         this.plugin.getSLF4JLogger().info("Warp Module disabled.");
+    }
+
+    private void safeClose(WarpService warpService) {
+        if (warpService != null) {
+            try {
+                warpService.close().get(1, TimeUnit.SECONDS);
+            } catch (Exception e) {
+                this.plugin.getSLF4JLogger().warn("Timed out or interrupted while closing WarpService", e);
+            }
+        }
+    }
+
+    private void safeClose(WarpRepository warpRepository) {
+        if (warpRepository != null) {
+            try {
+                warpRepository.close().get(1, TimeUnit.SECONDS);
+            } catch (Exception e) {
+                this.plugin.getSLF4JLogger().warn("Timed out or interrupted while closing WarpRepository", e);
+            }
+        }
     }
 
     public WarpService getService() {

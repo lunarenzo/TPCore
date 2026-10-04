@@ -99,12 +99,27 @@ class DefaultWarpServiceRemediationTest {
         Warp warp = new Warp("TestWarp", worldId, "world", 0, 64, 0, 0f, 0f, UUID.randomUUID(), "general", null, false, 1000L);
         cache.putWarp(warp);
 
+        WarpConfig noSafetyConfig = new WarpConfig(
+            true, 0, 10, true, true, false, "general", 8, 100,
+            new WarpConfig.WarpSafetyConfig(false, false, 128),
+            WarpConfig.WarpStorageConfig.createDefault(),
+            WarpConfig.WarpMessages.createDefault()
+        );
+        service.updateConfig(noSafetyConfig);
+
         EntityScheduler scheduler = mock(EntityScheduler.class);
         when(player.getScheduler()).thenReturn(scheduler);
         when(player.teleportAsync(any())).thenReturn(CompletableFuture.completedFuture(true));
 
-        // Teleport bypasses warmup and applies cooldown
-        service.teleportToWarp(player, "testwarp", null);
+        org.mockito.Mockito.doAnswer(inv -> {
+            java.util.function.Consumer<ScheduledTask> consumer = inv.getArgument(1);
+            consumer.accept(mock(ScheduledTask.class));
+            return mock(ScheduledTask.class);
+        }).when(scheduler).run(any(), any(), any());
+
+        // Teleport bypasses warmup, succeeds, and applies cooldown
+        CompletableFuture<WarpResultStatus> future = service.teleportToWarp(player, "testwarp", null);
+        assertEquals(WarpResultStatus.SUCCESS, future.join());
 
         long remaining = service.getRemainingCooldownSeconds(playerId);
         assertTrue(remaining > 0, "Cooldown must be active");
@@ -163,5 +178,57 @@ class DefaultWarpServiceRemediationTest {
 
         // Existing warp with overwrite
         assertEquals(WarpResultStatus.SUCCESS, service.setWarp(player, "Valid_Warp-1", true, null, null).join());
+    }
+
+    @Test
+    @DisplayName("setWarp enforces maxWarps limit when configured")
+    void testSetWarpLimit() {
+        Player player = mock(Player.class);
+        when(player.getUniqueId()).thenReturn(UUID.randomUUID());
+        when(player.getLocation()).thenReturn(new Location(mockWorld, 10, 64, 10));
+        when(player.hasPermission("tpcore.warp.bypass.limit")).thenReturn(false);
+        when(player.hasPermission("tpcore.warp.admin")).thenReturn(false);
+
+        // Configure maxWarps to 2
+        WarpConfig limitedConfig = new WarpConfig(
+            true, 3, 10, true, true, false, "general", 8, 2,
+            WarpConfig.WarpSafetyConfig.createDefault(),
+            WarpConfig.WarpStorageConfig.createDefault(),
+            WarpConfig.WarpMessages.createDefault()
+        );
+        service.updateConfig(limitedConfig);
+
+        assertEquals(WarpResultStatus.SUCCESS, service.setWarp(player, "warp1", false, null, null).join());
+        assertEquals(WarpResultStatus.SUCCESS, service.setWarp(player, "warp2", false, null, null).join());
+
+        // 3rd warp reaches limit
+        assertEquals(WarpResultStatus.LIMIT_REACHED, service.setWarp(player, "warp3", false, null, null).join());
+
+        // Overwrite existing warp is allowed
+        assertEquals(WarpResultStatus.SUCCESS, service.setWarp(player, "warp1", true, null, null).join());
+
+        // Bypass permission allows setting 3rd warp
+        when(player.hasPermission("tpcore.warp.bypass.limit")).thenReturn(true);
+        assertEquals(WarpResultStatus.SUCCESS, service.setWarp(player, "warp3", false, null, null).join());
+    }
+
+    @Test
+    @DisplayName("teleportToWarp does not consume cooldown on failed/unsafe teleport")
+    void testCooldownNotAppliedOnFailure() {
+        UUID playerId = UUID.randomUUID();
+        Player player = mock(Player.class);
+        when(player.getUniqueId()).thenReturn(playerId);
+        when(player.hasPermission("tpcore.warp.bypass.warmup")).thenReturn(true);
+        when(player.hasPermission("tpcore.warp.bypass.cooldown")).thenReturn(false);
+
+        // Warp in unknown world
+        Warp warp = new Warp("UnknownWorldWarp", UUID.randomUUID(), "non_existent_world", 0, 64, 0, 0f, 0f, UUID.randomUUID(), "general", null, false, 1000L);
+        cache.putWarp(warp);
+
+        CompletableFuture<WarpResultStatus> result = service.teleportToWarp(player, "unknownworldwarp", null);
+        assertEquals(WarpResultStatus.WORLD_NOT_LOADED, result.join());
+
+        // Cooldown must NOT be active
+        assertEquals(0, service.getRemainingCooldownSeconds(playerId));
     }
 }

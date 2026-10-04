@@ -40,10 +40,21 @@ public final class DefaultWarpService implements WarpService {
     private volatile WarpConfig config;
     private final MiniMessage miniMessage = MiniMessage.miniMessage();
 
+    private static final int MAX_COOLDOWN_ENTRIES = 2000;
     private final Map<UUID, Long> cooldowns = new ConcurrentHashMap<>();
     private final Map<UUID, WarmupSession> activeWarmups = new ConcurrentHashMap<>();
 
     private record WarmupSession(ScheduledTask task, Warp warp) {}
+
+    private void recordCooldown(UUID uuid) {
+        if (uuid == null) return;
+        long now = System.currentTimeMillis();
+        cooldowns.put(uuid, now);
+        if (cooldowns.size() > MAX_COOLDOWN_ENTRIES) {
+            long cooldownMs = config.cooldownSeconds() * 1000L;
+            cooldowns.entrySet().removeIf(entry -> (now - entry.getValue()) >= cooldownMs);
+        }
+    }
 
     public DefaultWarpService(Plugin plugin, WarpRepository repository, WarpCache cache, WarpConfig config, Logger logger) {
         this.plugin = Objects.requireNonNull(plugin, "plugin cannot be null");
@@ -125,8 +136,12 @@ public final class DefaultWarpService implements WarpService {
         boolean bypassWarmup = player.hasPermission("tpcore.warp.bypass.warmup");
 
         if (warmupSeconds <= 0 || bypassWarmup) {
-            cooldowns.put(uuid, now);
-            return executeTeleportWithSafety(player, targetLocation);
+            return executeTeleportWithSafety(player, targetLocation).thenApply(status -> {
+                if (status == WarpResultStatus.SUCCESS) {
+                    recordCooldown(uuid);
+                }
+                return status;
+            });
         }
 
         // Send warmup start notification
@@ -142,8 +157,12 @@ public final class DefaultWarpService implements WarpService {
         long delayTicks = warmupSeconds * 20L;
         ScheduledTask scheduledTask = player.getScheduler().runDelayed(plugin, task -> {
             activeWarmups.remove(uuid);
-            cooldowns.put(uuid, System.currentTimeMillis());
-            executeTeleportWithSafety(player, targetLocation).thenAccept(futureResult::complete);
+            executeTeleportWithSafety(player, targetLocation).thenAccept(status -> {
+                if (status == WarpResultStatus.SUCCESS) {
+                    recordCooldown(uuid);
+                }
+                futureResult.complete(status);
+            });
         }, () -> {
             activeWarmups.remove(uuid);
             futureResult.complete(WarpResultStatus.ERROR);
@@ -152,8 +171,12 @@ public final class DefaultWarpService implements WarpService {
         if (scheduledTask != null) {
             activeWarmups.put(uuid, new WarmupSession(scheduledTask, warp));
         } else {
-            cooldowns.put(uuid, now);
-            return executeTeleportWithSafety(player, targetLocation);
+            return executeTeleportWithSafety(player, targetLocation).thenApply(status -> {
+                if (status == WarpResultStatus.SUCCESS) {
+                    recordCooldown(uuid);
+                }
+                return status;
+            });
         }
 
         return futureResult;
@@ -252,6 +275,13 @@ public final class DefaultWarpService implements WarpService {
             return CompletableFuture.completedFuture(WarpResultStatus.ALREADY_EXISTS);
         }
 
+        int maxWarps = config.maxWarps();
+        if (maxWarps > 0 && existing.isEmpty() && cache.getWarpCount() >= maxWarps) {
+            if (!creator.hasPermission("tpcore.warp.bypass.limit") && !creator.hasPermission("tpcore.warp.admin")) {
+                return CompletableFuture.completedFuture(WarpResultStatus.LIMIT_REACHED);
+            }
+        }
+
         Location loc = creator.getLocation();
         String passwordHash = (rawPassword != null && !rawPassword.isBlank()) ? hashPassword(rawPassword) : null;
         String finalCat = (category != null && !category.isBlank()) ? category : config.defaultCategory();
@@ -316,7 +346,12 @@ public final class DefaultWarpService implements WarpService {
     @Override
     public void cancelWarmupOnQuit(UUID playerUuid) {
         cancelWarmupSession(playerUuid);
-        // Cooldown intentionally retained to prevent bypasses via reconnecting
+        if (playerUuid != null) {
+            Long lastTime = cooldowns.get(playerUuid);
+            if (lastTime != null && (System.currentTimeMillis() - lastTime) >= (config.cooldownSeconds() * 1000L)) {
+                cooldowns.remove(playerUuid);
+            }
+        }
     }
 
     @Override
