@@ -8,6 +8,7 @@ import com.lunatech.tpcore.module.warp.repository.impl.SqliteWarpRepository;
 import com.lunatech.tpcore.module.warp.repository.impl.YamlWarpRepository;
 import com.lunatech.tpcore.module.warp.service.WarpResultStatus;
 import com.lunatech.tpcore.module.warp.service.WarpService;
+import com.lunatech.tpcore.util.MessageFormatter;
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -26,6 +27,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
+import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.World;
@@ -160,12 +162,12 @@ public final class DefaultWarpService implements WarpService {
         }
 
         // Send warmup start notification
-        String startMsg = config.messages().prefix() + config.messages().warmupStart();
-        player.sendMessage(miniMessage.deserialize(
-            startMsg,
+        sendPlayerMessage(
+            player,
+            config.messages().warmupStart(),
             Placeholder.unparsed("warp", warp.name()),
             Placeholder.unparsed("seconds", String.valueOf(warmupSeconds))
-        ));
+        );
 
         CompletableFuture<WarpResultStatus> futureResult = new CompletableFuture<>();
 
@@ -343,8 +345,7 @@ public final class DefaultWarpService implements WarpService {
         WarmupSession session = activeWarmups.remove(player.getUniqueId());
         if (session != null) {
             session.task().cancel();
-            String msg = config.messages().prefix() + config.messages().warmupCancelledMove();
-            player.sendMessage(miniMessage.deserialize(msg));
+            sendPlayerMessage(player, config.messages().warmupCancelledMove());
         }
     }
 
@@ -353,8 +354,7 @@ public final class DefaultWarpService implements WarpService {
         WarmupSession session = activeWarmups.remove(player.getUniqueId());
         if (session != null) {
             session.task().cancel();
-            String msg = config.messages().prefix() + config.messages().warmupCancelledDamage();
-            player.sendMessage(miniMessage.deserialize(msg));
+            sendPlayerMessage(player, config.messages().warmupCancelledDamage());
         }
     }
 
@@ -556,5 +556,22 @@ public final class DefaultWarpService implements WarpService {
             logger.error("Failed to compute SHA-256 hash", e);
             return password;
         }
+    }
+
+    private void sendPlayerMessage(Player player, String template, TagResolver... customResolvers) {
+        if (player == null || !player.isOnline() || template == null || template.isBlank()) {
+            return;
+        }
+        TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(config.messages().prefix()));
+        TagResolver combined;
+        if (customResolvers == null || customResolvers.length == 0) {
+            combined = prefixResolver;
+        } else {
+            TagResolver[] all = new TagResolver[customResolvers.length + 1];
+            all[0] = prefixResolver;
+            System.arraycopy(customResolvers, 0, all, 1, customResolvers.length);
+            combined = TagResolver.resolver(all);
+        }
+        player.sendMessage(this.miniMessage.deserialize(MessageFormatter.toMiniMessage(template), combined));
     }
 }

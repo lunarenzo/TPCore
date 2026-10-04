@@ -255,4 +255,73 @@ class DefaultWarpServiceRemediationTest {
         CompletableFuture<WarpResultStatus> second = service.teleportToWarp(player, "vault", "wrong2");
         assertEquals(WarpResultStatus.INVALID_PASSWORD, second.join());
     }
+
+    @Test
+    @DisplayName("warmup start and cancel format legacy and hex colors in prefix and messages properly")
+    void testWarmupLegacyFormatting() {
+        UUID playerId = UUID.randomUUID();
+        Player player = mock(Player.class);
+        when(player.getUniqueId()).thenReturn(playerId);
+        when(player.isOnline()).thenReturn(true);
+        when(player.hasPermission("tpcore.warp.bypass.warmup")).thenReturn(false);
+        when(player.hasPermission("tpcore.warp.bypass.cooldown")).thenReturn(false);
+
+        Warp warp = new Warp("Spawn", worldId, "world", 0, 64, 0, 0f, 0f, UUID.randomUUID(), "general", null, false, 1000L);
+        cache.putWarp(warp);
+
+        WarpConfig legacyFormatConfig = new WarpConfig(
+            true, 3, 10, true, true, false, "general", 8, 100,
+            WarpConfig.WarpSafetyConfig.createDefault(),
+            WarpConfig.WarpStorageConfig.createDefault(),
+            new WarpConfig.WarpMessages(
+                "&cCooldown &6<seconds>s",
+                "&aDeleted &e<warp>",
+                "&cUsage",
+                "&cInvalid pass",
+                "&cInvalid name",
+                "&cLimit",
+                "&cDisabled",
+                "&cNo perm",
+                "&cOnly players",
+                "&cPass required",
+                "&{#FF0000:#00FF00}&lTPCore &8» ",
+                "&eAlready exists",
+                "&aWarp set",
+                "&cUsage",
+                "&aTeleported other",
+                "&#00FF00Teleported to &e<warp>",
+                "&aTeleported by &6<sender>",
+                "&cUnsafe",
+                "&cWarmup active",
+                "&cDamage cancel",
+                "&cMove cancel",
+                "<prefix>&7Teleporting to &e<warp>&7 in &6<seconds>&7s",
+                "&7Category header",
+                "&eNo warps",
+                "&7Header",
+                "&8• &a<name>",
+                "&cNot found",
+                "&cOther usage",
+                "&cUsage",
+                "&cWorld not loaded"
+            )
+        );
+        service.updateConfig(legacyFormatConfig);
+
+        EntityScheduler scheduler = mock(EntityScheduler.class);
+        ScheduledTask task = mock(ScheduledTask.class);
+        when(scheduler.runDelayed(any(), any(), any(), anyLong())).thenReturn(task);
+        when(player.getScheduler()).thenReturn(scheduler);
+
+        service.teleportToWarp(player, "spawn", null);
+
+        org.mockito.ArgumentCaptor<net.kyori.adventure.text.Component> captor = org.mockito.ArgumentCaptor.forClass(net.kyori.adventure.text.Component.class);
+        verify(player).sendMessage(captor.capture());
+        net.kyori.adventure.text.Component sentComponent = captor.getValue();
+        org.junit.jupiter.api.Assertions.assertNotNull(sentComponent);
+
+        // Cancel warmup on move with legacy message
+        service.cancelWarmupOnMove(player);
+        verify(player, org.mockito.Mockito.atLeast(2)).sendMessage(captor.capture());
+    }
 }

@@ -5,6 +5,7 @@ import com.lunatech.tpcore.constant.Permissions;
 import com.lunatech.tpcore.module.warp.model.Warp;
 import com.lunatech.tpcore.module.warp.service.WarpResultStatus;
 import com.lunatech.tpcore.module.warp.service.WarpService;
+import com.lunatech.tpcore.util.MessageFormatter;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
@@ -19,6 +20,7 @@ import java.util.function.Supplier;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
+import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
 import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
@@ -101,7 +103,7 @@ public final class WarpCommandRegistry {
                         if (sender instanceof Player player) {
                             return executeWarpsList(player, null, 1);
                         }
-                        sender.sendMessage(miniMessage.deserialize(configSupplier.get().messages().warpUsage()));
+                        sendMessage(sender, configSupplier.get().messages().warpUsage());
                         return com.mojang.brigadier.Command.SINGLE_SUCCESS;
                     })
                     .then(Commands.argument("name", StringArgumentType.word())
@@ -125,7 +127,7 @@ public final class WarpCommandRegistry {
                 Commands.literal("setwarp")
                     .requires(src -> src.getSender().hasPermission(Permissions.WARP_SET))
                     .executes(ctx -> {
-                        ctx.getSource().getSender().sendMessage(miniMessage.deserialize(configSupplier.get().messages().setWarpUsage()));
+                        sendMessage(ctx.getSource().getSender(), configSupplier.get().messages().setWarpUsage());
                         return com.mojang.brigadier.Command.SINGLE_SUCCESS;
                     })
                     .then(Commands.argument("name", StringArgumentType.word())
@@ -201,7 +203,7 @@ public final class WarpCommandRegistry {
                 Commands.literal("delwarp")
                     .requires(src -> src.getSender().hasPermission(Permissions.WARP_DEL))
                     .executes(ctx -> {
-                        ctx.getSource().getSender().sendMessage(miniMessage.deserialize(configSupplier.get().messages().delWarpUsage()));
+                        sendMessage(ctx.getSource().getSender(), configSupplier.get().messages().delWarpUsage());
                         return com.mojang.brigadier.Command.SINGLE_SUCCESS;
                     })
                     .then(Commands.argument("name", StringArgumentType.word())
@@ -246,7 +248,7 @@ public final class WarpCommandRegistry {
                 Commands.literal("warpother")
                     .requires(src -> src.getSender().hasPermission(Permissions.WARP_OTHER))
                     .executes(ctx -> {
-                        ctx.getSource().getSender().sendMessage(miniMessage.deserialize(configSupplier.get().messages().warpOtherUsage()));
+                        sendMessage(ctx.getSource().getSender(), configSupplier.get().messages().warpOtherUsage());
                         return com.mojang.brigadier.Command.SINGLE_SUCCESS;
                     })
                     .then(Commands.argument("target", StringArgumentType.word())
@@ -287,27 +289,28 @@ public final class WarpCommandRegistry {
 
         service.teleportToWarp(player, warpName, rawPassword).thenAccept(status -> {
             String rawMsg = switch (status) {
-                case SUCCESS -> config.messages().prefix() + config.messages().teleportSuccess();
-                case WARP_NOT_FOUND -> config.messages().prefix() + config.messages().warpNotFound();
-                case PASSWORD_REQUIRED -> config.messages().prefix() + config.messages().passwordRequired();
-                case INVALID_PASSWORD -> config.messages().prefix() + config.messages().invalidPassword();
-                case NO_PERMISSION -> config.messages().prefix() + config.messages().noPermission();
-                case WORLD_NOT_LOADED -> config.messages().prefix() + config.messages().worldNotLoaded();
-                case UNSAFE_LOCATION -> config.messages().prefix() + config.messages().unsafeLocation();
-                case COOLDOWN_ACTIVE -> config.messages().prefix() + config.messages().cooldownActive();
-                case WARMUP_ALREADY_ACTIVE -> config.messages().prefix() + config.messages().warmupAlreadyActive();
-                default -> config.messages().prefix() + config.messages().warpNotFound();
+                case SUCCESS -> config.messages().teleportSuccess();
+                case WARP_NOT_FOUND -> config.messages().warpNotFound();
+                case PASSWORD_REQUIRED -> config.messages().passwordRequired();
+                case INVALID_PASSWORD -> config.messages().invalidPassword();
+                case NO_PERMISSION -> config.messages().noPermission();
+                case WORLD_NOT_LOADED -> config.messages().worldNotLoaded();
+                case UNSAFE_LOCATION -> config.messages().unsafeLocation();
+                case COOLDOWN_ACTIVE -> config.messages().cooldownActive();
+                case WARMUP_ALREADY_ACTIVE -> config.messages().warmupAlreadyActive();
+                default -> config.messages().warpNotFound();
             };
 
             long remainingSecs = service.getRemainingCooldownSeconds(player.getUniqueId());
             String worldName = service.getWarp(warpName).map(Warp::worldName).orElse("unknown");
 
-            player.sendMessage(miniMessage.deserialize(
+            sendMessage(
+                player,
                 rawMsg,
                 Placeholder.unparsed("warp", warpName),
                 Placeholder.unparsed("seconds", String.valueOf(remainingSecs)),
                 Placeholder.unparsed("world", worldName)
-            ));
+            );
         });
 
         return com.mojang.brigadier.Command.SINGLE_SUCCESS;
@@ -334,17 +337,17 @@ public final class WarpCommandRegistry {
         service.setWarp(player, warpName, overwrite, password, category).thenAccept(status -> {
             String rawMsg;
             if (status == WarpResultStatus.SUCCESS) {
-                rawMsg = config.messages().prefix() + config.messages().setWarpSuccess();
+                rawMsg = config.messages().setWarpSuccess();
             } else if (status == WarpResultStatus.ALREADY_EXISTS) {
-                rawMsg = config.messages().prefix() + config.messages().setWarpConfirm();
+                rawMsg = config.messages().setWarpConfirm();
             } else if (status == WarpResultStatus.LIMIT_REACHED) {
-                rawMsg = config.messages().prefix() + config.messages().limitReached();
+                rawMsg = config.messages().limitReached();
             } else if (status == WarpResultStatus.INVALID_NAME) {
-                rawMsg = config.messages().prefix() + config.messages().invalidWarpName();
+                rawMsg = config.messages().invalidWarpName();
             } else {
-                rawMsg = config.messages().prefix() + config.messages().invalidWarpName();
+                rawMsg = config.messages().invalidWarpName();
             }
-            player.sendMessage(miniMessage.deserialize(rawMsg, Placeholder.unparsed("warp", warpName)));
+            sendMessage(player, rawMsg, Placeholder.unparsed("warp", warpName));
         });
 
         return com.mojang.brigadier.Command.SINGLE_SUCCESS;
@@ -365,9 +368,9 @@ public final class WarpCommandRegistry {
 
         service.deleteWarp(warpName).thenAccept(status -> {
             String rawMsg = (status == WarpResultStatus.SUCCESS)
-                ? config.messages().prefix() + config.messages().delWarpSuccess()
-                : config.messages().prefix() + config.messages().warpNotFound();
-            sender.sendMessage(miniMessage.deserialize(rawMsg, Placeholder.unparsed("warp", warpName)));
+                ? config.messages().delWarpSuccess()
+                : config.messages().warpNotFound();
+            sendMessage(sender, rawMsg, Placeholder.unparsed("warp", warpName));
         });
 
         return com.mojang.brigadier.Command.SINGLE_SUCCESS;
@@ -399,7 +402,7 @@ public final class WarpCommandRegistry {
             .toList();
 
         if (visibleList.isEmpty()) {
-            sender.sendMessage(miniMessage.deserialize(config.messages().prefix() + config.messages().warpListEmpty()));
+            sendMessage(sender, config.messages().warpListEmpty());
             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
         }
 
@@ -415,23 +418,28 @@ public final class WarpCommandRegistry {
             ? config.messages().warpListCategoryHeader()
             : config.messages().warpListHeader();
 
-        sender.sendMessage(miniMessage.deserialize(
-            config.messages().prefix() + headerTemplate,
+        sendMessage(
+            sender,
+            headerTemplate,
             Placeholder.unparsed("category", category != null ? category : "All"),
             Placeholder.unparsed("page", String.valueOf(targetPage)),
             Placeholder.unparsed("maxpages", String.valueOf(maxPages))
-        ));
+        );
 
+        TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(config.messages().prefix()));
         for (int i = startIndex; i < endIndex; i++) {
             Warp warp = list.get(i);
-            Component item = miniMessage.deserialize(
-                config.messages().warpListItem(),
-                Placeholder.unparsed("name", warp.name()),
-                Placeholder.unparsed("category", warp.category()),
-                Placeholder.unparsed("world", warp.worldName()),
-                Placeholder.unparsed("x", String.format("%.1f", warp.x())),
-                Placeholder.unparsed("y", String.format("%.1f", warp.y())),
-                Placeholder.unparsed("z", String.format("%.1f", warp.z()))
+            Component item = this.miniMessage.deserialize(
+                MessageFormatter.toMiniMessage(config.messages().warpListItem()),
+                TagResolver.resolver(
+                    prefixResolver,
+                    Placeholder.unparsed("name", warp.name()),
+                    Placeholder.unparsed("category", warp.category()),
+                    Placeholder.unparsed("world", warp.worldName()),
+                    Placeholder.unparsed("x", String.format("%.1f", warp.x())),
+                    Placeholder.unparsed("y", String.format("%.1f", warp.y())),
+                    Placeholder.unparsed("z", String.format("%.1f", warp.z()))
+                )
             );
             sender.sendMessage(item);
         }
@@ -448,10 +456,11 @@ public final class WarpCommandRegistry {
 
         Player target = Bukkit.getPlayerExact(targetName);
         if (target == null) {
-            sender.sendMessage(miniMessage.deserialize(
-                config.messages().prefix() + "<red>Player <yellow><target></yellow> is not currently online!</red>",
+            sendMessage(
+                sender,
+                "<red>Player <yellow><target></yellow> is not currently online!</red>",
                 Placeholder.unparsed("target", targetName)
-            ));
+            );
             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
         }
 
@@ -463,21 +472,23 @@ public final class WarpCommandRegistry {
 
         service.teleportOtherToWarp(sender instanceof Player p ? p : null, target, warpName).thenAccept(status -> {
             String rawMsg = (status == WarpResultStatus.SUCCESS)
-                ? config.messages().prefix() + config.messages().teleportOtherSuccess()
-                : config.messages().prefix() + config.messages().warpNotFound();
-            sender.sendMessage(miniMessage.deserialize(
+                ? config.messages().teleportOtherSuccess()
+                : config.messages().warpNotFound();
+            sendMessage(
+                sender,
                 rawMsg,
                 Placeholder.unparsed("target", target.getName()),
                 Placeholder.unparsed("warp", warpName)
-            ));
+            );
 
             if (status == WarpResultStatus.SUCCESS) {
                 String senderName = (sender instanceof Player p) ? p.getName() : "Console";
-                target.sendMessage(miniMessage.deserialize(
-                    config.messages().prefix() + config.messages().teleportedByOther(),
+                sendMessage(
+                    target,
+                    config.messages().teleportedByOther(),
                     Placeholder.unparsed("sender", senderName),
                     Placeholder.unparsed("warp", warpName)
-                ));
+                );
             }
         });
 
@@ -486,16 +497,29 @@ public final class WarpCommandRegistry {
 
     private void sendOnlyPlayersMessage(CommandSender sender) {
         WarpConfig config = configSupplier.get();
-        sender.sendMessage(miniMessage.deserialize(
-            config.messages().onlyPlayers(),
-            Placeholder.unparsed("prefix", config.messages().prefix())
-        ));
+        sendMessage(sender, config.messages().onlyPlayers());
     }
 
     private void sendDisabledMessage(CommandSender sender) {
         WarpConfig config = configSupplier.get();
-        sender.sendMessage(miniMessage.deserialize(
-            config.messages().prefix() + config.messages().moduleDisabled()
-        ));
+        sendMessage(sender, config.messages().moduleDisabled());
+    }
+
+    private void sendMessage(CommandSender sender, String template, TagResolver... customResolvers) {
+        if (sender == null || template == null || template.isBlank()) {
+            return;
+        }
+        WarpConfig config = configSupplier.get();
+        TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(config.messages().prefix()));
+        TagResolver combined;
+        if (customResolvers == null || customResolvers.length == 0) {
+            combined = prefixResolver;
+        } else {
+            TagResolver[] all = new TagResolver[customResolvers.length + 1];
+            all[0] = prefixResolver;
+            System.arraycopy(customResolvers, 0, all, 1, customResolvers.length);
+            combined = TagResolver.resolver(all);
+        }
+        sender.sendMessage(this.miniMessage.deserialize(MessageFormatter.toMiniMessage(template), combined));
     }
 }
