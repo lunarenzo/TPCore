@@ -10,7 +10,9 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
+import org.bukkit.event.player.PlayerPortalEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerTeleportEvent;
 
 public final class WarpEventListener implements Listener {
 
@@ -42,6 +44,39 @@ public final class WarpEventListener implements Listener {
         WarpService service = serviceSupplier.get();
         if (service != null) {
             service.cancelWarmupOnMove(event.getPlayer());
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onPlayerPortal(PlayerPortalEvent event) {
+        WarpConfig config = configSupplier.get();
+        if (!config.enabled()) {
+            return;
+        }
+
+        WarpService service = serviceSupplier.get();
+        if (service != null) {
+            service.cancelWarmupOnMove(event.getPlayer());
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onPlayerTeleport(PlayerTeleportEvent event) {
+        WarpConfig config = configSupplier.get();
+        if (!config.enabled()) {
+            return;
+        }
+
+        PlayerTeleportEvent.TeleportCause cause = event.getCause();
+        if (cause == PlayerTeleportEvent.TeleportCause.NETHER_PORTAL
+            || cause == PlayerTeleportEvent.TeleportCause.END_PORTAL
+            || cause == PlayerTeleportEvent.TeleportCause.END_GATEWAY
+            || cause == PlayerTeleportEvent.TeleportCause.CHORUS_FRUIT
+            || cause == PlayerTeleportEvent.TeleportCause.ENDER_PEARL) {
+            WarpService service = serviceSupplier.get();
+            if (service != null) {
+                service.cancelWarmupOnMove(event.getPlayer());
+            }
         }
     }
 

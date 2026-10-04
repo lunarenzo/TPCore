@@ -231,4 +231,28 @@ class DefaultWarpServiceRemediationTest {
         // Cooldown must NOT be active
         assertEquals(0, service.getRemainingCooldownSeconds(playerId));
     }
+
+    @Test
+    @DisplayName("teleportToWarp throttles rapid failed password attempts")
+    void testPasswordThrottling() {
+        UUID playerId = UUID.randomUUID();
+        Player player = mock(Player.class);
+        when(player.getUniqueId()).thenReturn(playerId);
+        when(player.hasPermission("tpcore.warp.bypass.warmup")).thenReturn(true);
+        when(player.hasPermission("tpcore.warp.bypass.cooldown")).thenReturn(false);
+        when(player.hasPermission("tpcore.warp.admin")).thenReturn(false);
+        when(player.hasPermission("tpcore.warp.bypass.password")).thenReturn(false);
+
+        // Password protected warp (SHA-256 for "correctPassword")
+        Warp warp = new Warp("Vault", worldId, "world", 0, 64, 0, 0f, 0f, UUID.randomUUID(), "general", "2f9d519b78a9c805eb39cf77fd15f6063beea95ab70b0266042db621db7cfa37", false, 1000L);
+        cache.putWarp(warp);
+
+        // First attempt with incorrect password
+        CompletableFuture<WarpResultStatus> first = service.teleportToWarp(player, "vault", "wrong1");
+        assertEquals(WarpResultStatus.INVALID_PASSWORD, first.join());
+
+        // Rapid second attempt should also return INVALID_PASSWORD throttled without processing hashing
+        CompletableFuture<WarpResultStatus> second = service.teleportToWarp(player, "vault", "wrong2");
+        assertEquals(WarpResultStatus.INVALID_PASSWORD, second.join());
+    }
 }

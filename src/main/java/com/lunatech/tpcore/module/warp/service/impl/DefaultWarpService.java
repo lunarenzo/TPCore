@@ -22,6 +22,8 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import org.bukkit.Bukkit;
@@ -42,7 +44,9 @@ public final class DefaultWarpService implements WarpService {
 
     private static final int MAX_COOLDOWN_ENTRIES = 2000;
     private final Map<UUID, Long> cooldowns = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> failedPasswordAttempts = new ConcurrentHashMap<>();
     private final Map<UUID, WarmupSession> activeWarmups = new ConcurrentHashMap<>();
+    private final AtomicReference<CompletableFuture<?>> activeMigration = new AtomicReference<>();
 
     private record WarmupSession(ScheduledTask task, Warp warp) {}
 
@@ -101,11 +105,22 @@ public final class DefaultWarpService implements WarpService {
 
         // Check password protection
         if (warp.hasPassword() && !player.hasPermission("tpcore.warp.admin") && !player.hasPermission("tpcore.warp.bypass.password")) {
+            UUID uuid = player.getUniqueId();
+            long now = System.currentTimeMillis();
+            Long lastFailed = failedPasswordAttempts.get(uuid);
+            if (lastFailed != null && (now - lastFailed) < 2000L) {
+                return CompletableFuture.completedFuture(WarpResultStatus.INVALID_PASSWORD);
+            }
+
             if (rawPassword == null || rawPassword.isBlank()) {
                 return CompletableFuture.completedFuture(WarpResultStatus.PASSWORD_REQUIRED);
             }
             String inputHash = hashPassword(rawPassword);
             if (!warp.passwordHash().equals(inputHash)) {
+                failedPasswordAttempts.put(uuid, now);
+                if (failedPasswordAttempts.size() > MAX_COOLDOWN_ENTRIES) {
+                    failedPasswordAttempts.entrySet().removeIf(e -> (now - e.getValue()) >= 5000L);
+                }
                 return CompletableFuture.completedFuture(WarpResultStatus.INVALID_PASSWORD);
             }
         }
@@ -420,7 +435,7 @@ public final class DefaultWarpService implements WarpService {
             return CompletableFuture.failedFuture(new IllegalArgumentException("SAME_STORAGE_TYPE"));
         }
 
-        return CompletableFuture.supplyAsync(() -> {
+        CompletableFuture<Integer> migrationFuture = CompletableFuture.supplyAsync(() -> {
             String activeType = (config.storage() != null && "YAML".equalsIgnoreCase(config.storage().type())) ? "YAML" : "SQLITE";
 
             boolean isFromActive = from.equals(activeType);
@@ -465,6 +480,10 @@ public final class DefaultWarpService implements WarpService {
                 }
             }
         }, Executors.newVirtualThreadPerTaskExecutor());
+
+        activeMigration.set(migrationFuture);
+        migrationFuture.whenComplete((r, ex) -> activeMigration.compareAndSet(migrationFuture, null));
+        return migrationFuture;
     }
 
     private boolean isValidStorageType(String type) {
@@ -488,7 +507,18 @@ public final class DefaultWarpService implements WarpService {
         }
         activeWarmups.clear();
         cooldowns.clear();
+        failedPasswordAttempts.clear();
         cache.clear();
+
+        CompletableFuture<?> inFlightMigration = activeMigration.get();
+        if (inFlightMigration != null && !inFlightMigration.isDone()) {
+            try {
+                inFlightMigration.get(2, TimeUnit.SECONDS);
+            } catch (Exception e) {
+                logger.warn("Timed out or interrupted waiting for in-flight warp data migration during close", e);
+            }
+        }
+
         return repository.close();
     }
 

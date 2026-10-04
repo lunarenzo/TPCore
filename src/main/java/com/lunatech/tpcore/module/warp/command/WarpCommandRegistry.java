@@ -48,8 +48,14 @@ public final class WarpCommandRegistry {
                 String remaining = builder.getRemaining().toLowerCase();
                 WarpService service = warpServiceSupplier.get();
                 if (service != null) {
+                    CommandSender sender = context.getSource().getSender();
+                    Player player = (sender instanceof Player p) ? p : null;
                     for (Warp warp : service.getAllWarps()) {
-                        if (warp.name().toLowerCase().startsWith(remaining)) {
+                        boolean canSee = !warp.permissionGated()
+                            || player == null
+                            || player.hasPermission("tpcore.warp." + warp.name().toLowerCase())
+                            || player.hasPermission("tpcore.warp.admin");
+                        if (canSee && warp.name().toLowerCase().startsWith(remaining)) {
                             builder.suggest(warp.name());
                         }
                     }
