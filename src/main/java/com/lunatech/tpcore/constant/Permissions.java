@@ -50,6 +50,9 @@ public final class Permissions {
     public static final String WARP_EDIT_RELOCATE = "tpcore.warp.edit.relocate";
     public static final String WARP_EDIT_CATEGORY = "tpcore.warp.edit.category";
     public static final String WARP_EDIT_PASSWORD = "tpcore.warp.edit.password";
+    public static final String WARP_EDIT_AVAILABILITY = "tpcore.warp.edit.availability";
+    public static final String WARP_EDIT_VISIBILITY = "tpcore.warp.edit.visibility";
+    public static final String WARP_RECOVER = "tpcore.warp.recover";
     public static final String WARP_EDIT_PERMISSION = "tpcore.warp.edit.permission";
     public static final String WARP_BYPASS_WARMUP = "tpcore.warp.bypass.warmup";
     public static final String WARP_BYPASS_COOLDOWN = "tpcore.warp.bypass.cooldown";

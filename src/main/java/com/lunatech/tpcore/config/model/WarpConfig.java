@@ -62,10 +62,14 @@ public record WarpConfig(
     int storageQueueCapacity,
     int operationTimeoutSeconds,
     long maxStorageBytes,
-    WarpEditMessages editMessages
+    WarpEditMessages editMessages,
+    WarpControlConfig control,
+    WarpControlMessages controlMessages
 ) {
     public WarpConfig {
         if (editMessages == null) editMessages = WarpEditMessages.createDefault();
+        if (control == null) control = WarpControlConfig.createDefault();
+        if (controlMessages == null) controlMessages = WarpControlMessages.createDefault();
         maxConcurrentOperations = Math.max(1, Math.min(1024, maxConcurrentOperations));
         maxCachedWarps = Math.max(1, Math.min(16384, maxCachedWarps));
         maxPlayerStateEntries = Math.max(1, Math.min(16384, maxPlayerStateEntries));
@@ -83,7 +87,7 @@ public record WarpConfig(
         boolean refundOnCancel, WarpSafetyConfig safetyChecks, WarpStorageConfig storage, WarpMessages messages) {
         this(enabled, warmupSeconds, cooldownSeconds, cancelOnMove, cancelOnDamage, defaultPermissionGated,
             defaultCategory, warpsPerPage, maxWarps, economyEnabled, warpCost, setWarpCost, chargeTiming,
-            refundOnCancel, safetyChecks, storage, messages, 64, 4096, 2048, 128, 30, 16777216L, WarpEditMessages.createDefault());
+            refundOnCancel, safetyChecks, storage, messages, 64, 4096, 2048, 128, 30, 16777216L, WarpEditMessages.createDefault(), WarpControlConfig.createDefault(), WarpControlMessages.createDefault());
     }
     public WarpConfig(boolean enabled, int warmupSeconds, int cooldownSeconds, boolean cancelOnMove,
         boolean cancelOnDamage, boolean defaultPermissionGated, String defaultCategory, int warpsPerPage,
@@ -94,7 +98,55 @@ public record WarpConfig(
         this(enabled, warmupSeconds, cooldownSeconds, cancelOnMove, cancelOnDamage, defaultPermissionGated,
             defaultCategory, warpsPerPage, maxWarps, economyEnabled, warpCost, setWarpCost, chargeTiming,
             refundOnCancel, safetyChecks, storage, messages, maxConcurrentOperations, maxCachedWarps,
-            maxPlayerStateEntries, storageQueueCapacity, operationTimeoutSeconds, maxStorageBytes, WarpEditMessages.createDefault());
+            maxPlayerStateEntries, storageQueueCapacity, operationTimeoutSeconds, maxStorageBytes, WarpEditMessages.createDefault(), WarpControlConfig.createDefault(), WarpControlMessages.createDefault());
+    }
+
+    public WarpConfig(boolean enabled, int warmupSeconds, int cooldownSeconds, boolean cancelOnMove,
+        boolean cancelOnDamage, boolean defaultPermissionGated, String defaultCategory, int warpsPerPage,
+        int maxWarps, boolean economyEnabled, double warpCost, double setWarpCost, String chargeTiming,
+        boolean refundOnCancel, WarpSafetyConfig safetyChecks, WarpStorageConfig storage, WarpMessages messages,
+        int maxConcurrentOperations, int maxCachedWarps, int maxPlayerStateEntries, int storageQueueCapacity,
+        int operationTimeoutSeconds, long maxStorageBytes, WarpEditMessages editMessages) {
+        this(enabled, warmupSeconds, cooldownSeconds, cancelOnMove, cancelOnDamage, defaultPermissionGated,
+            defaultCategory, warpsPerPage, maxWarps, economyEnabled, warpCost, setWarpCost, chargeTiming,
+            refundOnCancel, safetyChecks, storage, messages, maxConcurrentOperations, maxCachedWarps,
+            maxPlayerStateEntries, storageQueueCapacity, operationTimeoutSeconds, maxStorageBytes, editMessages,
+            WarpControlConfig.createDefault(), WarpControlMessages.createDefault());
+    }
+
+    @ConfigSerializable
+    public record WarpControlConfig(int deleteConfirmationSeconds, int recoveryMaxEntries, int recoveryRetentionDays, int closureReasonMaxLength) {
+        public WarpControlConfig {
+            deleteConfirmationSeconds = Math.max(1, Math.min(300, deleteConfirmationSeconds));
+            recoveryMaxEntries = Math.max(1, Math.min(4096, recoveryMaxEntries));
+            recoveryRetentionDays = Math.max(1, Math.min(365, recoveryRetentionDays));
+            closureReasonMaxLength = Math.max(1, Math.min(4096, closureReasonMaxLength));
+        }
+        public static WarpControlConfig createDefault() { return new WarpControlConfig(30, 100, 7, 256); }
+    }
+
+    @ConfigSerializable
+    public record WarpControlMessages(String closed, String changed, String deleteConfirmation, String confirmationExpired,
+        String recoveryHeader, String recoveryEntry, String recoveryEmpty, String recoveryNotFound,
+        String recoverySuccess, String recoveryConflict, String infoState, String defaultClosureReason,
+        String closedLabel, String openLabel, String usage) {
+        public static WarpControlMessages createDefault() {
+            return new WarpControlMessages(
+                "<prefix><red>Warp <yellow><warp></yellow> is closed: <reason></red>",
+                "<prefix><yellow>Warp <warp> changed before teleportation. Please try again.</yellow>",
+                "<prefix><yellow>Run /delwarp <warp> confirm within <seconds>s to archive and delete this warp.</yellow>",
+                "<prefix><red>Deletion confirmation expired or the warp changed. Run /delwarp <warp> again.</red>",
+                "<prefix><gold>Deleted warps (page <page>/<maxpages>):</gold>",
+                "<gray><warp> | deleted at <deleted-at> | /warprecover <id></gray>",
+                "<prefix><yellow>No recoverable deleted warps.</yellow>",
+                "<prefix><red>Recovery entry was not found or has expired.</red>",
+                "<prefix><green>Restored warp <warp> with its original metadata.</green>",
+                "<prefix><red>Cannot restore: a warp with that name already exists.</red>",
+                "<prefix><gray>Closed: <closed>; unlisted: <unlisted>; closure reason: <reason></gray>",
+                "Temporarily unavailable.", "[Closed]", "",
+                "<prefix><yellow>/editwarp <name> close [reason] | open | unlisted | listed; /delwarp <name> [confirm]; /warprecover list [page] | <entry-id></yellow>"
+            );
+        }
     }
 
     @ConfigSerializable
@@ -241,7 +293,7 @@ public record WarpConfig(
                 "<prefix><gray>Available Warps in Category <gold><category></gold> (Page <gold><page></gold>/<gold><maxpages></gold>):</gray>",
                 "<prefix><yellow>No warps found.</yellow>",
                 "<prefix><gray>Available Warps (Page <gold><page></gold>/<gold><maxpages></gold>):</gray>",
-                "  <dark_gray>•</dark_gray> <green><name></green> <gray>[<yellow><category></yellow>]</gray> <click:run_command:'/warp <name>'><hover:show_text:'<green>Click to teleport</green><br><gray>World: <yellow><world></yellow><br>Coords: <yellow><x>, <y>, <z></yellow>'><gold>[Teleport]</gold></hover></click>",
+                "  <dark_gray>•</dark_gray> <green><name></green> <red><availability></red> <gray>[<yellow><category></yellow>]</gray> <click:run_command:'/warp <name>'><hover:show_text:'<green>Click to teleport</green><br><gray>World: <yellow><world></yellow><br>Coords: <yellow><x>, <y>, <z></yellow>'><gold>[Teleport]</gold></hover></click>",
                 "<prefix><red>Warp <yellow><warp></yellow> was not found!</red>",
                 "<prefix><red>Usage: <gold>/warpother <target> <name></gold></red>",
                 "<prefix><red>Usage: <gold>/warp <name> [password]</gold></red>",

@@ -12,4 +12,7 @@ public sealed interface WarpEdit {
     }
     record ClearPassword() implements WarpEdit {}
     record Permission(boolean required) implements WarpEdit {}
+    record Close(String reason) implements WarpEdit {}
+    record Open() implements WarpEdit {}
+    record Listing(boolean unlisted) implements WarpEdit {}
 }

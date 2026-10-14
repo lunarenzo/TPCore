@@ -78,7 +78,7 @@ class DefaultWarpServiceRemediationTest {
         mockRepository = mock(WarpRepository.class);
         when(mockRepository.initialize()).thenReturn(CompletableFuture.completedFuture(null));
         when(mockRepository.save(any())).thenReturn(CompletableFuture.completedFuture(null));
-        when(mockRepository.delete(any())).thenReturn(CompletableFuture.completedFuture(null));
+        when(mockRepository.archiveAndDelete(any())).thenReturn(CompletableFuture.completedFuture(null));
 
         cache = new DefaultWarpCache();
         when(mockRepository.loadAll()).thenAnswer(inv -> CompletableFuture.completedFuture(cache.getAllWarps().stream().collect(Collectors.toMap(Warp::name, value -> value))));
@@ -457,7 +457,7 @@ class DefaultWarpServiceRemediationTest {
         cache.putWarp(warp);
 
         WarpRepository failingRepo = mock(WarpRepository.class);
-        when(failingRepo.delete(any())).thenReturn(CompletableFuture.failedFuture(new RuntimeException("SQL error")));
+        when(failingRepo.archiveAndDelete(any())).thenReturn(CompletableFuture.failedFuture(new RuntimeException("SQL error")));
         when(failingRepo.initialize()).thenReturn(CompletableFuture.completedFuture(null));
         when(failingRepo.loadAll()).thenReturn(CompletableFuture.completedFuture(Map.of("keepme", warp)));
 

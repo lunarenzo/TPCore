@@ -1,6 +1,9 @@
 package com.lunatech.tpcore.module.warp.repository.impl;
 
 import com.lunatech.tpcore.module.warp.model.Warp;
+import com.lunatech.tpcore.module.warp.model.DeletedWarp;
+import com.lunatech.tpcore.config.model.WarpConfig.WarpControlConfig;
+import java.util.concurrent.TimeUnit;
 import com.lunatech.tpcore.config.model.WarpConfig;
 import com.lunatech.tpcore.module.warp.util.WarpIoExecutor;
 import java.util.Locale;
@@ -30,6 +33,7 @@ public final class YamlWarpRepository implements WarpRepository {
     private final WarpIoExecutor virtualExecutor;
     private final int rowLimit;
     private final long maxStorageBytes;
+    private final WarpControlConfig control;
     private final ReentrantLock fileLock = new ReentrantLock();
 
     public YamlWarpRepository(File dataFolder, Logger logger) {
@@ -41,6 +45,11 @@ public final class YamlWarpRepository implements WarpRepository {
     }
 
     public YamlWarpRepository(File dataFolder, Logger logger, int queueCapacity, int rowLimit, long maxStorageBytes) {
+        this(dataFolder, logger, queueCapacity, rowLimit, maxStorageBytes, WarpControlConfig.createDefault());
+    }
+
+    public YamlWarpRepository(File dataFolder, Logger logger, int queueCapacity, int rowLimit, long maxStorageBytes, WarpControlConfig control) {
+        this.control = control;
         Objects.requireNonNull(dataFolder, "dataFolder cannot be null");
         File warpsDir = new File(dataFolder, "warps");
         this.warpFile = new File(warpsDir, "warps.yml");
@@ -81,39 +90,7 @@ public final class YamlWarpRepository implements WarpRepository {
                             String name = entry.getKey().toString();
                             CommentedConfigurationNode node = entry.getValue();
 
-                            String worldIdRaw = node.node("world-id").getString();
-                            UUID worldId = (worldIdRaw != null && !worldIdRaw.isBlank()) ? UUID.fromString(worldIdRaw) : null;
-                            String worldName = node.node("world").getString("world");
-                            if (worldName == null || worldName.isBlank()) {
-                                worldName = "world";
-                            }
-                            double x = node.node("x").getDouble(0.0);
-                            double y = node.node("y").getDouble(0.0);
-                            double z = node.node("z").getDouble(0.0);
-                            float yaw = node.node("yaw").getFloat(0.0f);
-                            float pitch = node.node("pitch").getFloat(0.0f);
-                            String creatorUuidRaw = node.node("creator-uuid").getString();
-                            UUID creatorUuid = (creatorUuidRaw != null && !creatorUuidRaw.isBlank()) ? UUID.fromString(creatorUuidRaw) : null;
-                            String category = node.node("category").getString("general");
-                            String passwordHash = node.node("password-hash").getString();
-                            boolean permissionGated = node.node("permission-gated").getBoolean(false);
-                            long createdAt = node.node("created-at").getLong(System.currentTimeMillis());
-
-                            Warp warp = new Warp(
-                                name,
-                                worldId,
-                                worldName,
-                                x,
-                                y,
-                                z,
-                                yaw,
-                                pitch,
-                                creatorUuid,
-                                category,
-                                passwordHash,
-                                permissionGated,
-                                createdAt
-                            );
+                            Warp warp = readWarp(name, node);
                             warps.put(name.toLowerCase(Locale.ROOT), warp);
                         }
                     }
@@ -272,6 +249,9 @@ public final class YamlWarpRepository implements WarpRepository {
         warpNode.node("password-hash").set(warp.passwordHash());
         warpNode.node("permission-gated").set(warp.permissionGated());
         warpNode.node("created-at").set(warp.createdAt());
+        warpNode.node("closed").set(warp.closed());
+        warpNode.node("closure-reason").set(warp.closureReason());
+        warpNode.node("unlisted").set(warp.unlisted());
     }
 
     private YamlConfigurationLoader createLoader(File file) {
@@ -280,5 +260,125 @@ public final class YamlWarpRepository implements WarpRepository {
             .file(file)
             .nodeStyle(NodeStyle.BLOCK)
             .build();
+    }
+
+    private Warp readWarp(String name, CommentedConfigurationNode node) {
+        String world = node.node("world").getString("world");
+        String worldId = node.node("world-id").getString();
+        String creator = node.node("creator-uuid").getString();
+        return new Warp(name, worldId == null || worldId.isBlank() ? null : UUID.fromString(worldId),
+            world == null || world.isBlank() ? "world" : world,
+            node.node("x").getDouble(0), node.node("y").getDouble(0), node.node("z").getDouble(0),
+            node.node("yaw").getFloat(0), node.node("pitch").getFloat(0),
+            creator == null || creator.isBlank() ? null : UUID.fromString(creator), node.node("category").getString("general"),
+            node.node("password-hash").getString(), node.node("permission-gated").getBoolean(false), node.node("created-at").getLong(0),
+            node.node("closed").getBoolean(false), node.node("closure-reason").getString(""), node.node("unlisted").getBoolean(false));
+    }
+
+    private Object activeKey(CommentedConfigurationNode root, String name) {
+        Object found = null;
+        for (Object key : root.node("warps").childrenMap().keySet()) if (key.toString().equalsIgnoreCase(name)) found = key;
+        return found;
+    }
+
+    private boolean pruneDeleted(CommentedConfigurationNode root) throws ConfigurateException {
+        CommentedConfigurationNode history = root.node("deleted-warps");
+        var entries = new ArrayList<>(history.childrenMap().entrySet());
+        entries.sort((left, right) -> {
+            int comparison = Long.compare(right.getValue().node("deleted-at").getLong(0), left.getValue().node("deleted-at").getLong(0));
+            return comparison != 0 ? comparison : right.getKey().toString().compareTo(left.getKey().toString());
+        });
+        long cutoff = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(control.recoveryRetentionDays());
+        int kept = 0; boolean changed = false;
+        for (var entry : entries) {
+            if (entry.getValue().node("deleted-at").getLong(0) <= cutoff || kept >= control.recoveryMaxEntries()) {
+                history.node(entry.getKey()).set(null); changed = true;
+            } else kept++;
+        }
+        return changed;
+    }
+
+    private DeletedWarp readDeleted(String id, CommentedConfigurationNode node) {
+        String actor = node.node("deleted-by").getString();
+        CommentedConfigurationNode snapshot = node.node("warp");
+        String name = snapshot.node("name").getString();
+        return new DeletedWarp(UUID.fromString(id), readWarp(name, snapshot), node.node("deleted-at").getLong(0),
+            actor == null ? null : UUID.fromString(actor));
+    }
+
+    private void writeDeleted(CommentedConfigurationNode root, DeletedWarp entry) throws ConfigurateException {
+        CommentedConfigurationNode node = root.node("deleted-warps", entry.id().toString());
+        node.node("deleted-at").set(entry.deletedAt());
+        node.node("deleted-by").set(entry.deletedBy() == null ? null : entry.deletedBy().toString());
+        node.node("warp", "name").set(entry.warp().name());
+        writeWarpToNode(node.node("warp"), entry.warp());
+    }
+
+    @Override public CompletableFuture<List<DeletedWarp>> loadDeleted() {
+        return virtualExecutor.submit(() -> {
+            fileLock.lock();
+            try {
+                YamlConfigurationLoader loader = createLoader(warpFile); CommentedConfigurationNode root = loader.load();
+                if (pruneDeleted(root)) loader.save(root);
+                List<DeletedWarp> entries = new ArrayList<>();
+                for (var entry : root.node("deleted-warps").childrenMap().entrySet()) entries.add(readDeleted(entry.getKey().toString(), entry.getValue()));
+                entries.sort((left, right) -> {
+                    int comparison = Long.compare(right.deletedAt(), left.deletedAt());
+                    return comparison != 0 ? comparison : right.id().toString().compareTo(left.id().toString());
+                });
+                return List.copyOf(entries);
+            } catch (ConfigurateException failure) { throw new IllegalStateException("Cannot read deleted warps", failure); }
+            finally { fileLock.unlock(); }
+        });
+    }
+
+    @Override public CompletableFuture<Void> archiveAndDelete(DeletedWarp entry) {
+        return virtualExecutor.run(() -> {
+            fileLock.lock();
+            try {
+                YamlConfigurationLoader loader = createLoader(warpFile); CommentedConfigurationNode root = loader.load();
+                Object key = activeKey(root, entry.warp().name());
+                if (key == null || !entry.warp().equals(readWarp(key.toString(), root.node("warps", key)))) throw new IllegalStateException("Warp changed before deletion");
+                if (root.node("deleted-warps").childrenMap().containsKey(entry.id().toString())) throw new IllegalStateException("Recovery ID collision");
+                if (entry.deletedAt() <= System.currentTimeMillis() - TimeUnit.DAYS.toMillis(control.recoveryRetentionDays())) throw new IllegalStateException("Deletion snapshot expired before persistence");
+                writeDeleted(root, entry);
+                for (Object existing : new ArrayList<>(root.node("warps").childrenMap().keySet())) {
+                    if (existing.toString().equalsIgnoreCase(entry.warp().name())) root.node("warps", existing).set(null);
+                }
+                pruneDeleted(root); loader.save(root);
+            } catch (ConfigurateException failure) { throw new IllegalStateException("Cannot archive and delete warp", failure); }
+            finally { fileLock.unlock(); }
+        });
+    }
+
+    @Override public CompletableFuture<Void> restore(DeletedWarp entry) {
+        return virtualExecutor.run(() -> {
+            fileLock.lock();
+            try {
+                YamlConfigurationLoader loader = createLoader(warpFile); CommentedConfigurationNode root = loader.load();
+                pruneDeleted(root);
+                if (!root.node("deleted-warps").childrenMap().containsKey(entry.id().toString())
+                    || !entry.equals(readDeleted(entry.id().toString(), root.node("deleted-warps", entry.id().toString())))) throw new IllegalStateException("Recovery entry missing or changed");
+                if (activeKey(root, entry.warp().name()) != null) throw new IllegalStateException("Recovery name collision");
+                writeWarpToNode(root.node("warps", entry.warp().name()), entry.warp());
+                root.node("deleted-warps", entry.id().toString()).set(null); loader.save(root);
+            } catch (ConfigurateException failure) { throw new IllegalStateException("Cannot restore warp", failure); }
+            finally { fileLock.unlock(); }
+        });
+    }
+
+    @Override public CompletableFuture<Void> saveDeleted(Collection<DeletedWarp> entries) {
+        return virtualExecutor.run(() -> {
+            fileLock.lock();
+            try {
+                YamlConfigurationLoader loader = createLoader(warpFile); CommentedConfigurationNode root = loader.load();
+                long cutoff = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(control.recoveryRetentionDays());
+                for (DeletedWarp entry : entries) {
+                    if (entry.deletedAt() > cutoff && !root.node("deleted-warps").childrenMap().containsKey(entry.id().toString())) writeDeleted(root, entry);
+                }
+                pruneDeleted(root); loader.save(root);
+            } catch (ConfigurateException failure) { throw new IllegalStateException("Cannot migrate deleted warps", failure); }
+            finally { fileLock.unlock(); }
+        });
     }
 }

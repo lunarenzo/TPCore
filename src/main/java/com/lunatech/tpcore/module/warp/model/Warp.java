@@ -17,12 +17,21 @@ public record Warp(
     String category,
     String passwordHash,
     boolean permissionGated,
-    long createdAt
+    long createdAt,
+    boolean closed,
+    String closureReason,
+    boolean unlisted
 ) {
     public Warp {
         Objects.requireNonNull(name, "name cannot be null");
         Objects.requireNonNull(worldName, "worldName cannot be null");
         category = (category == null || category.isBlank()) ? "general" : category.toLowerCase(Locale.ROOT);
+        closureReason = closureReason == null ? "" : closureReason;
+    }
+
+    public Warp(String name, UUID worldId, String worldName, double x, double y, double z, float yaw, float pitch,
+        UUID creatorUuid, String category, String passwordHash, boolean permissionGated, long createdAt) {
+        this(name, worldId, worldName, x, y, z, yaw, pitch, creatorUuid, category, passwordHash, permissionGated, createdAt, false, "", false);
     }
 
     public boolean hasPassword() {
@@ -43,7 +52,10 @@ public record Warp(
             category,
             passwordHash,
             permissionGated,
-            createdAt
+            createdAt,
+            closed,
+            closureReason,
+            unlisted
         );
     }
 }

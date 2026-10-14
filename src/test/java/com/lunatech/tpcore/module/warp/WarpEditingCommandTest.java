@@ -5,6 +5,7 @@ import com.lunatech.tpcore.constant.Permissions;
 import com.lunatech.tpcore.module.warp.command.WarpCommandRegistry;
 import com.lunatech.tpcore.module.warp.model.Warp;
 import com.lunatech.tpcore.module.warp.model.WarpEdit;
+import com.lunatech.tpcore.module.warp.model.DeletedWarp;
 import com.lunatech.tpcore.module.warp.service.WarpResultStatus;
 import com.lunatech.tpcore.module.warp.service.WarpService;
 import com.mojang.brigadier.CommandDispatcher;
@@ -60,6 +61,86 @@ class WarpEditingCommandTest {
             assertThrows(Exception.class, () -> dispatcher.execute("editwarp hub password set secret", source));
             verify(service, times(1)).editWarp(anyString(), any());
         }
+    }
+
+    @Test void availabilityStaffCanUsePlainMultiwordReasonButCannotChangeVisibility() throws Exception {
+        WarpService service = mock(WarpService.class);
+        when(service.editWarp(anyString(), any())).thenReturn(CompletableFuture.completedFuture(WarpResultStatus.SUCCESS));
+        CommandSender sender = mock(CommandSender.class); when(sender.hasPermission(Permissions.WARP_EDIT_AVAILABILITY)).thenReturn(true);
+        CommandSourceStack source = mock(CommandSourceStack.class); when(source.getSender()).thenReturn(sender);
+        GlobalRegionScheduler global = mock(GlobalRegionScheduler.class);
+        doAnswer(invocation -> { ((Runnable) invocation.getArgument(1)).run(); return null; }).when(global).execute(any(), any());
+        try (var bukkit = mockStatic(Bukkit.class)) {
+            bukkit.when(Bukkit::getGlobalRegionScheduler).thenReturn(global);
+            var commands = dispatcher(service);
+            commands.execute("editwarp hub close Unsafe <red>bridge under construction", source);
+            commands.execute("editwarp hub open", source);
+            verify(service).editWarp("hub", new WarpEdit.Close("Unsafe <red>bridge under construction"));
+            verify(service).editWarp("hub", new WarpEdit.Open());
+            assertThrows(Exception.class, () -> commands.execute("editwarp hub unlisted", source));
+            assertThrows(Exception.class, () -> commands.execute("warprecover list", source));
+        }
+    }
+
+    @Test void publicDiscoveryOmitsUnlistedWarpButShowsClosedWarpWithBadge() throws Exception {
+        WarpService service = mock(WarpService.class);
+        Warp hidden = new Warp("secret", null, "world", 0, 64, 0, 0, 0, null, "hidden", null, false, 0, false, "", true);
+        Warp closed = new Warp("hub", null, "world", 0, 64, 0, 0, 0, null, "general", null, false, 0, true, "Unsafe bridge", false);
+        when(service.getAllWarps()).thenReturn(List.of(hidden, closed));
+        CommandSender sender = mock(CommandSender.class);
+        List<String> messages = new ArrayList<>();
+        doAnswer(invocation -> { messages.add(((Component) invocation.getArgument(0)).toString()); return null; }).when(sender).sendMessage(any(Component.class));
+        GlobalRegionScheduler global = mock(GlobalRegionScheduler.class);
+        doAnswer(invocation -> { ((Runnable) invocation.getArgument(1)).run(); return null; }).when(global).execute(any(), any());
+        WarpCommandRegistry registry = new WarpCommandRegistry(mock(JavaPlugin.class), () -> service, WarpConfig::createDefault);
+        try (var bukkit = mockStatic(Bukkit.class)) {
+            bukkit.when(Bukkit::getGlobalRegionScheduler).thenReturn(global);
+            Method list = WarpCommandRegistry.class.getDeclaredMethod("executeWarpsList", CommandSender.class, String.class, int.class);
+            list.setAccessible(true); list.invoke(registry, sender, null, 1);
+        }
+        String output = String.join("", messages);
+        assertFalse(output.contains("secret")); assertFalse(output.contains("hidden")); assertTrue(output.contains("hub")); assertTrue(output.contains("[Closed]"));
+    }
+
+    @Test void deletionCommandRequiresPreparationAndUsesConfirmationRatherThanDirectDelete() throws Exception {
+        WarpService service = mock(WarpService.class);
+        UUID consoleActor = new UUID(0, 0);
+        when(service.prepareDeletion(consoleActor, "hub")).thenReturn(WarpResultStatus.CONFIRMATION_REQUIRED);
+        when(service.confirmDeletion(consoleActor, "hub")).thenReturn(CompletableFuture.completedFuture(WarpResultStatus.SUCCESS));
+        CommandSender sender = mock(CommandSender.class); when(sender.hasPermission(Permissions.WARP_DEL)).thenReturn(true);
+        GlobalRegionScheduler global = mock(GlobalRegionScheduler.class);
+        doAnswer(invocation -> { ((Runnable) invocation.getArgument(1)).run(); return null; }).when(global).execute(any(), any());
+        WarpCommandRegistry registry = new WarpCommandRegistry(mock(JavaPlugin.class), () -> service, WarpConfig::createDefault);
+        try (var bukkit = mockStatic(Bukkit.class)) {
+            bukkit.when(Bukkit::getGlobalRegionScheduler).thenReturn(global);
+            Method delete = WarpCommandRegistry.class.getDeclaredMethod("executeDelWarp", CommandSender.class, String.class, boolean.class);
+            delete.setAccessible(true); delete.invoke(registry, sender, "hub", false);
+            verify(service, never()).confirmDeletion(any(), anyString()); verify(service, never()).deleteWarp(anyString());
+            delete.invoke(registry, sender, "hub", true); verify(service).confirmDeletion(consoleActor, "hub");
+            verify(service, never()).deleteWarp(anyString());
+        }
+    }
+
+    @Test void recoveryCommandDisplaysTicketsWithoutRevealingPasswordsAndRestoresById() throws Exception {
+        WarpService service = mock(WarpService.class);
+        Warp warp = new Warp("hub", null, "world", 0, 64, 0, 0, 0, null, "general", "PRIVATE_HASH", true, 0);
+        DeletedWarp entry = new DeletedWarp(UUID.randomUUID(), warp, System.currentTimeMillis(), UUID.randomUUID());
+        when(service.getDeletedWarps()).thenReturn(CompletableFuture.completedFuture(List.of(entry)));
+        when(service.restoreWarp(entry.id())).thenReturn(CompletableFuture.completedFuture(WarpResultStatus.SUCCESS));
+        CommandSender sender = mock(CommandSender.class); when(sender.hasPermission(Permissions.WARP_RECOVER)).thenReturn(true);
+        List<String> messages = new ArrayList<>();
+        doAnswer(invocation -> { messages.add(((Component) invocation.getArgument(0)).toString()); return null; }).when(sender).sendMessage(any(Component.class));
+        CommandSourceStack source = mock(CommandSourceStack.class); when(source.getSender()).thenReturn(sender);
+        GlobalRegionScheduler global = mock(GlobalRegionScheduler.class);
+        doAnswer(invocation -> { ((Runnable) invocation.getArgument(1)).run(); return null; }).when(global).execute(any(), any());
+        try (var bukkit = mockStatic(Bukkit.class)) {
+            bukkit.when(Bukkit::getGlobalRegionScheduler).thenReturn(global);
+            var commands = dispatcher(service);
+            commands.execute("warprecover list", source); commands.execute("warprecover " + entry.id(), source);
+            verify(service).restoreWarp(entry.id());
+        }
+        String output = String.join("", messages);
+        assertTrue(output.contains(entry.id().toString())); assertTrue(output.contains("Restored")); assertFalse(output.contains("PRIVATE_HASH"));
     }
 
     @Test void infoShowsMetadataButNeverThePasswordHash() throws Exception {

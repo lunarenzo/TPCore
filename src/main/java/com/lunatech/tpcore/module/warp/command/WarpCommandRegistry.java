@@ -15,6 +15,8 @@ import io.papermc.paper.command.brigadier.CommandSourceStack;
 import io.papermc.paper.command.brigadier.Commands;
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
 import java.util.ArrayList;
+import java.util.concurrent.CompletableFuture;
+import com.lunatech.tpcore.module.warp.model.DeletedWarp;
 import java.util.Collection;
 import java.util.Locale;
 import java.util.UUID;
@@ -62,7 +64,7 @@ public final class WarpCommandRegistry {
                             || player == null
                             || player.hasPermission("tpcore.warp." + warp.name().toLowerCase(Locale.ROOT))
                             || player.hasPermission("tpcore.warp.admin");
-                        if (canSee && warp.name().toLowerCase(Locale.ROOT).startsWith(remaining)) {
+                        if (!warp.unlisted() && canSee && warp.name().toLowerCase(Locale.ROOT).startsWith(remaining)) {
                             builder.suggest(warp.name());
                         }
                     }
@@ -77,7 +79,7 @@ public final class WarpCommandRegistry {
                 String remaining = builder.getRemaining().toLowerCase(Locale.ROOT);
                 WarpService service = warpServiceSupplier.get();
                 if (service != null) {
-                    for (String category : service.getCategories()) {
+                    for (String category : service.getAllWarps().stream().filter(warp -> publiclyVisible(context.getSource().getSender(), warp)).map(Warp::category).distinct().toList()) {
                         if (category.toLowerCase(Locale.ROOT).startsWith(remaining)) {
                             builder.suggest(category);
                         }
@@ -213,7 +215,8 @@ public final class WarpCommandRegistry {
                     })
                     .then(Commands.argument("name", StringArgumentType.word())
                         .suggests(warpSuggestions)
-                        .executes(ctx -> executeDelWarp(ctx.getSource().getSender(), StringArgumentType.getString(ctx, "name")))
+                        .executes(ctx -> executeDelWarp(ctx.getSource().getSender(), StringArgumentType.getString(ctx, "name"), false))
+                        .then(Commands.literal("confirm").executes(ctx -> executeDelWarp(ctx.getSource().getSender(), StringArgumentType.getString(ctx, "name"), true)))
                     )
                     .build(),
                 "Delete a server warp location",
@@ -282,7 +285,8 @@ public final class WarpCommandRegistry {
     private boolean anyEditPermission(CommandSender sender) {
         return staffPermission(sender, Permissions.WARP_INFO) || staffPermission(sender, Permissions.WARP_EDIT_RENAME)
             || staffPermission(sender, Permissions.WARP_EDIT_RELOCATE) || staffPermission(sender, Permissions.WARP_EDIT_CATEGORY)
-            || staffPermission(sender, Permissions.WARP_EDIT_PASSWORD) || staffPermission(sender, Permissions.WARP_EDIT_PERMISSION);
+            || staffPermission(sender, Permissions.WARP_EDIT_PASSWORD) || staffPermission(sender, Permissions.WARP_EDIT_PERMISSION)
+            || staffPermission(sender, Permissions.WARP_EDIT_AVAILABILITY) || staffPermission(sender, Permissions.WARP_EDIT_VISIBILITY);
     }
 
     private void registerStaffCommands(Commands commands) {
@@ -294,6 +298,13 @@ public final class WarpCommandRegistry {
             }
             return builder.buildFuture();
         };
+        commands.register(Commands.literal("warprecover")
+            .requires(source -> staffPermission(source.getSender(), Permissions.WARP_RECOVER))
+            .executes(context -> staffUsage(context.getSource().getSender()))
+            .then(Commands.literal("list").executes(context -> recoverWarp(context.getSource().getSender(), null, 1))
+                .then(Commands.argument("page", IntegerArgumentType.integer(1)).executes(context -> recoverWarp(context.getSource().getSender(), null, IntegerArgumentType.getInteger(context, "page")))))
+            .then(Commands.argument("entry-id", StringArgumentType.word()).executes(context -> recoverWarp(context.getSource().getSender(), StringArgumentType.getString(context, "entry-id"), 1)))
+            .build());
         commands.register(Commands.literal("warpinfo")
             .requires(source -> staffPermission(source.getSender(), Permissions.WARP_INFO))
             .executes(context -> staffUsage(context.getSource().getSender()))
@@ -325,12 +336,29 @@ public final class WarpCommandRegistry {
                     .then(Commands.literal("required").executes(context -> editWarp(context.getSource().getSender(), StringArgumentType.getString(context, "name"),
                         new WarpEdit.Permission(true), Permissions.WARP_EDIT_PERMISSION)))
                     .then(Commands.literal("public").executes(context -> editWarp(context.getSource().getSender(), StringArgumentType.getString(context, "name"),
-                        new WarpEdit.Permission(false), Permissions.WARP_EDIT_PERMISSION)))))
+                        new WarpEdit.Permission(false), Permissions.WARP_EDIT_PERMISSION))))
+                .then(Commands.literal("close").requires(source -> staffPermission(source.getSender(), Permissions.WARP_EDIT_AVAILABILITY))
+                    .executes(context -> editWarp(context.getSource().getSender(), StringArgumentType.getString(context, "name"),
+                        new WarpEdit.Close(configSupplier.get().controlMessages().defaultClosureReason()), Permissions.WARP_EDIT_AVAILABILITY))
+                    .then(Commands.argument("reason", StringArgumentType.greedyString()).executes(context -> editWarp(context.getSource().getSender(),
+                        StringArgumentType.getString(context, "name"), new WarpEdit.Close(StringArgumentType.getString(context, "reason")), Permissions.WARP_EDIT_AVAILABILITY))))
+                .then(Commands.literal("open").requires(source -> staffPermission(source.getSender(), Permissions.WARP_EDIT_AVAILABILITY))
+                    .executes(context -> editWarp(context.getSource().getSender(), StringArgumentType.getString(context, "name"), new WarpEdit.Open(), Permissions.WARP_EDIT_AVAILABILITY)))
+                .then(Commands.literal("unlisted").requires(source -> staffPermission(source.getSender(), Permissions.WARP_EDIT_VISIBILITY))
+                    .executes(context -> editWarp(context.getSource().getSender(), StringArgumentType.getString(context, "name"), new WarpEdit.Listing(true), Permissions.WARP_EDIT_VISIBILITY)))
+                .then(Commands.literal("listed").requires(source -> staffPermission(source.getSender(), Permissions.WARP_EDIT_VISIBILITY))
+                    .executes(context -> editWarp(context.getSource().getSender(), StringArgumentType.getString(context, "name"), new WarpEdit.Listing(false), Permissions.WARP_EDIT_VISIBILITY))))
             .build());
+    }
+
+    private boolean publiclyVisible(CommandSender sender, Warp warp) {
+        return !warp.unlisted() && (!warp.permissionGated() || !(sender instanceof Player)
+            || sender.hasPermission("tpcore.warp." + warp.name().toLowerCase(Locale.ROOT)) || sender.hasPermission(Permissions.WARP_ADMIN));
     }
 
     private int staffUsage(CommandSender sender) {
         sendMessage(sender, configSupplier.get().enabled() ? configSupplier.get().editMessages().usage() : configSupplier.get().messages().moduleDisabled());
+        if (configSupplier.get().enabled()) sendMessage(sender, configSupplier.get().controlMessages().usage());
         return Command.SINGLE_SUCCESS;
     }
 
@@ -343,7 +371,7 @@ public final class WarpCommandRegistry {
         else {
             Warp warp = service.getWarp(name).orElse(null);
             if (warp == null) sendMessage(sender, settings.messages().warpNotFound(), Placeholder.unparsed("warp", name));
-            else sendMessage(sender, settings.editMessages().info(),
+            else { sendMessage(sender, settings.editMessages().info(),
                 Placeholder.unparsed("warp", warp.name()), Placeholder.unparsed("world", warp.worldName()),
                 Placeholder.unparsed("world-id", String.valueOf(warp.worldId())),
                 Placeholder.unparsed("x", Double.toString(warp.x())), Placeholder.unparsed("y", Double.toString(warp.y())), Placeholder.unparsed("z", Double.toString(warp.z())),
@@ -352,6 +380,9 @@ public final class WarpCommandRegistry {
                 Placeholder.unparsed("permission-required", Boolean.toString(warp.permissionGated())),
                 Placeholder.unparsed("permission", "tpcore.warp." + warp.name().toLowerCase(Locale.ROOT)),
                 Placeholder.unparsed("creator", String.valueOf(warp.creatorUuid())), Placeholder.unparsed("created-at", Long.toString(warp.createdAt())));
+                sendMessage(sender, settings.controlMessages().infoState(), Placeholder.unparsed("closed", Boolean.toString(warp.closed())),
+                    Placeholder.unparsed("unlisted", Boolean.toString(warp.unlisted())), Placeholder.unparsed("reason", warp.closureReason()));
+            }
         }
         return Command.SINGLE_SUCCESS;
     }
@@ -416,6 +447,8 @@ public final class WarpCommandRegistry {
             String rawMsg = switch (status) {
                 case SUCCESS -> config.messages().teleportSuccess();
                 case WARP_NOT_FOUND -> config.messages().warpNotFound();
+                case WARP_CLOSED -> config.controlMessages().closed();
+                case WARP_CHANGED -> config.controlMessages().changed();
                 case PASSWORD_REQUIRED -> config.messages().passwordRequired();
                 case INVALID_PASSWORD -> config.messages().invalidPassword();
                 case NO_PERMISSION -> config.messages().noPermission();
@@ -438,7 +471,8 @@ public final class WarpCommandRegistry {
                 rawMsg,
                 Placeholder.unparsed("warp", warpName),
                 Placeholder.unparsed("seconds", String.valueOf(remainingSecs)),
-                Placeholder.unparsed("world", worldName)
+                Placeholder.unparsed("world", worldName),
+                Placeholder.unparsed("reason", service.getWarp(warpName).map(Warp::closureReason).orElse(config.controlMessages().defaultClosureReason()))
             );
         });
 
@@ -489,29 +523,70 @@ public final class WarpCommandRegistry {
         return com.mojang.brigadier.Command.SINGLE_SUCCESS;
     }
 
-    private int executeDelWarp(CommandSender sender, String warpName) {
-        WarpConfig config = configSupplier.get();
-        if (!config.enabled()) {
-            sendDisabledMessage(sender);
-            return com.mojang.brigadier.Command.SINGLE_SUCCESS;
-        }
-
+    private int executeDelWarp(CommandSender sender, String warpName, boolean confirm) {
+        WarpConfig settings = configSupplier.get();
         WarpService service = warpServiceSupplier.get();
-        if (service == null) {
-            sendDisabledMessage(sender);
-            return com.mojang.brigadier.Command.SINGLE_SUCCESS;
-        }
-
+        if (!settings.enabled()) { sendDisabledMessage(sender); return Command.SINGLE_SUCCESS; }
+        if (!sender.hasPermission(Permissions.WARP_DEL)) { sendMessage(sender, settings.messages().noPermission(), Placeholder.unparsed("warp", warpName)); return Command.SINGLE_SUCCESS; }
+        if (service == null) { sendMessage(sender, settings.messages().storageNotReady()); return Command.SINGLE_SUCCESS; }
         UUID replyId = sender instanceof Player player ? player.getUniqueId() : null;
         CommandSender console = replyId == null ? sender : null;
-        service.deleteWarp(warpName).thenAccept(status -> {
-            String rawMsg = (status == WarpResultStatus.SUCCESS)
-                ? config.messages().delWarpSuccess()
-                : config.messages().warpNotFound();
-            sendReply(replyId, console, rawMsg, Placeholder.unparsed("warp", warpName));
-        });
+        UUID actor = replyId == null ? new UUID(0, 0) : replyId;
+        CompletableFuture<WarpResultStatus> result = confirm ? service.confirmDeletion(actor, warpName)
+            : CompletableFuture.completedFuture(service.prepareDeletion(actor, warpName));
+        result.thenAccept(status -> sendReply(replyId, console, controlResult(settings, status), Placeholder.unparsed("warp", warpName),
+            Placeholder.unparsed("seconds", Integer.toString(settings.control().deleteConfirmationSeconds()))));
+        return Command.SINGLE_SUCCESS;
+    }
 
-        return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+    private String controlResult(WarpConfig settings, WarpResultStatus status) {
+        return switch (status) {
+            case SUCCESS -> settings.messages().delWarpSuccess();
+            case CONFIRMATION_REQUIRED -> settings.controlMessages().deleteConfirmation();
+            case CONFIRMATION_EXPIRED -> settings.controlMessages().confirmationExpired();
+            case RECOVERY_NOT_FOUND -> settings.controlMessages().recoveryNotFound();
+            case ALREADY_EXISTS -> settings.controlMessages().recoveryConflict();
+            case WARP_NOT_FOUND -> settings.messages().warpNotFound();
+            case LIMIT_REACHED -> settings.messages().limitReached();
+            case BUSY -> settings.messages().operationBusy();
+            case NOT_READY -> settings.messages().storageNotReady();
+            default -> settings.messages().operationFailed();
+        };
+    }
+
+    private int recoverWarp(CommandSender sender, String idText, int page) {
+        WarpConfig settings = configSupplier.get();
+        WarpService service = warpServiceSupplier.get();
+        if (!settings.enabled()) { sendDisabledMessage(sender); return Command.SINGLE_SUCCESS; }
+        if (!staffPermission(sender, Permissions.WARP_RECOVER)) { sendMessage(sender, settings.messages().noPermission()); return Command.SINGLE_SUCCESS; }
+        if (service == null) { sendMessage(sender, settings.messages().storageNotReady()); return Command.SINGLE_SUCCESS; }
+        UUID id;
+        try { id = idText == null ? null : UUID.fromString(idText); }
+        catch (IllegalArgumentException failure) { sendMessage(sender, settings.controlMessages().recoveryNotFound()); return Command.SINGLE_SUCCESS; }
+        UUID replyId = sender instanceof Player player ? player.getUniqueId() : null;
+        CommandSender console = replyId == null ? sender : null;
+        service.getDeletedWarps().thenCompose(entries -> {
+            if (id != null) {
+                DeletedWarp entry = entries.stream().filter(deleted -> deleted.id().equals(id)).findFirst().orElse(null);
+                if (entry == null) { sendReply(replyId, console, settings.controlMessages().recoveryNotFound()); return CompletableFuture.completedFuture(null); }
+                return service.restoreWarp(id).thenAccept(status -> sendReply(replyId, console,
+                    status == WarpResultStatus.SUCCESS ? settings.controlMessages().recoverySuccess() : controlResult(settings, status),
+                    Placeholder.unparsed("warp", entry.warp().name()), Placeholder.unparsed("id", id.toString())));
+            }
+            if (entries.isEmpty()) sendReply(replyId, console, settings.controlMessages().recoveryEmpty());
+            else {
+                int size = Math.max(1, Math.min(settings.warpsPerPage(), entries.size()));
+                int pages = (entries.size() + size - 1) / size, current = Math.max(1, Math.min(page, pages));
+                sendReply(replyId, console, settings.controlMessages().recoveryHeader(), Placeholder.unparsed("page", Integer.toString(current)), Placeholder.unparsed("maxpages", Integer.toString(pages)));
+                for (int i = (current - 1) * size; i < Math.min(current * size, entries.size()); i++) {
+                    DeletedWarp entry = entries.get(i);
+                    sendReply(replyId, console, settings.controlMessages().recoveryEntry(), Placeholder.unparsed("warp", entry.warp().name()),
+                        Placeholder.unparsed("id", entry.id().toString()), Placeholder.unparsed("deleted-at", Long.toString(entry.deletedAt())));
+                }
+            }
+            return CompletableFuture.completedFuture(null);
+        }).exceptionally(failure -> { sendReply(replyId, console, settings.messages().operationFailed()); return null; });
+        return Command.SINGLE_SUCCESS;
     }
 
     private int executeWarpsList(CommandSender sender, String category, int page) {
@@ -533,6 +608,7 @@ public final class WarpCommandRegistry {
 
         Player playerSender = (sender instanceof Player p) ? p : null;
         List<Warp> visibleList = rawList.stream()
+            .filter(warp -> !warp.unlisted())
             .filter(warp -> !warp.permissionGated()
                 || playerSender == null
                 || playerSender.hasPermission("tpcore.warp." + warp.name().toLowerCase(Locale.ROOT))
@@ -576,7 +652,9 @@ public final class WarpCommandRegistry {
                     Placeholder.unparsed("world", warp.worldName()),
                     Placeholder.unparsed("x", String.format("%.1f", warp.x())),
                     Placeholder.unparsed("y", String.format("%.1f", warp.y())),
-                    Placeholder.unparsed("z", String.format("%.1f", warp.z()))
+                    Placeholder.unparsed("z", String.format("%.1f", warp.z())),
+                    Placeholder.unparsed("availability", warp.closed() ? config.controlMessages().closedLabel() : config.controlMessages().openLabel()),
+                    Placeholder.unparsed("reason", warp.closureReason())
                 )
             );
             sender.sendMessage(item);
@@ -613,13 +691,17 @@ public final class WarpCommandRegistry {
         CommandSender console = replyId == null ? sender : null;
         UUID targetId = target.getUniqueId();
         service.teleportOtherToWarp(sender instanceof Player p ? p : null, target, warpName).thenAccept(status -> {
-            String rawMsg = (status == WarpResultStatus.SUCCESS)
-                ? config.messages().teleportOtherSuccess()
-                : config.messages().warpNotFound();
+            String rawMsg = switch (status) {
+                case SUCCESS -> config.messages().teleportOtherSuccess();
+                case WARP_CLOSED -> config.controlMessages().closed();
+                case WARP_CHANGED -> config.controlMessages().changed();
+                default -> controlResult(config, status);
+            };
             sendReply(
                 replyId, console,
                 rawMsg,
                 Placeholder.unparsed("target", targetName),
+                Placeholder.unparsed("reason", service.getWarp(warpName).map(Warp::closureReason).orElse(config.controlMessages().defaultClosureReason())),
                 Placeholder.unparsed("warp", warpName)
             );
 

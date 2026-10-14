@@ -8,6 +8,8 @@ import com.lunatech.tpcore.module.warp.economy.WarpEconomyService;
 import com.lunatech.tpcore.module.warp.economy.impl.NoOpWarpEconomyService;
 import com.lunatech.tpcore.module.warp.model.Warp;
 import com.lunatech.tpcore.module.warp.model.WarpEdit;
+import com.lunatech.tpcore.module.warp.model.DeletedWarp;
+import java.util.HashMap;
 import com.lunatech.tpcore.module.warp.repository.WarpRepository;
 import com.lunatech.tpcore.module.warp.repository.impl.SqliteWarpRepository;
 import com.lunatech.tpcore.module.warp.repository.impl.YamlWarpRepository;
@@ -61,6 +63,8 @@ public final class DefaultWarpService implements WarpService {
     private final Map<UUID, WarmupSession> activeWarmups = new ConcurrentHashMap<>();
     private final Set<String> inFlightMutations = ConcurrentHashMap.newKeySet();
     private final Set<CompletableFuture<?>> acceptedWork = ConcurrentHashMap.newKeySet();
+    private record PendingDeletion(Warp snapshot, long expiresAtNanos) {}
+    private final AtomicReference<Map<UUID, PendingDeletion>> deletionConfirmations = new AtomicReference<>(Map.of());
     private final AtomicReference<CompletableFuture<?>> activeMigration = new AtomicReference<>();
     private final AtomicReference<CompletableFuture<Void>> initialization = new AtomicReference<>();
     private final AtomicReference<CompletableFuture<Void>> closing = new AtomicReference<>();
@@ -149,6 +153,8 @@ public final class DefaultWarpService implements WarpService {
         Optional<Warp> found = getWarp(warpName);
         if (found.isEmpty()) return completed(WarpResultStatus.WARP_NOT_FOUND);
         Warp warp = found.get();
+        if (warp.closed()) return completed(WarpResultStatus.WARP_CLOSED);
+        if (inFlightMutations.contains(warp.name().toLowerCase(Locale.ROOT))) return completed(WarpResultStatus.BUSY);
         UUID id = player.getUniqueId();
         if (activeWarmups.containsKey(id)) return completed(WarpResultStatus.WARMUP_ALREADY_ACTIVE);
         if (warp.permissionGated() && !player.hasPermission("tpcore.warp." + warp.name().toLowerCase(Locale.ROOT))
@@ -169,11 +175,14 @@ public final class DefaultWarpService implements WarpService {
         WarmupSession session = new WarmupSession(id, warp, settings, "CHARGE_ON_SUCCESS".equals(settings.getNormalizedChargeTiming()), cost);
         if (activeWarmups.putIfAbsent(id, session) != null) { admission.release(); return completed(WarpResultStatus.WARMUP_ALREADY_ACTIVE); }
         if (!cooldowns.put(id, Long.MAX_VALUE)) { activeWarmups.remove(id, session); admission.release(); return completed(WarpResultStatus.BUSY); }
-        boolean bypass = player.hasPermission("tpcore.warp.bypass.warmup");
         session.result.whenComplete((status, failure) -> {
             if (status != WarpResultStatus.SUCCESS) cooldowns.remove(id);
             releaseSessionWork(session);
         });
+        if (inFlightMutations.contains(warp.name().toLowerCase(Locale.ROOT)) || cache.getWarp(warp.name()).orElse(null) != warp) {
+            cancel(session, WarpResultStatus.WARP_CHANGED); releaseSessionWork(session); return session.result;
+        }
+        boolean bypass = player.hasPermission("tpcore.warp.bypass.warmup");
         CompletableFuture<?> funding = session.chargeOnSuccess
             ? economyService.validateExact(id, cost).thenAccept(valid -> {
                 if (!valid) finish(session, WarpResultStatus.INSUFFICIENT_FUNDS);
@@ -195,8 +204,9 @@ public final class DefaultWarpService implements WarpService {
 
     private void beginWarmup(WarmupSession session, Player player, boolean bypass) {
         if (session.result.isDone() || closed.get()) { cancel(session, WarpResultStatus.ERROR); return; }
+        if (!currentDestination(session)) return;
         if (bypass || session.config.warmupSeconds() <= 0) { prepare(session); return; }
-        session.phase.set(Phase.WARMUP);
+        if (!session.phase.compareAndSet(Phase.RESERVED, Phase.WARMUP)) return;
         sendPlayerMessage(player, session.config.messages().warmupStart(),
             Placeholder.unparsed("warp", session.warp.name()), Placeholder.unparsed("seconds", String.valueOf(session.config.warmupSeconds())));
         try {
@@ -209,7 +219,10 @@ public final class DefaultWarpService implements WarpService {
 
     private void prepare(WarmupSession session) {
         if (session.result.isDone() || closed.get()) { cancel(session, WarpResultStatus.ERROR); return; }
-        session.phase.set(Phase.PREPARING);
+        if (!currentDestination(session)) return;
+        Phase previous = session.phase.get();
+        if (previous != Phase.RESERVED && previous != Phase.WARMUP) return;
+        if (!session.phase.compareAndSet(previous, Phase.PREPARING)) return;
         World world = resolveWorld(session.warp);
         if (world == null) { finish(session, WarpResultStatus.WORLD_NOT_LOADED); return; }
         Location target = new Location(world, session.warp.x(), session.warp.y(), session.warp.z(), session.warp.yaw(), session.warp.pitch());
@@ -235,8 +248,22 @@ public final class DefaultWarpService implements WarpService {
         })).exceptionally(failure -> { logger.error("Warp preparation failed for {}", session.id, failure); finish(session, WarpResultStatus.ERROR); return null; });
     }
 
+    private boolean currentDestination(WarmupSession session) {
+        Warp current = cache.getWarp(session.warp.name()).orElse(null);
+        if (current == session.warp && !current.closed()) return true;
+        cancel(session, current != null && current.closed() ? WarpResultStatus.WARP_CLOSED : WarpResultStatus.WARP_CHANGED);
+        return false;
+    }
+
+    private void cancelAffected(String name, WarpResultStatus status) {
+        activeWarmups.values().forEach(session -> {
+            if (session.warp.name().equalsIgnoreCase(name)) cancel(session, status);
+        });
+    }
+
     private void dispatchTeleport(WarmupSession session, Destination target) {
         schedulePlayer(session, player -> {
+            if (!currentDestination(session)) return;
             if (!session.phase.compareAndSet(Phase.PREPARING, Phase.TELEPORTING)) return;
             World world = Bukkit.getWorld(target.worldId());
             if (world == null) { finish(session, WarpResultStatus.WORLD_NOT_LOADED); return; }
@@ -257,6 +284,7 @@ public final class DefaultWarpService implements WarpService {
     }
 
     private void schedulePlayer(WarmupSession session, Consumer<Player> action) {
+        if (session.phase.get() == Phase.FINISHED) return;
         if (session.result.isDone() || closed.get()) { cancel(session, WarpResultStatus.ERROR); return; }
         Player handle = Bukkit.getPlayer(session.id);
         if (handle == null) { cancel(session, WarpResultStatus.ERROR); return; }
@@ -264,7 +292,7 @@ public final class DefaultWarpService implements WarpService {
             ScheduledTask task = handle.getScheduler().run(plugin, ignored -> {
                 Player current = Bukkit.getPlayer(session.id);
                 if (current == null || closed.get() || session.result.isDone()) cancel(session, WarpResultStatus.ERROR);
-                else { try { action.accept(current); } catch (RuntimeException failure) { finish(session, WarpResultStatus.ERROR); } }
+                else if (session.phase.get() != Phase.FINISHED) { try { action.accept(current); } catch (RuntimeException failure) { finish(session, WarpResultStatus.ERROR); } }
             }, () -> cancel(session, WarpResultStatus.ERROR));
             if (task == null) cancel(session, WarpResultStatus.ERROR);
         } catch (RuntimeException failure) { cancel(session, WarpResultStatus.ERROR); }
@@ -289,8 +317,8 @@ public final class DefaultWarpService implements WarpService {
 
     private void finish(WarmupSession session, WarpResultStatus status) {
         session.phase.set(Phase.FINISHED);
-        settle(session, session.chargeOnSuccess || session.config.refundOnCancel() || closed.get()).whenComplete((settled, failure) ->
-            finishWithoutSettlement(session, failure == null ? status : WarpResultStatus.ERROR));
+        settle(session, status == WarpResultStatus.WARP_CLOSED || status == WarpResultStatus.WARP_CHANGED || session.chargeOnSuccess || session.config.refundOnCancel() || closed.get()).whenComplete((settled, failure) ->
+            finishWithoutSettlement(session, failure == null && Boolean.TRUE.equals(settled) ? status : WarpResultStatus.ERROR));
     }
     private void finishWithoutSettlement(WarmupSession session, WarpResultStatus status) {
         session.phase.set(Phase.FINISHED);
@@ -325,7 +353,7 @@ public final class DefaultWarpService implements WarpService {
         CompletableFuture<Void> deadline = new CompletableFuture<>();
         deadline.orTimeout(seconds, TimeUnit.SECONDS).whenComplete((ignored, failure) -> {
             if (failure != null) {
-                if (session.phase.get() == Phase.TELEPORTING) session.result.complete(WarpResultStatus.ERROR);
+                if (session.phase.get() == Phase.TELEPORTING || session.phase.get() == Phase.FINISHED) session.result.complete(WarpResultStatus.ERROR);
                 else cancel(session, WarpResultStatus.ERROR);
             }
         });
@@ -337,11 +365,16 @@ public final class DefaultWarpService implements WarpService {
         if (!ready || closed.get()) return completed(WarpResultStatus.NOT_READY);
         Optional<Warp> warp = getWarp(warpName);
         if (warp.isEmpty()) return completed(WarpResultStatus.WARP_NOT_FOUND);
+        if (warp.get().closed()) return completed(WarpResultStatus.WARP_CLOSED);
+        if (inFlightMutations.contains(warpName.toLowerCase(Locale.ROOT))) return completed(WarpResultStatus.BUSY);
         UUID id = target.getUniqueId();
         if (!admission.tryAcquire()) return completed(WarpResultStatus.BUSY);
         WarmupSession session = new WarmupSession(id, warp.get(), config, false, 0.0, false);
         if (activeWarmups.putIfAbsent(id, session) != null) { admission.release(); return completed(WarpResultStatus.WARMUP_ALREADY_ACTIVE); }
         session.result.whenComplete((value, failure) -> releaseSessionWork(session));
+        if (inFlightMutations.contains(warpName.toLowerCase(Locale.ROOT)) || cache.getWarp(warpName).orElse(null) != session.warp) {
+            cancel(session, WarpResultStatus.WARP_CHANGED); releaseSessionWork(session); return session.result;
+        }
         schedulePlayer(session, ignored -> prepare(session));
         releaseSessionWork(session);
         armTimeout(session, config.operationTimeoutSeconds());
@@ -373,7 +406,8 @@ public final class DefaultWarpService implements WarpService {
             Location loc = creator.getLocation();
             warp = new Warp(warpName, loc.getWorld().getUID(), loc.getWorld().getName(), loc.getX(), loc.getY(), loc.getZ(),
                 loc.getYaw(), loc.getPitch(), creator.getUniqueId(), category == null || category.isBlank() ? settings.defaultCategory() : category,
-                rawPassword == null || rawPassword.isBlank() ? null : hashPassword(warpName, rawPassword), settings.defaultPermissionGated(), System.currentTimeMillis());
+                rawPassword == null || rawPassword.isBlank() ? null : hashPassword(warpName, rawPassword), settings.defaultPermissionGated(), System.currentTimeMillis(),
+                existing.map(Warp::closed).orElse(false), existing.map(Warp::closureReason).orElse(""), existing.map(Warp::unlisted).orElse(false));
             cost = economyService.getSetWarpCost(creator);
         } catch (RuntimeException failure) {
             if (creating) reservedCreates.decrementAndGet();
@@ -388,7 +422,10 @@ public final class DefaultWarpService implements WarpService {
             notifyPayment(warp.creatorUuid(), payment.amount(), false, settings);
             if (closed.get()) return economyService.settle(payment, true).thenApply(done -> WarpResultStatus.ERROR);
             return repository.save(warp).handle((ignored, failure) -> failure).thenCompose(failure -> {
-                if (failure == null && !closed.get()) cache.putWarp(warp);
+                if (failure == null && !closed.get()) {
+                    cancelAffected(name, warp.closed() ? WarpResultStatus.WARP_CLOSED : WarpResultStatus.WARP_CHANGED);
+                    cache.putWarp(warp);
+                }
                 return economyService.settle(payment, failure != null).thenApply(done -> {
                     if (failure != null && done) notifyPayment(warp.creatorUuid(), payment.amount(), true, settings);
                     return failure == null && done ? WarpResultStatus.SUCCESS : WarpResultStatus.ERROR;
@@ -413,6 +450,7 @@ public final class DefaultWarpService implements WarpService {
         if (edit == null) return completed(WarpResultStatus.INVALID_VALUE);
         if (edit instanceof WarpEdit.Rename rename && !isValidWarpName(rename.name())) return completed(WarpResultStatus.INVALID_NAME);
         if (edit instanceof WarpEdit.Category category && !isValidWarpName(category.category())) return completed(WarpResultStatus.INVALID_VALUE);
+        if (edit instanceof WarpEdit.Close close && (close.reason() == null || close.reason().length() > config.control().closureReasonMaxLength())) return completed(WarpResultStatus.INVALID_VALUE);
         if (edit instanceof WarpEdit.Password password && (password.value() == null || password.value().isBlank())) return completed(WarpResultStatus.INVALID_VALUE);
         if (edit instanceof WarpEdit.Relocate location && (location.worldId() == null || location.worldName() == null || location.worldName().isBlank()
             || !Double.isFinite(location.x()) || !Double.isFinite(location.y()) || !Double.isFinite(location.z())
@@ -432,7 +470,10 @@ public final class DefaultWarpService implements WarpService {
             else {
                 Warp updated = applyEdit(original, edit);
                 work = repository.replace(original.name(), updated).thenApply(ignored -> {
-                    if (!closed.get()) cache.replaceWarp(original.name(), updated);
+                    if (!closed.get()) {
+                        cancelAffected(original.name(), updated.closed() ? WarpResultStatus.WARP_CLOSED : WarpResultStatus.WARP_CHANGED);
+                        cache.replaceWarp(original.name(), updated);
+                    }
                     return WarpResultStatus.SUCCESS;
                 });
             }
@@ -447,7 +488,8 @@ public final class DefaultWarpService implements WarpService {
 
     private Warp applyEdit(Warp warp, WarpEdit edit) {
         String name = warp.name(), category = warp.category(), password = warp.passwordHash();
-        boolean permission = warp.permissionGated();
+        boolean permission = warp.permissionGated(), unavailable = warp.closed(), unlisted = warp.unlisted();
+        String reason = warp.closureReason();
         switch (edit) {
             case WarpEdit.Rename rename -> {
                 if (warp.hasPassword() && !password.startsWith("name-sha256:")) password = "name-sha256:" + warp.name().toLowerCase(Locale.ROOT) + ":" + password;
@@ -460,9 +502,12 @@ public final class DefaultWarpService implements WarpService {
             case WarpEdit.Password change -> password = hashPassword(warp.name(), change.value());
             case WarpEdit.ClearPassword ignored -> password = null;
             case WarpEdit.Permission change -> permission = change.required();
+            case WarpEdit.Close close -> { unavailable = true; reason = close.reason(); }
+            case WarpEdit.Open ignored -> { unavailable = false; reason = ""; }
+            case WarpEdit.Listing listing -> unlisted = listing.unlisted();
         }
         return new Warp(name, warp.worldId(), warp.worldName(), warp.x(), warp.y(), warp.z(), warp.yaw(), warp.pitch(),
-            warp.creatorUuid(), category, password, permission, warp.createdAt());
+            warp.creatorUuid(), category, password, permission, warp.createdAt(), unavailable, reason, unlisted);
     }
 
     private boolean passwordMatches(Warp warp, String password) {
@@ -477,6 +522,10 @@ public final class DefaultWarpService implements WarpService {
 
     @Override
     public CompletableFuture<WarpResultStatus> deleteWarp(String warpName) {
+        return deleteWarp(warpName, null, null);
+    }
+
+    private CompletableFuture<WarpResultStatus> deleteWarp(String warpName, UUID actor, Warp expected) {
         if (!ready || closed.get()) return completed(WarpResultStatus.NOT_READY);
         if (!isValidWarpName(warpName)) return completed(WarpResultStatus.WARP_NOT_FOUND);
         long stamp = storageAccess.tryReadLock();
@@ -484,12 +533,103 @@ public final class DefaultWarpService implements WarpService {
         if (!admission.tryAcquire()) { storageAccess.unlockRead(stamp); return completed(WarpResultStatus.BUSY); }
         String name = warpName.toLowerCase(Locale.ROOT);
         if (!inFlightMutations.add(name)) { admission.release(); storageAccess.unlockRead(stamp); return completed(WarpResultStatus.BUSY); }
-        if (cache.getWarp(name).isEmpty()) return releaseMutation(name, stamp, WarpResultStatus.WARP_NOT_FOUND);
-        return track(repository.delete(name).thenApply(ignored -> {
-            if (!closed.get()) cache.removeWarp(name);
+        Warp snapshot = cache.getWarp(name).orElse(null);
+        if (snapshot == null) return releaseMutation(name, stamp, WarpResultStatus.WARP_NOT_FOUND);
+        if (expected != null && !expected.equals(snapshot)) return releaseMutation(name, stamp, WarpResultStatus.CONFIRMATION_EXPIRED);
+        CompletableFuture<Void> writing;
+        try { writing = repository.archiveAndDelete(new DeletedWarp(UUID.randomUUID(), snapshot, System.currentTimeMillis(), actor)); }
+        catch (RuntimeException failure) { writing = CompletableFuture.failedFuture(failure); }
+        return track(writing.thenApply(ignored -> {
+            if (!closed.get()) { cancelAffected(name, WarpResultStatus.WARP_CHANGED); cache.removeWarp(name); }
             return WarpResultStatus.SUCCESS;
         }).exceptionally(failure -> { logger.error("Failed to delete warp {}", name, failure); return WarpResultStatus.ERROR; })
             .whenComplete((value, failure) -> { inFlightMutations.remove(name); admission.release(); storageAccess.unlockRead(stamp); }));
+    }
+
+    @Override public WarpResultStatus prepareDeletion(UUID actor, String name) {
+        if (!isReady() || !config.enabled()) return WarpResultStatus.NOT_READY;
+        if (actor == null) return WarpResultStatus.INVALID_VALUE;
+        Warp snapshot = cache.getWarp(name).orElse(null);
+        if (snapshot == null) return WarpResultStatus.WARP_NOT_FOUND;
+        if (inFlightMutations.contains(snapshot.name().toLowerCase(Locale.ROOT))) return WarpResultStatus.BUSY;
+        long now = System.nanoTime();
+        PendingDeletion confirmation = new PendingDeletion(snapshot, now + TimeUnit.SECONDS.toNanos(config.control().deleteConfirmationSeconds()));
+        for (;;) {
+            Map<UUID, PendingDeletion> old = deletionConfirmations.get();
+            Map<UUID, PendingDeletion> next = new HashMap<>(old);
+            next.entrySet().removeIf(entry -> now - entry.getValue().expiresAtNanos() >= 0);
+            if (!next.containsKey(actor) && next.size() >= config.maxPlayerStateEntries()) return WarpResultStatus.BUSY;
+            next.put(actor, confirmation);
+            if (deletionConfirmations.compareAndSet(old, Map.copyOf(next))) return WarpResultStatus.CONFIRMATION_REQUIRED;
+        }
+    }
+
+    private PendingDeletion takeConfirmation(UUID actor) {
+        if (actor == null) return null;
+        for (;;) {
+            Map<UUID, PendingDeletion> old = deletionConfirmations.get();
+            PendingDeletion pending = old.get(actor);
+            if (pending == null) return null;
+            Map<UUID, PendingDeletion> next = new HashMap<>(old); next.remove(actor);
+            if (deletionConfirmations.compareAndSet(old, Map.copyOf(next))) return pending;
+        }
+    }
+
+    @Override public CompletableFuture<WarpResultStatus> confirmDeletion(UUID actor, String name) {
+        if (!isReady() || !config.enabled()) return completed(WarpResultStatus.NOT_READY);
+        PendingDeletion pending = takeConfirmation(actor);
+        if (pending == null || System.nanoTime() - pending.expiresAtNanos() >= 0 || !pending.snapshot().name().equalsIgnoreCase(name)) return completed(WarpResultStatus.CONFIRMATION_EXPIRED);
+        return deleteWarp(name, actor, pending.snapshot());
+    }
+
+    @Override public CompletableFuture<List<DeletedWarp>> getDeletedWarps() {
+        if (!isReady()) return CompletableFuture.failedFuture(new IllegalStateException("Warp service is not ready"));
+        long stamp = storageAccess.tryReadLock();
+        if (stamp == 0) return CompletableFuture.failedFuture(new IllegalStateException("Warp storage is busy"));
+        if (!admission.tryAcquire()) { storageAccess.unlockRead(stamp); return CompletableFuture.failedFuture(new IllegalStateException("Warp service is busy")); }
+        try {
+            return track(repository.loadDeleted().whenComplete((value, failure) -> { admission.release(); storageAccess.unlockRead(stamp); }));
+        } catch (RuntimeException failure) { admission.release(); storageAccess.unlockRead(stamp); return CompletableFuture.failedFuture(failure); }
+    }
+
+    @Override public CompletableFuture<WarpResultStatus> restoreWarp(UUID id) {
+        if (!isReady() || !config.enabled()) return completed(WarpResultStatus.NOT_READY);
+        long stamp = storageAccess.tryReadLock();
+        if (stamp == 0) return completed(WarpResultStatus.BUSY);
+        if (!admission.tryAcquire()) { storageAccess.unlockRead(stamp); return completed(WarpResultStatus.BUSY); }
+        CompletableFuture<WarpResultStatus> work;
+        try {
+            work = repository.loadDeleted().thenCompose(entries -> {
+                DeletedWarp entry = entries.stream().filter(deleted -> deleted.id().equals(id)).findFirst().orElse(null);
+                if (entry == null) return completed(WarpResultStatus.RECOVERY_NOT_FOUND);
+                if (closed.get()) return completed(WarpResultStatus.NOT_READY);
+                String name = entry.warp().name().toLowerCase(Locale.ROOT);
+                if (!inFlightMutations.add(name)) return completed(WarpResultStatus.BUSY);
+                boolean reserved = false;
+                boolean transferred = false;
+                try {
+                    if (cache.getWarp(name).isPresent()) return completed(WarpResultStatus.ALREADY_EXISTS);
+                    int count = reservedCreates.incrementAndGet(); reserved = true;
+                    if (cache.getWarpCount() + count > config.maxCachedWarps()
+                        || config.maxWarps() > 0 && cache.getWarpCount() + count > config.maxWarps()) return completed(WarpResultStatus.LIMIT_REACHED);
+                    CompletableFuture<WarpResultStatus> restoration = repository.restore(entry).thenApply(ignored -> {
+                        if (!closed.get()) cache.putWarp(entry.warp());
+                        return WarpResultStatus.SUCCESS;
+                    });
+                    // Ownership transfers to the completion callback only after scheduling succeeded.
+                    CompletableFuture<WarpResultStatus> result = restoration.whenComplete((value, failure) -> { reservedCreates.decrementAndGet(); inFlightMutations.remove(name); });
+                    transferred = true;
+                    return result;
+                } finally {
+                    if (!transferred) {
+                        if (reserved) reservedCreates.decrementAndGet();
+                        inFlightMutations.remove(name);
+                    }
+                }
+            });
+        } catch (RuntimeException failure) { work = CompletableFuture.failedFuture(failure); }
+        return track(work.exceptionally(failure -> { logger.error("Failed to restore deleted warp {}", id, failure); return WarpResultStatus.ERROR; })
+            .whenComplete((value, failure) -> { admission.release(); storageAccess.unlockRead(stamp); }));
     }
 
     @Override public void cancelWarmupOnMove(Player player) {
@@ -507,6 +647,7 @@ public final class DefaultWarpService implements WarpService {
         }
     }
     @Override public void cancelWarmupOnQuit(UUID id) {
+        takeConfirmation(id);
         WarmupSession session = activeWarmups.get(id);
         if (session != null) cancel(session, WarpResultStatus.ERROR);
         failedPasswordAttempts.remove(id);
@@ -565,7 +706,9 @@ public final class DefaultWarpService implements WarpService {
             .thenCompose(warps -> target.loadAll().thenCompose(destination -> {
                 Set<String> merged = ConcurrentHashMap.newKeySet(); merged.addAll(destination.keySet()); merged.addAll(warps.keySet());
                 if (merged.size() > config.maxCachedWarps()) return CompletableFuture.failedFuture(new IllegalStateException("Migration exceeds warp cache capacity"));
-                return target.saveAll(warps.values()).thenCompose(done -> target.loadAll()).thenApply(saved -> {
+                return source.loadDeleted().thenCompose(history -> target.saveAll(warps.values())
+                    .thenCompose(done -> history.isEmpty() ? CompletableFuture.completedFuture(null) : target.saveDeleted(history)))
+                    .thenCompose(done -> target.loadAll()).thenApply(saved -> {
                     if (target == repository && !closed.get()) cache.populate(saved);
                     return warps.size();
                 });
@@ -590,9 +733,9 @@ public final class DefaultWarpService implements WarpService {
 
     private WarpRepository createRepoForType(String type) {
         if ("YAML".equalsIgnoreCase(type)) {
-            return new YamlWarpRepository(plugin.getDataFolder(), logger, config.storageQueueCapacity(), config.maxCachedWarps(), config.maxStorageBytes());
+            return new YamlWarpRepository(plugin.getDataFolder(), logger, config.storageQueueCapacity(), config.maxCachedWarps(), config.maxStorageBytes(), config.control());
         } else {
-            return new SqliteWarpRepository(plugin.getDataFolder(), logger, config.storageQueueCapacity(), config.maxCachedWarps());
+            return new SqliteWarpRepository(plugin.getDataFolder(), logger, config.storageQueueCapacity(), config.maxCachedWarps(), config.control());
         }
     }
 
@@ -602,7 +745,7 @@ public final class DefaultWarpService implements WarpService {
         if (previous != null) return previous;
         CompletableFuture<Void> result = new CompletableFuture<>();
         if (!closing.compareAndSet(null, result)) return closing.get();
-        closed.set(true); ready = false;
+        closed.set(true); ready = false; deletionConfirmations.set(Map.of());
         activeWarmups.values().forEach(session -> cancel(session, WarpResultStatus.ERROR));
         cache.clear(); cooldowns.clear(); failedPasswordAttempts.clear();
         CompletableFuture.allOf(acceptedWork.toArray(CompletableFuture[]::new))

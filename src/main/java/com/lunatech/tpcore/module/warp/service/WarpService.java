@@ -3,6 +3,7 @@ package com.lunatech.tpcore.module.warp.service;
 import com.lunatech.tpcore.config.model.WarpConfig;
 import com.lunatech.tpcore.module.warp.model.Warp;
 import com.lunatech.tpcore.module.warp.model.WarpEdit;
+import com.lunatech.tpcore.module.warp.model.DeletedWarp;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -14,7 +15,7 @@ import org.bukkit.entity.Player;
 public interface WarpService {
 
     CompletableFuture<Void> initialize();
-    /** Caller enforces staff permissions. Free edits preserve unrelated fields; accepted teleports retain their snapshot. */
+    /** Caller enforces staff permissions. Free edits preserve unrelated fields and cancel pending teleports before dispatch. */
     CompletableFuture<WarpResultStatus> editWarp(String name, WarpEdit edit);
     boolean isReady();
 
@@ -24,7 +25,12 @@ public interface WarpService {
 
     CompletableFuture<WarpResultStatus> setWarp(Player creator, String warpName, boolean overwrite, String rawPassword, String category);
 
+    /** Trusted internal API: archives directly. Interactive callers must use prepare/confirmDeletion. */
     CompletableFuture<WarpResultStatus> deleteWarp(String warpName);
+    WarpResultStatus prepareDeletion(UUID actor, String warpName);
+    CompletableFuture<WarpResultStatus> confirmDeletion(UUID actor, String warpName);
+    CompletableFuture<List<DeletedWarp>> getDeletedWarps();
+    CompletableFuture<WarpResultStatus> restoreWarp(UUID id);
 
     Optional<Warp> getWarp(String warpName);
 

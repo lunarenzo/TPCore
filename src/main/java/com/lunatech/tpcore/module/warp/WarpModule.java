@@ -80,7 +80,8 @@ public final class WarpModule implements ReloadableModule {
                         || next.maxStorageBytes() != config.maxStorageBytes()
                         || next.storageQueueCapacity() != config.storageQueueCapacity()
                         || next.maxConcurrentOperations() != config.maxConcurrentOperations()
-                        || next.maxPlayerStateEntries() != config.maxPlayerStateEntries();
+                        || next.maxPlayerStateEntries() != config.maxPlayerStateEntries()
+                        || !next.control().equals(config.control());
                     if (!next.enabled()) {
                         config = next; disable(); stopping.whenComplete((value, failure) -> applied.complete(failure == null));
                     } else if (!isInitialized || restart) {
@@ -142,9 +143,9 @@ public final class WarpModule implements ReloadableModule {
         }
 
         if (targetConfig.storage() != null && "YAML".equalsIgnoreCase(targetConfig.storage().type())) {
-            this.repository = new YamlWarpRepository(this.plugin.getDataFolder(), this.plugin.getSLF4JLogger(), targetConfig.storageQueueCapacity(), targetConfig.maxCachedWarps(), targetConfig.maxStorageBytes());
+            this.repository = new YamlWarpRepository(this.plugin.getDataFolder(), this.plugin.getSLF4JLogger(), targetConfig.storageQueueCapacity(), targetConfig.maxCachedWarps(), targetConfig.maxStorageBytes(), targetConfig.control());
         } else {
-            this.repository = new SqliteWarpRepository(this.plugin.getDataFolder(), this.plugin.getSLF4JLogger(), targetConfig.storageQueueCapacity(), targetConfig.maxCachedWarps());
+            this.repository = new SqliteWarpRepository(this.plugin.getDataFolder(), this.plugin.getSLF4JLogger(), targetConfig.storageQueueCapacity(), targetConfig.maxCachedWarps(), targetConfig.control());
         }
 
         this.cache = new DefaultWarpCache();

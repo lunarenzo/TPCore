@@ -5,6 +5,7 @@ import com.lunatech.tpcore.module.warp.cache.impl.DefaultWarpCache;
 import com.lunatech.tpcore.module.warp.economy.WarpEconomyService;
 import com.lunatech.tpcore.module.warp.economy.WarpEconomyService.Payment;
 import com.lunatech.tpcore.module.warp.model.Warp;
+import com.lunatech.tpcore.module.warp.model.WarpEdit;
 import com.lunatech.tpcore.module.warp.repository.WarpRepository;
 import com.lunatech.tpcore.module.warp.service.WarpResultStatus;
 import com.lunatech.tpcore.module.warp.service.impl.DefaultWarpService;
@@ -92,6 +93,44 @@ class WarpConcurrencyRegressionTest {
     @Test void requestsAreRejectedUntilInitializationCompletes() {
         assertEquals(WarpResultStatus.NOT_READY, service.setWarp(player, "first", false, null, null).join());
         verify(repository, never()).save(any());
+    }
+
+    @Test void closingDuringPendingChargeRefundsLatePaymentWithoutStartingWarmup() {
+        ready();
+        when(repository.replace(anyString(), any())).thenReturn(CompletableFuture.completedFuture(null));
+        CompletableFuture<WarpResultStatus> result = service.teleportToWarp(player, "hub", null);
+        assertEquals(WarpResultStatus.SUCCESS, service.editWarp("hub", new WarpEdit.Close("Unsafe bridge")).join());
+        assertEquals(WarpResultStatus.WARP_CLOSED, result.join());
+        Payment receipt = new Payment(id, 25, true); payment.complete(receipt);
+        verify(economy).settle(receipt, true);
+        verify(scheduler, never()).runDelayed(any(), any(), any(), anyLong());
+        verify(player, never()).teleportAsync(any());
+    }
+
+    @Test void closingPaidWarmupRefundsEvenWhenOrdinaryCancellationRefundsAreDisabled() {
+        WarpConfig defaults = WarpConfig.createDefault();
+        service.updateConfig(new WarpConfig(true, 3, 10, true, true, false, "general", 8, 100, false, 0, 0,
+            "CHARGE_ON_WARMUP", false, defaults.safetyChecks(), defaults.storage(), defaults.messages()));
+        ready();
+        when(repository.replace(anyString(), any())).thenReturn(CompletableFuture.completedFuture(null));
+        CompletableFuture<WarpResultStatus> result = service.teleportToWarp(player, "hub", null);
+        Payment receipt = new Payment(id, 25, true); payment.complete(receipt);
+        service.editWarp("hub", new WarpEdit.Close("Unsafe bridge")).join();
+        assertEquals(WarpResultStatus.WARP_CLOSED, result.join());
+        verify(economy).settle(receipt, true);
+        verify(player, never()).teleportAsync(any());
+    }
+
+    @Test void failedClosureRefundReportsFailureAndCannotDispatchTeleport() {
+        ready();
+        when(repository.replace(anyString(), any())).thenReturn(CompletableFuture.completedFuture(null));
+        CompletableFuture<WarpResultStatus> result = service.teleportToWarp(player, "hub", null);
+        Payment receipt = new Payment(id, 25, true); payment.complete(receipt);
+        when(economy.settle(receipt, true)).thenReturn(CompletableFuture.completedFuture(false));
+        service.editWarp("hub", new WarpEdit.Close("Unsafe bridge")).join();
+        assertEquals(WarpResultStatus.ERROR, result.join());
+        verify(economy).settle(receipt, true); verify(player, never()).teleportAsync(any());
+        assertTrue(cache.getWarp("hub").orElseThrow().closed());
     }
 
     @Test void duplicateAndCancelledPendingPaymentsKeepTheirReservation() {

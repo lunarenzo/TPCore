@@ -18,6 +18,18 @@ dependencies:
       join-classpath: true
 
 permissions:
+  tpcore.warp.del:
+    description: Confirm and archive server warp deletions.
+    default: op
+  tpcore.warp.recover:
+    description: List and restore bounded server warp deletion history.
+    default: op
+  tpcore.warp.edit.availability:
+    description: Close or reopen server warps.
+    default: op
+  tpcore.warp.edit.visibility:
+    description: Hide or list server warps in public discovery.
+    default: op
   tpcore.warp.info:
     description: Inspect server warp metadata without revealing password hashes.
     default: op
@@ -31,6 +43,8 @@ permissions:
       tpcore.warp.edit.category: true
       tpcore.warp.edit.password: true
       tpcore.warp.edit.permission: true
+      tpcore.warp.edit.availability: true
+      tpcore.warp.edit.visibility: true
   tpcore.warp.edit.rename:
     description: Rename server warps; external per-warp grants must be updated manually.
     default: op

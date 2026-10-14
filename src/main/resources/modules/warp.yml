@@ -32,6 +32,31 @@ safety-checks:
 storage:
   type: "SQLITE"
 
+# Administrative controls; changing these settings reopens storage safely.
+control:
+  delete-confirmation-seconds: 30
+  recovery-max-entries: 100
+  recovery-retention-days: 7
+  closure-reason-max-length: 256
+
+# Plain closure reasons are rendered as text, never MiniMessage markup.
+control-messages:
+  closed: "<prefix><red>Warp <yellow><warp></yellow> is closed: <reason></red>"
+  changed: "<prefix><yellow>Warp <warp> changed before teleportation. Please try again.</yellow>"
+  delete-confirmation: "<prefix><yellow>Run /delwarp <warp> confirm within <seconds>s to archive and delete this warp.</yellow>"
+  confirmation-expired: "<prefix><red>Deletion confirmation expired or the warp changed. Run /delwarp <warp> again.</red>"
+  recovery-header: "<prefix><gold>Deleted warps (page <page>/<maxpages>):</gold>"
+  recovery-entry: "<gray><warp> | deleted at <deleted-at> | /warprecover <id></gray>"
+  recovery-empty: "<prefix><yellow>No recoverable deleted warps.</yellow>"
+  recovery-not-found: "<prefix><red>Recovery entry was not found or has expired.</red>"
+  recovery-success: "<prefix><green>Restored warp <warp> with its original metadata.</green>"
+  recovery-conflict: "<prefix><red>Cannot restore: a warp with that name already exists.</red>"
+  info-state: "<prefix><gray>Closed: <closed>; unlisted: <unlisted>; closure reason: <reason></gray>"
+  default-closure-reason: "Temporarily unavailable."
+  closed-label: "[Closed]"
+  open-label: ""
+  usage: "<prefix><yellow>/editwarp <name> close [reason] | open | unlisted | listed; /delwarp <name> [confirm]; /warprecover list [page] | <entry-id></yellow>"
+
 # Staff edits preserve other metadata and never incur creation charges.
 # Rename changes tpcore.warp.<name>; update external grants manually.
 edit-messages:
@@ -73,7 +98,7 @@ messages:
   warp-list-category-header: "<prefix><gray>Available Warps in Category <gold><category></gold> (Page <gold><page></gold>/<gold><maxpages></gold>):</gray>"
   warp-list-empty: "<prefix><yellow>No warps found.</yellow>"
   warp-list-header: "<prefix><gray>Available Warps (Page <gold><page></gold>/<gold><maxpages></gold>):</gray>"
-  warp-list-item: "  <dark_gray>•</dark_gray> <green><name></green> <gray>[<yellow><category></yellow>]</gray> <click:run_command:'/warp <name>'><hover:show_text:'<green>Click to teleport</green><br><gray>World: <yellow><world></yellow><br>Coords: <yellow><x>, <y>, <z></yellow>'><gold>[Teleport]</gold></hover></click>"
+  warp-list-item: "  <dark_gray>•</dark_gray> <green><name></green> <red><availability></red> <gray>[<yellow><category></yellow>]</gray> <click:run_command:'/warp <name>'><hover:show_text:'<green>Click to teleport</green><br><gray>World: <yellow><world></yellow><br>Coords: <yellow><x>, <y>, <z></yellow>'><gold>[Teleport]</gold></hover></click>"
   warp-not-found: "<prefix><red>Warp <yellow><warp></yellow> was not found!</red>"
   warp-other-usage: "<prefix><red>Usage: <gold>/warpother <target> <name></gold></red>"
   warp-usage: "<prefix><red>Usage: <gold>/warp <name> [password]</gold></red>"
