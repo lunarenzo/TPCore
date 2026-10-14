@@ -8,6 +8,7 @@ import java.util.Optional;
 import java.util.Set;
 
 public interface WarpCache {
+    void setCapacity(int capacity);
 
     void populate(Map<String, Warp> warps);
 

@@ -6,6 +6,17 @@ author: lunarenzo
 description: High-performance, modular teleportation plugin for PaperMC and Folia.
 folia-supported: true
 
+dependencies:
+  server:
+    Vault:
+      load: BEFORE
+      required: false
+      join-classpath: true
+    VaultUnlocked:
+      load: BEFORE
+      required: false
+      join-classpath: true
+
 permissions:
   tpcore.tpa.player:
     description: Grants default TPA permissions for non-op players (use, here, accept, deny, cancel, toggle, block, unblock, blocklist, autoaccept)

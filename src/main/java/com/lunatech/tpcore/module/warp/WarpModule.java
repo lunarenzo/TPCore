@@ -18,6 +18,8 @@ import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import org.bukkit.event.HandlerList;
+import org.bukkit.Bukkit;
+import java.util.concurrent.atomic.AtomicLong;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public final class WarpModule implements ReloadableModule {
@@ -31,7 +33,9 @@ public final class WarpModule implements ReloadableModule {
     private WarpRepository repository;
     private WarpCache cache;
     private WarpEconomyService economyService;
-    private WarpService service;
+    private volatile WarpService service;
+    private CompletableFuture<Void> stopping = CompletableFuture.completedFuture(null);
+    private final AtomicLong lifecycle = new AtomicLong();
     private WarpEventListener eventListener;
     private WarpCommandRegistry commandRegistry;
 
@@ -39,6 +43,7 @@ public final class WarpModule implements ReloadableModule {
         this.plugin = Objects.requireNonNull(plugin, "plugin cannot be null");
         this.configManager = Objects.requireNonNull(configManager, "configManager cannot be null");
         this.config = Objects.requireNonNull(config, "config cannot be null");
+        this.configManager.registerModule(this);
     }
 
     @Override
@@ -59,31 +64,55 @@ public final class WarpModule implements ReloadableModule {
         return this.service.migrateData(fromStorage, toStorage);
     }
 
+    /** Called by the core asynchronous configuration reload worker. */
     @Override
     public boolean reloadConfig() {
         try {
-            WarpConfig newConfig = this.configManager.tryLoadModuleConfig("warp", WarpConfig.class, WarpConfig.createDefault());
-            if (newConfig != null) {
-                boolean wasEnabled = this.isInitialized;
-                boolean isEnabled = newConfig.enabled();
-                this.config = newConfig;
-
-                if (wasEnabled && !isEnabled) {
-                    disable();
-                } else if (!wasEnabled && isEnabled) {
-                    enable();
-                } else if (wasEnabled && isEnabled) {
-                    reloadActiveModule(newConfig);
-                }
-                return true;
-            }
-        } catch (Exception e) {
-            this.plugin.getSLF4JLogger().error("Failed to reload Warp module configuration.", e);
+            WarpConfig next = configManager.tryLoadModuleConfig("warp", WarpConfig.class, WarpConfig.createDefault());
+            CompletableFuture<Boolean> applied = new CompletableFuture<>();
+            Bukkit.getGlobalRegionScheduler().execute(plugin, () -> {
+                try {
+                    String oldStorage = config.storage() == null ? "SQLITE" : config.storage().type();
+                    String nextStorage = next.storage() == null ? "SQLITE" : next.storage().type();
+                    boolean restart = !oldStorage.equalsIgnoreCase(nextStorage)
+                        || service == null || !service.isReady()
+                        || next.maxCachedWarps() != config.maxCachedWarps()
+                        || next.maxStorageBytes() != config.maxStorageBytes()
+                        || next.storageQueueCapacity() != config.storageQueueCapacity()
+                        || next.maxConcurrentOperations() != config.maxConcurrentOperations()
+                        || next.maxPlayerStateEntries() != config.maxPlayerStateEntries();
+                    if (!next.enabled()) {
+                        config = next; disable(); stopping.whenComplete((value, failure) -> applied.complete(failure == null));
+                    } else if (!isInitialized || restart) {
+                        disable(); config = next;
+                        long generation = lifecycle.get();
+                        stopping.whenComplete((value, failure) -> {
+                            if (failure != null) { applied.complete(false); return; }
+                            Bukkit.getGlobalRegionScheduler().execute(plugin, () -> {
+                                if (generation != lifecycle.get() || !plugin.isEnabled()) { applied.complete(false); return; }
+                                try { enable(); service.initialize().whenComplete((done, error) -> applied.complete(error == null)); }
+                                catch (RuntimeException error) { applied.completeExceptionally(error); }
+                            });
+                        });
+                    } else {
+                        service.updateConfig(next); config = next; applied.complete(true);
+                    }
+                } catch (RuntimeException failure) { applied.completeExceptionally(failure); }
+            });
+            return applied.get(next.operationTimeoutSeconds(), TimeUnit.SECONDS);
+        } catch (Exception failure) {
+            lifecycle.incrementAndGet();
+            plugin.getSLF4JLogger().error("Failed to reload Warp module configuration", failure);
+            return false;
         }
-        return false;
     }
 
     public void enable() {
+        if (!this.commandsRegistered) {
+            this.commandRegistry = new WarpCommandRegistry(this.plugin, this::getService, () -> this.config);
+            this.commandRegistry.registerAll();
+            this.commandsRegistered = true;
+        }
         if (!this.config.enabled()) {
             this.plugin.getSLF4JLogger().info("Warp Module is disabled in configuration. Skipping registration.");
             return;
@@ -100,42 +129,11 @@ public final class WarpModule implements ReloadableModule {
             this.plugin.getServer().getPluginManager().registerEvents(this.eventListener, this.plugin);
         }
 
-        if (!this.commandsRegistered) {
-            this.commandRegistry = new WarpCommandRegistry(this.plugin, this::getService, () -> this.config);
-            this.commandRegistry.registerAll();
-            this.commandsRegistered = true;
-        }
 
         this.configManager.registerModule(this);
         this.isInitialized = true;
 
         this.plugin.getSLF4JLogger().info("Warp Module successfully enabled.");
-    }
-
-    private void reloadActiveModule(WarpConfig newConfig) {
-        String oldStorage = (this.config != null && this.config.storage() != null) ? this.config.storage().type() : "SQLITE";
-        String newStorage = (newConfig != null && newConfig.storage() != null) ? newConfig.storage().type() : "SQLITE";
-
-        if (oldStorage.equalsIgnoreCase(newStorage) && this.service != null) {
-            this.service.updateConfig(newConfig);
-            this.plugin.getSLF4JLogger().info("Warp Module configuration reloaded successfully.");
-            return;
-        }
-
-        if (this.service != null) {
-            safeClose(this.service);
-            this.service = null;
-        } else if (this.repository != null) {
-            safeClose(this.repository);
-        }
-        this.repository = null;
-        if (this.cache != null) {
-            this.cache.clear();
-            this.cache = null;
-        }
-
-        instantiateAndInitializeStorage(newConfig);
-        this.plugin.getSLF4JLogger().info("Warp Module storage engine successfully reloaded: {}", newStorage);
     }
 
     private void instantiateAndInitializeStorage(WarpConfig targetConfig) {
@@ -144,9 +142,9 @@ public final class WarpModule implements ReloadableModule {
         }
 
         if (targetConfig.storage() != null && "YAML".equalsIgnoreCase(targetConfig.storage().type())) {
-            this.repository = new YamlWarpRepository(this.plugin.getDataFolder(), this.plugin.getSLF4JLogger());
+            this.repository = new YamlWarpRepository(this.plugin.getDataFolder(), this.plugin.getSLF4JLogger(), targetConfig.storageQueueCapacity(), targetConfig.maxCachedWarps(), targetConfig.maxStorageBytes());
         } else {
-            this.repository = new SqliteWarpRepository(this.plugin.getDataFolder(), this.plugin.getSLF4JLogger());
+            this.repository = new SqliteWarpRepository(this.plugin.getDataFolder(), this.plugin.getSLF4JLogger(), targetConfig.storageQueueCapacity(), targetConfig.maxCachedWarps());
         }
 
         this.cache = new DefaultWarpCache();
@@ -162,7 +160,7 @@ public final class WarpModule implements ReloadableModule {
             return;
         }
 
-        this.configManager.unregisterModule("warp");
+        lifecycle.incrementAndGet();
 
         if (this.eventListener != null) {
             HandlerList.unregisterAll(this.eventListener);
@@ -170,10 +168,10 @@ public final class WarpModule implements ReloadableModule {
         }
 
         if (this.service != null) {
-            safeClose(this.service);
+            stopping = this.service.close();
             this.service = null;
         } else if (this.repository != null) {
-            safeClose(this.repository);
+            stopping = this.repository.close();
         }
         this.repository = null;
 
@@ -183,32 +181,12 @@ public final class WarpModule implements ReloadableModule {
         }
 
         if (this.economyService != null) {
-            this.economyService.shutdown();
             this.economyService = null;
         }
 
         this.isInitialized = false;
+        stopping.exceptionally(failure -> { plugin.getSLF4JLogger().error("Warp asynchronous shutdown failed", failure); return null; });
         this.plugin.getSLF4JLogger().info("Warp Module disabled.");
-    }
-
-    private void safeClose(WarpService warpService) {
-        if (warpService != null) {
-            try {
-                warpService.close().get(1, TimeUnit.SECONDS);
-            } catch (Exception e) {
-                this.plugin.getSLF4JLogger().warn("Timed out or interrupted while closing WarpService", e);
-            }
-        }
-    }
-
-    private void safeClose(WarpRepository warpRepository) {
-        if (warpRepository != null) {
-            try {
-                warpRepository.close().get(1, TimeUnit.SECONDS);
-            } catch (Exception e) {
-                this.plugin.getSLF4JLogger().warn("Timed out or interrupted while closing WarpRepository", e);
-            }
-        }
     }
 
     public WarpService getService() {

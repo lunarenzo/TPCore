@@ -14,6 +14,8 @@ import io.papermc.paper.command.brigadier.Commands;
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Locale;
+import java.util.UUID;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Supplier;
@@ -47,7 +49,7 @@ public final class WarpCommandRegistry {
                 if (!configSupplier.get().enabled()) {
                     return builder.buildFuture();
                 }
-                String remaining = builder.getRemaining().toLowerCase();
+                String remaining = builder.getRemaining().toLowerCase(Locale.ROOT);
                 WarpService service = warpServiceSupplier.get();
                 if (service != null) {
                     CommandSender sender = context.getSource().getSender();
@@ -55,9 +57,9 @@ public final class WarpCommandRegistry {
                     for (Warp warp : service.getAllWarps()) {
                         boolean canSee = !warp.permissionGated()
                             || player == null
-                            || player.hasPermission("tpcore.warp." + warp.name().toLowerCase())
+                            || player.hasPermission("tpcore.warp." + warp.name().toLowerCase(Locale.ROOT))
                             || player.hasPermission("tpcore.warp.admin");
-                        if (canSee && warp.name().toLowerCase().startsWith(remaining)) {
+                        if (canSee && warp.name().toLowerCase(Locale.ROOT).startsWith(remaining)) {
                             builder.suggest(warp.name());
                         }
                     }
@@ -69,11 +71,11 @@ public final class WarpCommandRegistry {
                 if (!configSupplier.get().enabled()) {
                     return builder.buildFuture();
                 }
-                String remaining = builder.getRemaining().toLowerCase();
+                String remaining = builder.getRemaining().toLowerCase(Locale.ROOT);
                 WarpService service = warpServiceSupplier.get();
                 if (service != null) {
                     for (String category : service.getCategories()) {
-                        if (category.toLowerCase().startsWith(remaining)) {
+                        if (category.toLowerCase(Locale.ROOT).startsWith(remaining)) {
                             builder.suggest(category);
                         }
                     }
@@ -85,9 +87,9 @@ public final class WarpCommandRegistry {
                 if (!configSupplier.get().enabled()) {
                     return builder.buildFuture();
                 }
-                String remaining = builder.getRemaining().toLowerCase();
+                String remaining = builder.getRemaining().toLowerCase(Locale.ROOT);
                 for (Player player : Bukkit.getOnlinePlayers()) {
-                    if (player.getName().toLowerCase().startsWith(remaining)) {
+                    if (player.getName().toLowerCase(Locale.ROOT).startsWith(remaining)) {
                         builder.suggest(player.getName());
                     }
                 }
@@ -287,10 +289,9 @@ public final class WarpCommandRegistry {
             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
         }
 
+        UUID playerId = player.getUniqueId();
         service.teleportToWarp(player, warpName, rawPassword).thenAccept(status -> {
-            if (status == WarpResultStatus.INSUFFICIENT_FUNDS) {
-                return;
-            }
+            if (status == WarpResultStatus.WARMUP_CANCELLED_MOVE || status == WarpResultStatus.WARMUP_CANCELLED_DAMAGE) return;
             String rawMsg = switch (status) {
                 case SUCCESS -> config.messages().teleportSuccess();
                 case WARP_NOT_FOUND -> config.messages().warpNotFound();
@@ -301,14 +302,18 @@ public final class WarpCommandRegistry {
                 case UNSAFE_LOCATION -> config.messages().unsafeLocation();
                 case COOLDOWN_ACTIVE -> config.messages().cooldownActive();
                 case WARMUP_ALREADY_ACTIVE -> config.messages().warmupAlreadyActive();
-                default -> config.messages().warpNotFound();
+                case BUSY -> config.messages().operationBusy();
+                case NOT_READY -> config.messages().storageNotReady();
+                case ECONOMY_UNAVAILABLE -> config.messages().economyUnavailable();
+                case INSUFFICIENT_FUNDS -> config.messages().operationFailed();
+                default -> config.messages().operationFailed();
             };
 
-            long remainingSecs = service.getRemainingCooldownSeconds(player.getUniqueId());
+            long remainingSecs = service.getRemainingCooldownSeconds(playerId);
             String worldName = service.getWarp(warpName).map(Warp::worldName).orElse("unknown");
 
-            sendMessage(
-                player,
+            sendPlayerReply(
+                playerId,
                 rawMsg,
                 Placeholder.unparsed("warp", warpName),
                 Placeholder.unparsed("seconds", String.valueOf(remainingSecs)),
@@ -337,10 +342,8 @@ public final class WarpCommandRegistry {
             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
         }
 
+        UUID playerId = player.getUniqueId();
         service.setWarp(player, warpName, overwrite, password, category).thenAccept(status -> {
-            if (status == WarpResultStatus.INSUFFICIENT_FUNDS) {
-                return;
-            }
             String rawMsg;
             if (status == WarpResultStatus.SUCCESS) {
                 rawMsg = config.messages().setWarpSuccess();
@@ -350,10 +353,16 @@ public final class WarpCommandRegistry {
                 rawMsg = config.messages().limitReached();
             } else if (status == WarpResultStatus.INVALID_NAME) {
                 rawMsg = config.messages().invalidWarpName();
+            } else if (status == WarpResultStatus.BUSY) {
+                rawMsg = config.messages().operationBusy();
+            } else if (status == WarpResultStatus.NOT_READY) {
+                rawMsg = config.messages().storageNotReady();
+            } else if (status == WarpResultStatus.ECONOMY_UNAVAILABLE) {
+                rawMsg = config.messages().economyUnavailable();
             } else {
-                rawMsg = config.messages().invalidWarpName();
+                rawMsg = config.messages().operationFailed();
             }
-            sendMessage(player, rawMsg, Placeholder.unparsed("warp", warpName));
+            sendPlayerReply(playerId, rawMsg, Placeholder.unparsed("warp", warpName));
         });
 
         return com.mojang.brigadier.Command.SINGLE_SUCCESS;
@@ -372,11 +381,13 @@ public final class WarpCommandRegistry {
             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
         }
 
+        UUID replyId = sender instanceof Player player ? player.getUniqueId() : null;
+        CommandSender console = replyId == null ? sender : null;
         service.deleteWarp(warpName).thenAccept(status -> {
             String rawMsg = (status == WarpResultStatus.SUCCESS)
                 ? config.messages().delWarpSuccess()
                 : config.messages().warpNotFound();
-            sendMessage(sender, rawMsg, Placeholder.unparsed("warp", warpName));
+            sendReply(replyId, console, rawMsg, Placeholder.unparsed("warp", warpName));
         });
 
         return com.mojang.brigadier.Command.SINGLE_SUCCESS;
@@ -403,7 +414,7 @@ public final class WarpCommandRegistry {
         List<Warp> visibleList = rawList.stream()
             .filter(warp -> !warp.permissionGated()
                 || playerSender == null
-                || playerSender.hasPermission("tpcore.warp." + warp.name().toLowerCase())
+                || playerSender.hasPermission("tpcore.warp." + warp.name().toLowerCase(Locale.ROOT))
                 || playerSender.hasPermission("tpcore.warp.admin"))
             .toList();
 
@@ -476,21 +487,24 @@ public final class WarpCommandRegistry {
             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
         }
 
+        String senderName = sender instanceof Player p ? p.getName() : "Console";
+        UUID replyId = sender instanceof Player p ? p.getUniqueId() : null;
+        CommandSender console = replyId == null ? sender : null;
+        UUID targetId = target.getUniqueId();
         service.teleportOtherToWarp(sender instanceof Player p ? p : null, target, warpName).thenAccept(status -> {
             String rawMsg = (status == WarpResultStatus.SUCCESS)
                 ? config.messages().teleportOtherSuccess()
                 : config.messages().warpNotFound();
-            sendMessage(
-                sender,
+            sendReply(
+                replyId, console,
                 rawMsg,
-                Placeholder.unparsed("target", target.getName()),
+                Placeholder.unparsed("target", targetName),
                 Placeholder.unparsed("warp", warpName)
             );
 
             if (status == WarpResultStatus.SUCCESS) {
-                String senderName = (sender instanceof Player p) ? p.getName() : "Console";
-                sendMessage(
-                    target,
+                sendPlayerReply(
+                    targetId,
                     config.messages().teleportedByOther(),
                     Placeholder.unparsed("sender", senderName),
                     Placeholder.unparsed("warp", warpName)
@@ -515,6 +529,25 @@ public final class WarpCommandRegistry {
         if (sender == null || template == null || template.isBlank()) {
             return;
         }
+        UUID id = sender instanceof Player player ? player.getUniqueId() : null;
+        sendReply(id, id == null ? sender : null, template, customResolvers);
+    }
+
+    private void sendReply(UUID id, CommandSender console, String template, TagResolver... resolvers) {
+        if (id != null) sendPlayerReply(id, template, resolvers);
+        else Bukkit.getGlobalRegionScheduler().execute(plugin, () -> sendDirectMessage(console, template, resolvers));
+    }
+
+    private void sendPlayerReply(UUID id, String template, TagResolver... resolvers) {
+        Player handle = Bukkit.getPlayer(id);
+        if (handle == null) return;
+        handle.getScheduler().run(plugin, ignored -> {
+            Player current = Bukkit.getPlayer(id);
+            if (current != null) sendDirectMessage(current, template, resolvers);
+        }, null);
+    }
+
+    private void sendDirectMessage(CommandSender sender, String template, TagResolver... customResolvers) {
         WarpConfig config = configSupplier.get();
         TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(config.messages().prefix()));
         TagResolver combined;

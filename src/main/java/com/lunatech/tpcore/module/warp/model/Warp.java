@@ -1,6 +1,7 @@
 package com.lunatech.tpcore.module.warp.model;
 
 import java.util.Objects;
+import java.util.Locale;
 import java.util.UUID;
 
 public record Warp(
@@ -21,7 +22,7 @@ public record Warp(
     public Warp {
         Objects.requireNonNull(name, "name cannot be null");
         Objects.requireNonNull(worldName, "worldName cannot be null");
-        category = (category == null || category.isBlank()) ? "general" : category.toLowerCase();
+        category = (category == null || category.isBlank()) ? "general" : category.toLowerCase(Locale.ROOT);
     }
 
     public boolean hasPassword() {

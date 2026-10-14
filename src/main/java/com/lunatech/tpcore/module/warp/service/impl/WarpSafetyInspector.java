@@ -1,10 +1,10 @@
 package com.lunatech.tpcore.module.warp.service.impl;
 
-import java.lang.reflect.Method;
 import java.util.EnumSet;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import org.bukkit.Bukkit;
+import org.bukkit.Chunk;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.Tag;
@@ -21,37 +21,7 @@ public final class WarpSafetyInspector {
     private static final int[] PROBE_DY = {0, -1, 1, -2, 2};
 
     private static final Set<Material> HAZARD_MATERIALS = EnumSet.noneOf(Material.class);
-    private static final boolean IS_FOLIA;
-    private static final Method IS_OWNED_BY_CURRENT_REGION_CHUNK;
-    private static final Method IS_OWNED_BY_CURRENT_REGION_LOC;
-
     static {
-        boolean folia = false;
-        try {
-            Class.forName("io.papermc.paper.threadedregions.RegionizedServer");
-            folia = true;
-        } catch (Throwable ignored) {
-            try {
-                Bukkit.class.getMethod("getRegionScheduler");
-                folia = true;
-            } catch (Throwable ignored2) {
-                folia = false;
-            }
-        }
-        IS_FOLIA = folia;
-
-        Method mChunk = null;
-        Method mLoc = null;
-        try {
-            mChunk = Bukkit.class.getMethod("isOwnedByCurrentRegion", World.class, int.class, int.class);
-        } catch (Throwable ignored) {}
-        try {
-            mLoc = Bukkit.class.getMethod("isOwnedByCurrentRegion", Location.class);
-        } catch (Throwable ignored) {}
-
-        IS_OWNED_BY_CURRENT_REGION_CHUNK = mChunk;
-        IS_OWNED_BY_CURRENT_REGION_LOC = mLoc;
-
         for (Material mat : Material.values()) {
             String name = mat.name();
             if (name.contains("LAVA") || name.contains("FIRE") || name.contains("CAMPFIRE")
@@ -84,9 +54,9 @@ public final class WarpSafetyInspector {
         int chunkZ = targetLocation.getBlockZ() >> 4;
         CompletableFuture<Location> future = new CompletableFuture<>();
 
-        CompletableFuture<org.bukkit.Chunk> chunkFuture = world.getChunkAtAsync(chunkX, chunkZ);
+        CompletableFuture<Chunk> chunkFuture = world.getChunkAtAsync(chunkX, chunkZ);
         if (chunkFuture == null) {
-            future.complete(targetLocation);
+            future.complete(null);
             return future;
         }
 
@@ -96,50 +66,14 @@ public final class WarpSafetyInspector {
                 return;
             }
 
-            if (IS_FOLIA) {
-                Bukkit.getRegionScheduler().execute(plugin, targetLocation, () -> {
-                    try {
-                        Location safe = inspectLocation(targetLocation, autoAdjust, searchRadius, preventNetherRoof, maxNetherHeight);
-                        future.complete(safe);
-                    } catch (Throwable t) {
-                        future.complete(null);
-                    }
-                });
-            } else {
-                if (Bukkit.isPrimaryThread()) {
-                    try {
-                        Location safe = inspectLocation(targetLocation, autoAdjust, searchRadius, preventNetherRoof, maxNetherHeight);
-                        future.complete(safe);
-                    } catch (Throwable t) {
-                        future.complete(null);
-                    }
-                } else if (Bukkit.getServer() != null && Bukkit.getScheduler() != null) {
-                    try {
-                        Bukkit.getScheduler().runTask(plugin, () -> {
-                            try {
-                                Location safe = inspectLocation(targetLocation, autoAdjust, searchRadius, preventNetherRoof, maxNetherHeight);
-                                future.complete(safe);
-                            } catch (Throwable t) {
-                                future.complete(null);
-                            }
-                        });
-                    } catch (Throwable t) {
-                        try {
-                            Location safe = inspectLocation(targetLocation, autoAdjust, searchRadius, preventNetherRoof, maxNetherHeight);
-                            future.complete(safe);
-                        } catch (Throwable ignored) {
-                            future.complete(null);
-                        }
-                    }
-                } else {
-                    try {
-                        Location safe = inspectLocation(targetLocation, autoAdjust, searchRadius, preventNetherRoof, maxNetherHeight);
-                        future.complete(safe);
-                    } catch (Throwable t) {
-                        future.complete(null);
-                    }
+            Bukkit.getRegionScheduler().execute(plugin, targetLocation, () -> {
+                try {
+                    future.complete(inspectLocation(targetLocation, autoAdjust, searchRadius, preventNetherRoof, maxNetherHeight));
+                } catch (Throwable failure) {
+                    plugin.getSLF4JLogger().error("Warp destination inspection failed", failure);
+                    future.complete(null);
                 }
-            }
+            });
         }).exceptionally(ex -> {
             future.complete(null);
             return null;
@@ -182,13 +116,12 @@ public final class WarpSafetyInspector {
         int minWorldY = world.getMinHeight() + 1;
         int maxWorldY = world.getMaxHeight() - 2;
 
-        Location probeLoc = (IS_OWNED_BY_CURRENT_REGION_LOC != null) ? targetLocation.clone() : null;
 
         // Downward vertical scan bounded near target Y first
         int searchMinY = Math.max(minWorldY, targetY - 16);
         int searchMaxY = Math.min(maxWorldY, targetY + 4);
         int surfaceY = findSurfaceY(world, targetX, targetZ, searchMinY, searchMaxY, preventNetherRoof, maxNetherHeight);
-        if (surfaceY >= minWorldY) {
+        if (surfaceY != Integer.MIN_VALUE && surfaceY >= minWorldY) {
             Location candidate = new Location(world, targetLocation.getX(), surfaceY + 1.0, targetLocation.getZ(), targetLocation.getYaw(), targetLocation.getPitch());
             if (isLocationSafe(candidate, preventNetherRoof, maxNetherHeight)) {
                 return candidate;
@@ -204,20 +137,10 @@ public final class WarpSafetyInspector {
                 int chunkX = checkX >> 4;
                 int chunkZ = checkZ >> 4;
 
+                if ((chunkX != originChunkX || chunkZ != originChunkZ)
+                    && !Bukkit.isOwnedByCurrentRegion(world, chunkX, chunkZ)) continue;
+
                 if (!world.isChunkLoaded(chunkX, chunkZ)) {
-                    continue;
-                }
-
-                if (probeLoc != null) {
-                    probeLoc.setX(checkX);
-                    probeLoc.setY(targetY);
-                    probeLoc.setZ(checkZ);
-                }
-
-                boolean isOwned = (chunkX == originChunkX && chunkZ == originChunkZ)
-                    || isRegionOwned(world, chunkX, chunkZ, probeLoc);
-
-                if (!isOwned) {
                     continue;
                 }
 
@@ -250,7 +173,7 @@ public final class WarpSafetyInspector {
                     }
                 }
             }
-            return -1;
+            return Integer.MIN_VALUE;
         }
         int highest = world.getHighestBlockYAt(checkX, checkZ);
         int startY = Math.min(maxWorldY, Math.max(minWorldY, highest));
@@ -264,7 +187,7 @@ public final class WarpSafetyInspector {
                 }
             }
         }
-        return -1;
+        return Integer.MIN_VALUE;
     }
 
     public static boolean isLocationSafe(Location location, boolean preventNetherRoof, int maxNetherHeight) {
@@ -353,22 +276,4 @@ public final class WarpSafetyInspector {
             || name.contains("SCULK_SHRIEKER");
     }
 
-    private static boolean isRegionOwned(World world, int chunkX, int chunkZ, Location loc) {
-        if (world == null) return false;
-        if (!IS_FOLIA) return true;
-
-        if (IS_OWNED_BY_CURRENT_REGION_CHUNK != null) {
-            try {
-                Boolean owned = (Boolean) IS_OWNED_BY_CURRENT_REGION_CHUNK.invoke(null, world, chunkX, chunkZ);
-                if (owned != null) return owned;
-            } catch (Throwable ignored) {}
-        }
-        if (IS_OWNED_BY_CURRENT_REGION_LOC != null && loc != null) {
-            try {
-                Boolean owned = (Boolean) IS_OWNED_BY_CURRENT_REGION_LOC.invoke(null, loc);
-                if (owned != null) return owned;
-            } catch (Throwable ignored) {}
-        }
-        return false;
-    }
 }

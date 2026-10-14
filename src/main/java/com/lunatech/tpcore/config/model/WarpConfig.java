@@ -55,8 +55,34 @@ public record WarpConfig(
     WarpStorageConfig storage,
 
     @Comment("Module message strings (Alphabetically ordered)")
-    WarpMessages messages
+    WarpMessages messages,
+    int maxConcurrentOperations,
+    int maxCachedWarps,
+    int maxPlayerStateEntries,
+    int storageQueueCapacity,
+    int operationTimeoutSeconds,
+    long maxStorageBytes
 ) {
+    public WarpConfig {
+        maxConcurrentOperations = Math.max(1, Math.min(1024, maxConcurrentOperations));
+        maxCachedWarps = Math.max(1, Math.min(16384, maxCachedWarps));
+        maxPlayerStateEntries = Math.max(1, Math.min(16384, maxPlayerStateEntries));
+        storageQueueCapacity = Math.max(1, Math.min(1024, storageQueueCapacity));
+        operationTimeoutSeconds = Math.max(1, Math.min(300, operationTimeoutSeconds));
+        maxStorageBytes = Math.max(1024, Math.min(134217728L, maxStorageBytes));
+        if (!Double.isFinite(warpCost) || warpCost < 0 || !Double.isFinite(setWarpCost) || setWarpCost < 0) {
+            throw new IllegalArgumentException("Warp costs must be finite and nonnegative");
+        }
+    }
+
+    public WarpConfig(boolean enabled, int warmupSeconds, int cooldownSeconds, boolean cancelOnMove,
+        boolean cancelOnDamage, boolean defaultPermissionGated, String defaultCategory, int warpsPerPage,
+        int maxWarps, boolean economyEnabled, double warpCost, double setWarpCost, String chargeTiming,
+        boolean refundOnCancel, WarpSafetyConfig safetyChecks, WarpStorageConfig storage, WarpMessages messages) {
+        this(enabled, warmupSeconds, cooldownSeconds, cancelOnMove, cancelOnDamage, defaultPermissionGated,
+            defaultCategory, warpsPerPage, maxWarps, economyEnabled, warpCost, setWarpCost, chargeTiming,
+            refundOnCancel, safetyChecks, storage, messages, 64, 4096, 2048, 128, 30, 16777216L);
+    }
     public String getNormalizedChargeTiming() {
         if (this.chargeTiming == null || this.chargeTiming.isBlank()) {
             return "CHARGE_ON_WARMUP";
@@ -146,8 +172,16 @@ public record WarpConfig(
         String warpNotFound,
         String warpOtherUsage,
         String warpUsage,
-        String worldNotLoaded
+        String worldNotLoaded,
+        String operationFailed,
+        String operationBusy,
+        String storageNotReady,
+        String economyUnavailable
     ) {
+        public WarpMessages(String cooldownActive, String costDeducted, String costRefunded, String delWarpSuccess, String delWarpUsage, String insufficientFunds, String invalidPassword, String invalidWarpName, String limitReached, String moduleDisabled, String noPermission, String onlyPlayers, String passwordRequired, String playerNotOnline, String prefix, String setWarpConfirm, String setWarpSuccess, String setWarpUsage, String teleportOtherSuccess, String teleportSuccess, String teleportedByOther, String unsafeLocation, String warmupAlreadyActive, String warmupCancelledDamage, String warmupCancelledMove, String warmupStart, String warpListCategoryHeader, String warpListEmpty, String warpListHeader, String warpListItem, String warpNotFound, String warpOtherUsage, String warpUsage, String worldNotLoaded) {
+            this(cooldownActive, costDeducted, costRefunded, delWarpSuccess, delWarpUsage, insufficientFunds, invalidPassword, invalidWarpName, limitReached, moduleDisabled, noPermission, onlyPlayers, passwordRequired, playerNotOnline, prefix, setWarpConfirm, setWarpSuccess, setWarpUsage, teleportOtherSuccess, teleportSuccess, teleportedByOther, unsafeLocation, warmupAlreadyActive, warmupCancelledDamage, warmupCancelledMove, warmupStart, warpListCategoryHeader, warpListEmpty, warpListHeader, warpListItem, warpNotFound, warpOtherUsage, warpUsage, worldNotLoaded, createDefault().operationFailed(), createDefault().operationBusy(), createDefault().storageNotReady(), createDefault().economyUnavailable());
+        }
+
         public static WarpMessages createDefault() {
             return new WarpMessages(
                 "<prefix><red>You must wait <gold><seconds>s</gold> before using /warp again!</red>",
@@ -183,7 +217,11 @@ public record WarpConfig(
                 "<prefix><red>Warp <yellow><warp></yellow> was not found!</red>",
                 "<prefix><red>Usage: <gold>/warpother <target> <name></gold></red>",
                 "<prefix><red>Usage: <gold>/warp <name> [password]</gold></red>",
-                "<prefix><red>Target world <yellow><world></yellow> is not currently loaded!</red>"
+                "<prefix><red>Target world <yellow><world></yellow> is not currently loaded!</red>",
+                "<prefix><red>Warp operation failed. Please contact an administrator.</red>",
+                "<prefix><yellow>Warp service is busy. Please try again shortly.</yellow>",
+                "<prefix><yellow>Warp storage is not ready. Please try again shortly.</yellow>",
+                "<prefix><red>Paid warps require an available native asynchronous economy provider.</red>"
             );
         }
     }

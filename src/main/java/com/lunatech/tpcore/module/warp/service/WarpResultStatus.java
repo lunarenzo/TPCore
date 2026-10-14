@@ -2,6 +2,9 @@ package com.lunatech.tpcore.module.warp.service;
 
 public enum WarpResultStatus {
     SUCCESS,
+    NOT_READY,
+    BUSY,
+    ECONOMY_UNAVAILABLE,
     WARP_NOT_FOUND,
     INVALID_PASSWORD,
     PASSWORD_REQUIRED,

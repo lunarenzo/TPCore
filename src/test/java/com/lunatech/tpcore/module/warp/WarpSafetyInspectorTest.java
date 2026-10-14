@@ -2,17 +2,41 @@ package com.lunatech.tpcore.module.warp;
 
 import com.lunatech.tpcore.module.warp.service.impl.WarpSafetyInspector;
 import org.bukkit.Location;
+import org.bukkit.Bukkit;
 import org.bukkit.World;
 import org.bukkit.WorldBorder;
+import org.bukkit.Material;
+import org.bukkit.block.Block;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.when;
 
 class WarpSafetyInspectorTest {
+
+    @Test
+    void failedNearbySurfaceSearchMustNotUseAnUnrelatedSafeLocationAtYZero() {
+        World world = Mockito.mock(World.class);
+        when(world.getMinHeight()).thenReturn(-64);
+        when(world.getMaxHeight()).thenReturn(320);
+        when(world.isChunkLoaded(0, 0)).thenReturn(true);
+        Block water = Mockito.mock(Block.class);
+        when(water.getType()).thenReturn(Material.WATER);
+        Block air = Mockito.mock(Block.class);
+        when(air.getType()).thenReturn(Material.AIR);
+        when(air.isPassable()).thenReturn(true);
+        when(world.getBlockAt(0, -1, 0)).thenReturn(water);
+        when(world.getBlockAt(0, 0, 0)).thenReturn(air);
+        when(world.getBlockAt(0, 1, 0)).thenReturn(air);
+
+        try (var bukkit = Mockito.mockStatic(Bukkit.class)) {
+            assertNull(WarpSafetyInspector.inspectLocation(new Location(world, 0, 100, 0), true, 3, false, 128));
+        }
+    }
 
     @Test
     @DisplayName("isLocationSafe correctly enforces Nether ceiling limit")

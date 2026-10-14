@@ -3,430 +3,138 @@ package com.lunatech.tpcore.module.warp.economy.impl;
 import com.lunatech.tpcore.config.model.WarpConfig;
 import com.lunatech.tpcore.constant.Permissions;
 import com.lunatech.tpcore.module.warp.economy.WarpEconomyService;
-import com.lunatech.tpcore.util.MessageFormatter;
-import java.util.List;
+import com.lunatech.tpcore.module.warp.repository.impl.WarpRefundJournal;
 import java.util.Locale;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
-import net.kyori.adventure.text.minimessage.MiniMessage;
-import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
-import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
-import net.milkbowl.vault.economy.Economy;
-import net.milkbowl.vault.economy.EconomyResponse;
-import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
-import org.bukkit.plugin.RegisteredServiceProvider;
 import org.slf4j.Logger;
 
 public final class VaultWarpEconomyService implements WarpEconomyService {
-
-    private final Plugin plugin;
-    private final Supplier<WarpConfig> configSupplier;
+    private final Supplier<WarpConfig> config;
     private final Logger logger;
-    private final MiniMessage miniMessage;
-    private final ExecutorService ioExecutor = Executors.newVirtualThreadPerTaskExecutor();
-    private Economy vaultEconomy;
-    private long lastVaultCheckTimestamp = 0L;
-    private boolean loggedVaultUnavailable = false;
+    private final String pluginName;
+    private final VaultUnlockedWarpAdapter adapter;
+    private final WarpRefundJournal journal;
+    private final Semaphore admission;
+    private final Set<CompletableFuture<?>> pending = ConcurrentHashMap.newKeySet();
+    private final AtomicBoolean closed = new AtomicBoolean();
+    private volatile boolean reconciliationRequired;
 
-    public VaultWarpEconomyService(Plugin plugin, Supplier<WarpConfig> configSupplier, Logger logger) {
-        this.plugin = plugin;
-        this.configSupplier = configSupplier;
+    public VaultWarpEconomyService(Plugin plugin, Supplier<WarpConfig> config, Logger logger) {
+        this.config = config;
         this.logger = logger;
-        this.miniMessage = MiniMessage.miniMessage();
-        setupVault();
+        pluginName = plugin.getName();
+        adapter = VaultUnlockedWarpAdapter.discover(plugin.getClass().getClassLoader()).orElse(null);
+        WarpConfig settings = config.get();
+        admission = new Semaphore(settings.maxConcurrentOperations());
+        journal = new WarpRefundJournal(plugin.getDataFolder().toPath().resolve("warps/refunds.properties"),
+            settings.maxPlayerStateEntries(), settings.storageQueueCapacity());
+        journal.ready().thenRun(() -> {
+            reconciliationRequired = journal.pending() > 0;
+            if (reconciliationRequired) logger.error("Warp economy has {} unresolved payment intents in warps/refunds.properties; reconcile them before enabling more payments", journal.pending());
+        }).exceptionally(failure -> { logger.error("Warp refund journal initialization failed", failure); return null; });
     }
 
-    private double roundCurrency(double amount) {
-        if (Double.isNaN(amount) || Double.isInfinite(amount) || amount <= 0.0) {
-            return 0.0;
-        }
-        int digits = 2;
-        if (this.vaultEconomy != null) {
-            try {
-                int frac = this.vaultEconomy.fractionalDigits();
-                if (frac >= 0) {
-                    digits = Math.min(6, frac);
-                }
-            } catch (Throwable ignored) {}
-        }
-        if (digits == 0) {
-            return Math.floor(amount);
-        }
-        double factor = Math.pow(10.0, digits);
-        return Math.round(amount * factor) / factor;
-    }
+    @Override public boolean isAvailable() { return adapter != null && !closed.get(); }
 
-    private synchronized void setupVault() {
-        this.lastVaultCheckTimestamp = System.currentTimeMillis();
+    private <T> CompletableFuture<T> admitted(Supplier<CompletableFuture<T>> action) {
+        if (closed.get() || !admission.tryAcquire()) return CompletableFuture.failedFuture(new IllegalStateException("Warp economy is closed or busy"));
         try {
-            if (Bukkit.getServer() == null || Bukkit.getPluginManager() == null ||
-                (Bukkit.getPluginManager().getPlugin("Vault") == null && Bukkit.getPluginManager().getPlugin("VaultUnlocked") == null)) {
-                if (!this.loggedVaultUnavailable) {
-                    this.logger.info("Vault/VaultUnlocked plugin not found. Warp economy features will be disabled/free.");
-                    this.loggedVaultUnavailable = true;
+            CompletableFuture<T> future = action.get();
+            pending.add(future);
+            future.whenComplete((value, failure) -> { pending.remove(future); admission.release(); });
+            return future;
+        } catch (RuntimeException failure) { admission.release(); return CompletableFuture.failedFuture(failure); }
+    }
+
+    @Override public CompletableFuture<Payment> chargeExact(UUID playerId, double amount) {
+        if (amount <= 0.0) return CompletableFuture.completedFuture(new Payment(playerId, 0.0, true));
+        if (!Double.isFinite(amount) || adapter == null) return CompletableFuture.failedFuture(new IllegalStateException("Native async economy provider is required"));
+        return admitted(() -> journal.ready().thenCompose(ignored -> {
+            if (reconciliationRequired) return CompletableFuture.failedFuture(new IllegalStateException("Unresolved warp payments require reconciliation"));
+            return journal.record(playerId, amount).thenCompose(ticket ->
+                adapter.withdraw(pluginName, playerId, amount).thenCompose(paid -> paid >= 0.0
+                    ? journal.update(ticket, playerId, paid).thenApply(done -> new Payment(playerId, paid, true, ticket))
+                    : journal.complete(ticket).thenApply(done -> new Payment(playerId, 0.0, false)))
+                .thenCompose(payment -> payment.successful() && Double.compare(payment.amount(), amount) != 0
+                    ? settle(payment, true).thenApply(done -> new Payment(playerId, 0.0, false))
+                    : CompletableFuture.completedFuture(payment))
+                .whenComplete((payment, failure) -> { if (failure != null) reconciliationRequired = true; }));
+        }));
+    }
+
+    @Override public CompletableFuture<Boolean> settle(Payment payment, boolean refund) {
+        if (payment == null || !payment.successful() || payment.amount() <= 0.0) {
+            return payment != null && payment.ticket() != null
+                ? journal.complete(payment.ticket()).thenApply(ignored -> true) : CompletableFuture.completedFuture(true);
+        }
+        CompletableFuture<Boolean> transfer = refund
+            ? adapter.deposit(pluginName, payment.playerId(), payment.amount()) : CompletableFuture.completedFuture(true);
+        return transfer.thenCompose(success -> success && payment.ticket() != null
+            ? journal.complete(payment.ticket()).thenApply(ignored -> true) : CompletableFuture.completedFuture(success))
+            .whenComplete((success, failure) -> {
+                if (failure != null || !Boolean.TRUE.equals(success)) {
+                    reconciliationRequired = true;
+                    logger.error("Warp payment for {} amount {} requires reconciliation", payment.playerId(), payment.amount(), failure);
                 }
-                this.vaultEconomy = null;
-                return;
-            }
-            RegisteredServiceProvider<Economy> rsp = Bukkit.getServicesManager().getRegistration(Economy.class);
-            if (rsp != null) {
-                this.vaultEconomy = rsp.getProvider();
-                this.loggedVaultUnavailable = false;
-                this.logger.info("Successfully hooked into Vault Economy provider for Warp: {}", this.vaultEconomy.getName());
-            } else {
-                this.vaultEconomy = null;
-                if (!this.loggedVaultUnavailable) {
-                    this.logger.warn("Vault plugin found, but no Economy provider is registered.");
-                    this.loggedVaultUnavailable = true;
-                }
-            }
-        } catch (Throwable t) {
-            this.vaultEconomy = null;
-            if (!this.loggedVaultUnavailable) {
-                this.logger.info("Vault plugin environment not active. Warp economy features will be disabled/free.");
-                this.loggedVaultUnavailable = true;
-            }
-        }
+            });
     }
 
-    @Override
-    public boolean isAvailable() {
-        WarpConfig cfg = this.configSupplier.get();
-        if (cfg == null || !cfg.economyEnabled()) {
-            return false;
-        }
-        if (this.vaultEconomy == null || !this.vaultEconomy.isEnabled()) {
-            setupVault();
-        }
-        return this.vaultEconomy != null && this.vaultEconomy.isEnabled();
+    @Override public CompletableFuture<Boolean> validateExact(UUID playerId, double amount) {
+        if (amount <= 0) return CompletableFuture.completedFuture(true);
+        if (adapter == null) return CompletableFuture.failedFuture(new IllegalStateException("Native async economy provider is required"));
+        return admitted(() -> adapter.has(pluginName, playerId, amount));
     }
 
-    @Override
-    public boolean has(OfflinePlayer player, double amount) {
-        if (Double.isNaN(amount) || Double.isInfinite(amount) || amount <= 0.0) {
-            return true;
-        }
-        if (player == null) {
-            return false;
-        }
-        WarpConfig cfg = this.configSupplier.get();
-        if (cfg == null || !cfg.economyEnabled() || !isAvailable()) {
-            return true;
-        }
-        try {
-            double cleanAmount = roundCurrency(amount);
-            if (this.vaultEconomy.has(player, cleanAmount)) {
-                return true;
-            }
-            double balance = this.vaultEconomy.getBalance(player);
-            return (balance + 1e-5) >= cleanAmount;
-        } catch (Throwable ignored) {
-            return false;
-        }
-    }
-
-    @Override
-    public boolean withdraw(OfflinePlayer player, double amount) {
-        if (Double.isNaN(amount) || Double.isInfinite(amount) || amount <= 0.0) {
-            return true;
-        }
-        if (player == null) {
-            return false;
-        }
-        WarpConfig cfg = this.configSupplier.get();
-        if (cfg == null || !cfg.economyEnabled() || !isAvailable()) {
-            return true;
-        }
-        try {
-            EconomyResponse resp = this.vaultEconomy.withdrawPlayer(player, roundCurrency(amount));
-            return resp != null && resp.transactionSuccess();
-        } catch (Throwable t) {
-            this.logger.warn("Vault economy withdraw failed for player {} (UUID: {}): {}", player.getName(), player.getUniqueId(), t.getMessage());
-            return false;
-        }
-    }
-
-    @Override
-    public boolean deposit(OfflinePlayer player, double amount) {
-        if (Double.isNaN(amount) || Double.isInfinite(amount) || amount <= 0.0) {
-            return true;
-        }
-        if (player == null) {
-            return false;
-        }
-        WarpConfig cfg = this.configSupplier.get();
-        if (cfg == null || !cfg.economyEnabled() || !isAvailable()) {
-            return true;
-        }
-        try {
-            EconomyResponse resp = this.vaultEconomy.depositPlayer(player, roundCurrency(amount));
-            return resp != null && resp.transactionSuccess();
-        } catch (Throwable t) {
-            this.logger.warn("Vault economy deposit failed for player {} (UUID: {}): {}", player.getName(), player.getUniqueId(), t.getMessage());
-            return false;
-        }
-    }
-
-    @Override
-    public CompletableFuture<Boolean> withdrawAsync(OfflinePlayer player, double amount) {
-        return CompletableFuture.supplyAsync(() -> withdraw(player, amount), this.ioExecutor);
-    }
-
-    @Override
-    public CompletableFuture<Boolean> depositAsync(OfflinePlayer player, double amount) {
-        return CompletableFuture.supplyAsync(() -> deposit(player, amount), this.ioExecutor);
-    }
-
-    @Override
-    public double getBalance(OfflinePlayer player) {
-        if (player == null || !isAvailable()) {
-            return 0.0;
-        }
-        try {
-            double bal = this.vaultEconomy.getBalance(player);
-            if (Double.isNaN(bal) || Double.isInfinite(bal)) {
-                return 0.0;
-            }
-            return roundCurrency(bal);
-        } catch (Throwable ignored) {
-            return 0.0;
-        }
-    }
-
-    @Override
-    public String format(double amount) {
-        if (Double.isNaN(amount) || Double.isInfinite(amount)) {
-            return "$0.00";
-        }
-        double clean = roundCurrency(amount);
-        if (isAvailable()) {
-            try {
-                return this.vaultEconomy.format(clean);
-            } catch (Throwable ignored) {}
-        }
-        return String.format(Locale.ROOT, "$%.2f", clean);
-    }
-
-    @Override
-    public double getWarpCost(Player player) {
-        if (player == null || player.hasPermission(Permissions.WARP_ADMIN) || player.hasPermission(Permissions.WARP_BYPASS_COST) || player.hasPermission(Permissions.WARP_BYPASS_COST_WARP)) {
-            return 0.0;
-        }
-        WarpConfig cfg = this.configSupplier.get();
-        if (cfg == null || !cfg.economyEnabled() || !isAvailable()) {
-            return 0.0;
-        }
-        return cfg.warpCost();
-    }
-
-    @Override
-    public double getSetWarpCost(Player player) {
-        if (player == null || player.hasPermission(Permissions.WARP_ADMIN) || player.hasPermission(Permissions.WARP_BYPASS_COST) || player.hasPermission(Permissions.WARP_BYPASS_COST_SETWARP)) {
-            return 0.0;
-        }
-        WarpConfig cfg = this.configSupplier.get();
-        if (cfg == null || !cfg.economyEnabled() || !isAvailable()) {
-            return 0.0;
-        }
-        return cfg.setWarpCost();
-    }
-
-    @Override
-    public CompletableFuture<Boolean> validateWarpFundsAsync(Player player) {
-        double cost = getWarpCost(player);
-        if (player == null || !isAvailable() || cost <= 0.0) {
-            return CompletableFuture.completedFuture(true);
-        }
-
-        return CompletableFuture.supplyAsync(() -> {
-            WarpConfig cfg = this.configSupplier.get();
-            if (!has(player, cost)) {
-                double balance = getBalance(player);
-                if (player.isOnline()) {
-                    player.getScheduler().run(this.plugin, task -> {
-                        if (player.isOnline()) {
-                            TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
-                            TagResolver costResolver = Placeholder.unparsed("cost", format(cost));
-                            TagResolver balResolver = Placeholder.unparsed("balance", format(balance));
-                            player.sendMessage(this.miniMessage.deserialize(
-                                MessageFormatter.toMiniMessage(cfg.messages().insufficientFunds()),
-                                TagResolver.resolver(prefixResolver, costResolver, balResolver)
-                            ));
-                        }
-                    }, null);
-                }
-                return false;
-            }
-            return true;
-        }, this.ioExecutor);
-    }
-
-    @Override
-    public CompletableFuture<Boolean> processWarpCostAsync(Player player) {
-        double cost = getWarpCost(player);
-        if (player == null || !isAvailable() || cost <= 0.0) {
-            return CompletableFuture.completedFuture(true);
-        }
-
-        return CompletableFuture.supplyAsync(() -> {
-            WarpConfig cfg = this.configSupplier.get();
-            if (!has(player, cost)) {
-                double balance = getBalance(player);
-                if (player.isOnline()) {
-                    player.getScheduler().run(this.plugin, task -> {
-                        if (player.isOnline()) {
-                            TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
-                            TagResolver costResolver = Placeholder.unparsed("cost", format(cost));
-                            TagResolver balResolver = Placeholder.unparsed("balance", format(balance));
-                            player.sendMessage(this.miniMessage.deserialize(
-                                MessageFormatter.toMiniMessage(cfg.messages().insufficientFunds()),
-                                TagResolver.resolver(prefixResolver, costResolver, balResolver)
-                            ));
-                        }
-                    }, null);
-                }
-                return false;
-            }
-
-            if (withdraw(player, cost)) {
-                if (player.isOnline()) {
-                    player.getScheduler().run(this.plugin, task -> {
-                        if (player.isOnline()) {
-                            TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
-                            TagResolver costResolver = Placeholder.unparsed("cost", format(cost));
-                            player.sendMessage(this.miniMessage.deserialize(
-                                MessageFormatter.toMiniMessage(cfg.messages().costDeducted()),
-                                TagResolver.resolver(prefixResolver, costResolver)
-                            ));
-                        }
-                    }, null);
-                }
-                return true;
-            }
-
-            return false;
-        }, this.ioExecutor);
-    }
-
-    @Override
-    public CompletableFuture<Boolean> chargeSuccessAsync(Player player) {
-        double cost = getWarpCost(player);
-        if (player == null || !isAvailable() || cost <= 0.0) {
-            return CompletableFuture.completedFuture(true);
-        }
-
-        return CompletableFuture.supplyAsync(() -> {
-            WarpConfig cfg = this.configSupplier.get();
-            if (withdraw(player, cost)) {
-                if (player.isOnline()) {
-                    player.getScheduler().run(this.plugin, task -> {
-                        if (player.isOnline()) {
-                            TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
-                            TagResolver costResolver = Placeholder.unparsed("cost", format(cost));
-                            player.sendMessage(this.miniMessage.deserialize(
-                                MessageFormatter.toMiniMessage(cfg.messages().costDeducted()),
-                                TagResolver.resolver(prefixResolver, costResolver)
-                            ));
-                        }
-                    }, null);
-                }
-                return true;
-            }
-            return false;
-        }, this.ioExecutor);
-    }
-
-    @Override
-    public CompletableFuture<Boolean> processSetWarpCostAsync(Player player) {
-        double cost = getSetWarpCost(player);
-        if (player == null || !isAvailable() || cost <= 0.0) {
-            return CompletableFuture.completedFuture(true);
-        }
-
-        return CompletableFuture.supplyAsync(() -> {
-            WarpConfig cfg = this.configSupplier.get();
-            if (!has(player, cost)) {
-                double balance = getBalance(player);
-                if (player.isOnline()) {
-                    player.getScheduler().run(this.plugin, task -> {
-                        if (player.isOnline()) {
-                            TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
-                            TagResolver costResolver = Placeholder.unparsed("cost", format(cost));
-                            TagResolver balResolver = Placeholder.unparsed("balance", format(balance));
-                            player.sendMessage(this.miniMessage.deserialize(
-                                MessageFormatter.toMiniMessage(cfg.messages().insufficientFunds()),
-                                TagResolver.resolver(prefixResolver, costResolver, balResolver)
-                            ));
-                        }
-                    }, null);
-                }
-                return false;
-            }
-
-            if (withdraw(player, cost)) {
-                if (player.isOnline()) {
-                    player.getScheduler().run(this.plugin, task -> {
-                        if (player.isOnline()) {
-                            TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
-                            TagResolver costResolver = Placeholder.unparsed("cost", format(cost));
-                            player.sendMessage(this.miniMessage.deserialize(
-                                MessageFormatter.toMiniMessage(cfg.messages().costDeducted()),
-                                TagResolver.resolver(prefixResolver, costResolver)
-                            ));
-                        }
-                    }, null);
-                }
-                return true;
-            }
-
-            return false;
-        }, this.ioExecutor);
-    }
-
-    @Override
-    public void processRefund(OfflinePlayer player, double amount) {
-        if (player == null || amount <= 0.0 || !isAvailable()) {
-            return;
-        }
-        depositAsync(player, amount).thenAccept(success -> {
-            if (Boolean.TRUE.equals(success)) {
-                Player online = player.getPlayer();
-                if (online != null && online.isOnline()) {
-                    online.getScheduler().run(this.plugin, task -> {
-                        if (online.isOnline()) {
-                            WarpConfig cfg = this.configSupplier.get();
-                            TagResolver prefixResolver = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(cfg.messages().prefix()));
-                            TagResolver costResolver = Placeholder.unparsed("cost", format(amount));
-                            online.sendMessage(this.miniMessage.deserialize(
-                                MessageFormatter.toMiniMessage(cfg.messages().costRefunded()),
-                                TagResolver.resolver(prefixResolver, costResolver)
-                            ));
-                        }
-                    }, null);
-                }
-            }
+    @Override public CompletableFuture<Boolean> refundExact(UUID playerId, double amount) {
+        if (amount <= 0) return CompletableFuture.completedFuture(true);
+        // Recording a refund is permitted while closing: accepted payments still need settlement.
+        return journal.record(playerId, amount).thenCompose(ticket -> {
+            if (adapter == null) return CompletableFuture.completedFuture(false);
+            return adapter.deposit(pluginName, playerId, amount).thenCompose(success -> success
+                ? journal.complete(ticket).thenApply(ignored -> true) : CompletableFuture.completedFuture(false));
+        }).whenComplete((success, failure) -> {
+            if (failure != null || !Boolean.TRUE.equals(success)) logger.error("Warp refund for {} amount {} remains unresolved; inspect warps/refunds.properties", playerId, amount, failure);
         });
     }
 
-    @Override
-    public void shutdown() {
-        this.ioExecutor.shutdown();
-        try {
-            if (!this.ioExecutor.awaitTermination(3, TimeUnit.SECONDS)) {
-                List<Runnable> dropped = this.ioExecutor.shutdownNow();
-                if (dropped != null && !dropped.isEmpty()) {
-                    this.logger.warn("Warp Economy I/O executor forced shutdown; {} pending tasks dropped.", dropped.size());
-                }
-            }
-        } catch (InterruptedException e) {
-            this.ioExecutor.shutdownNow();
-            Thread.currentThread().interrupt();
-        }
+    @Override public double getWarpCost(Player player) { return cost(player, config.get().warpCost(), Permissions.WARP_BYPASS_COST_WARP); }
+    @Override public double getSetWarpCost(Player player) { return cost(player, config.get().setWarpCost(), Permissions.WARP_BYPASS_COST_SETWARP); }
+    private double cost(Player player, double amount, String bypass) {
+        return !config.get().economyEnabled() || player.hasPermission(Permissions.WARP_ADMIN)
+            || player.hasPermission(Permissions.WARP_BYPASS_COST) || player.hasPermission(bypass) ? 0.0 : amount;
     }
+    @Override public String format(double amount) { return String.format(Locale.ROOT, "$%.2f", amount); }
+    @Override public CompletableFuture<Boolean> validateWarpFundsAsync(Player player) { return validateExact(player.getUniqueId(), getWarpCost(player)); }
+    @Override public CompletableFuture<Boolean> processWarpCostAsync(Player player) {
+        return consume(chargeExact(player.getUniqueId(), getWarpCost(player)));
+    }
+    @Override public CompletableFuture<Boolean> chargeSuccessAsync(Player player) { return processWarpCostAsync(player); }
+    @Override public CompletableFuture<Boolean> processSetWarpCostAsync(Player player) {
+        return consume(chargeExact(player.getUniqueId(), getSetWarpCost(player)));
+    }
+    private CompletableFuture<Boolean> consume(CompletableFuture<Payment> charge) {
+        return charge.thenCompose(payment -> settle(payment, false).thenApply(done -> payment.successful() && done));
+    }
+    @Override public void processRefund(OfflinePlayer player, double amount) { refundExact(player.getUniqueId(), amount); }
+
+    @Override public CompletableFuture<Void> close() {
+        closed.set(true);
+        return CompletableFuture.allOf(pending.toArray(CompletableFuture[]::new))
+            .orTimeout(config.get().operationTimeoutSeconds(), TimeUnit.SECONDS).handle((value, failure) -> {
+                if (adapter != null) adapter.close();
+                return null;
+            })
+            .thenCompose(ignored -> journal.close()).whenComplete((value, failure) -> pending.clear());
+    }
+    @Override public void shutdown() { close().exceptionally(failure -> { logger.error("Warp economy close failed", failure); return null; }); }
 }

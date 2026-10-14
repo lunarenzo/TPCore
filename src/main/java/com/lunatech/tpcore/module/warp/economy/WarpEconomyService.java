@@ -1,6 +1,7 @@
 package com.lunatech.tpcore.module.warp.economy;
 
 import java.util.concurrent.CompletableFuture;
+import java.util.UUID;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
 
@@ -8,24 +9,20 @@ import org.bukkit.entity.Player;
  * Service boundary interface for Warp module economy operations (Vault / VaultUnlocked).
  */
 public interface WarpEconomyService {
+    record Payment(UUID playerId, double amount, boolean successful, UUID ticket) {
+        public Payment(UUID playerId, double amount, boolean successful) { this(playerId, amount, successful, null); }
+    }
+
+    CompletableFuture<Payment> chargeExact(UUID playerId, double amount);
+
+    CompletableFuture<Boolean> validateExact(UUID playerId, double amount);
+
+    CompletableFuture<Boolean> refundExact(UUID playerId, double amount);
+    CompletableFuture<Boolean> settle(Payment payment, boolean refund);
+
+    CompletableFuture<Void> close();
 
     boolean isAvailable();
-
-    boolean has(OfflinePlayer player, double amount);
-
-    boolean withdraw(OfflinePlayer player, double amount);
-
-    boolean deposit(OfflinePlayer player, double amount);
-
-    default CompletableFuture<Boolean> withdrawAsync(OfflinePlayer player, double amount) {
-        return CompletableFuture.supplyAsync(() -> withdraw(player, amount));
-    }
-
-    default CompletableFuture<Boolean> depositAsync(OfflinePlayer player, double amount) {
-        return CompletableFuture.supplyAsync(() -> deposit(player, amount));
-    }
-
-    double getBalance(OfflinePlayer player);
 
     String format(double amount);
 

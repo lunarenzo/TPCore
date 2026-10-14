@@ -8,8 +8,16 @@ default-permission-gated: false
 default-category: "general"
 warps-per-page: 8
 max-warps: 100
+# Resource admission limits (restart module to change storage queue capacity)
+max-concurrent-operations: 64
+max-cached-warps: 4096
+max-player-state-entries: 2048
+storage-queue-capacity: 128
+operation-timeout-seconds: 30
+# Maximum YAML input size; SQLite reads are bounded by max-cached-warps.
+max-storage-bytes: 16777216
 
-# Economy Configuration (Vault / VaultUnlocked)
+# Paid operations require VaultUnlocked 2.20+ and a provider exposing native AsyncEconomy.
 economy-enabled: false
 warp-cost: 0.0
 set-warp-cost: 0.0
@@ -60,3 +68,8 @@ messages:
   warp-other-usage: "<prefix><red>Usage: <gold>/warpother <target> <name></gold></red>"
   warp-usage: "<prefix><red>Usage: <gold>/warp <name> [password]</gold></red>"
   world-not-loaded: "<prefix><red>Target world <yellow><world></yellow> is not currently loaded!</red>"
+
+  operation-failed: "<prefix><red>Warp operation failed. Please contact an administrator.</red>"
+  operation-busy: "<prefix><yellow>Warp service is busy. Please try again shortly.</yellow>"
+  storage-not-ready: "<prefix><yellow>Warp storage is not ready. Please try again shortly.</yellow>"
+  economy-unavailable: "<prefix><red>Paid warps require an available native asynchronous economy provider.</red>"

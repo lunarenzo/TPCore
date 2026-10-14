@@ -3,6 +3,7 @@ package com.lunatech.tpcore.module.warp.economy.impl;
 import com.lunatech.tpcore.module.warp.economy.WarpEconomyService;
 import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
+import java.util.UUID;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
 
@@ -10,40 +11,23 @@ import org.bukkit.entity.Player;
  * Null-object fallback implementation of WarpEconomyService used when Vault is absent or economy is disabled.
  */
 public final class NoOpWarpEconomyService implements WarpEconomyService {
+    @Override public CompletableFuture<Payment> chargeExact(UUID id, double amount) {
+        return CompletableFuture.completedFuture(new Payment(id, 0.0, true));
+    }
+    @Override public CompletableFuture<Boolean> validateExact(UUID id, double amount) {
+        return CompletableFuture.completedFuture(true);
+    }
+    @Override public CompletableFuture<Boolean> refundExact(UUID id, double amount) {
+        return CompletableFuture.completedFuture(true);
+    }
+    @Override public CompletableFuture<Void> close() { return CompletableFuture.completedFuture(null); }
+    @Override public CompletableFuture<Boolean> settle(Payment payment, boolean refund) {
+        return CompletableFuture.completedFuture(true);
+    }
 
     @Override
     public boolean isAvailable() {
         return false;
-    }
-
-    @Override
-    public boolean has(OfflinePlayer player, double amount) {
-        return true;
-    }
-
-    @Override
-    public boolean withdraw(OfflinePlayer player, double amount) {
-        return true;
-    }
-
-    @Override
-    public boolean deposit(OfflinePlayer player, double amount) {
-        return true;
-    }
-
-    @Override
-    public CompletableFuture<Boolean> withdrawAsync(OfflinePlayer player, double amount) {
-        return CompletableFuture.completedFuture(true);
-    }
-
-    @Override
-    public CompletableFuture<Boolean> depositAsync(OfflinePlayer player, double amount) {
-        return CompletableFuture.completedFuture(true);
-    }
-
-    @Override
-    public double getBalance(OfflinePlayer player) {
-        return 0.0;
     }
 
     @Override

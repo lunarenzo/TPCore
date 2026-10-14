@@ -5,6 +5,10 @@ import com.lunatech.tpcore.constant.Permissions;
 import com.lunatech.tpcore.module.warp.cache.WarpCache;
 import com.lunatech.tpcore.module.warp.cache.impl.DefaultWarpCache;
 import com.lunatech.tpcore.module.warp.economy.WarpEconomyService;
+import com.lunatech.tpcore.module.warp.economy.WarpEconomyService.Payment;
+import java.util.Map;
+import java.util.function.Consumer;
+import java.util.stream.Collectors;
 import com.lunatech.tpcore.module.warp.economy.impl.NoOpWarpEconomyService;
 import com.lunatech.tpcore.module.warp.model.Warp;
 import com.lunatech.tpcore.module.warp.repository.WarpRepository;
@@ -38,6 +42,8 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 
 class DefaultWarpServiceRemediationTest {
 
@@ -75,13 +81,26 @@ class DefaultWarpServiceRemediationTest {
         when(mockRepository.delete(any())).thenReturn(CompletableFuture.completedFuture(null));
 
         cache = new DefaultWarpCache();
+        when(mockRepository.loadAll()).thenAnswer(inv -> CompletableFuture.completedFuture(cache.getAllWarps().stream().collect(Collectors.toMap(Warp::name, value -> value))));
         config = WarpConfig.createDefault();
         service = new DefaultWarpService(mockPlugin, mockRepository, cache, new NoOpWarpEconomyService(), config, LoggerFactory.getLogger("Test-WarpService"));
+        service.initialize().join();
     }
 
     @AfterEach
     void tearDown() throws Exception {
         setBukkitServer(null);
+    }
+
+    private CompletableFuture<WarpResultStatus> teleport(DefaultWarpService targetService, Player player, String name, String password) {
+        when(mockServer.getPlayer(player.getUniqueId())).thenReturn(player);
+        EntityScheduler scheduler = player.getScheduler();
+        if (scheduler == null) { scheduler = mock(EntityScheduler.class); when(player.getScheduler()).thenReturn(scheduler); }
+        doAnswer(inv -> {
+            Consumer<ScheduledTask> callback = inv.getArgument(1);
+            callback.accept(mock(ScheduledTask.class)); return mock(ScheduledTask.class);
+        }).when(scheduler).run(any(), any(), any());
+        return targetService.teleportToWarp(player, name, password);
     }
 
     private static void setBukkitServer(Server server) throws Exception {
@@ -115,13 +134,13 @@ class DefaultWarpServiceRemediationTest {
         when(player.teleportAsync(any())).thenReturn(CompletableFuture.completedFuture(true));
 
         org.mockito.Mockito.doAnswer(inv -> {
-            java.util.function.Consumer<ScheduledTask> consumer = inv.getArgument(1);
+            Consumer<ScheduledTask> consumer = inv.getArgument(1);
             consumer.accept(mock(ScheduledTask.class));
             return mock(ScheduledTask.class);
         }).when(scheduler).run(any(), any(), any());
 
         // Teleport bypasses warmup, succeeds, and applies cooldown
-        CompletableFuture<WarpResultStatus> future = service.teleportToWarp(player, "testwarp", null);
+        CompletableFuture<WarpResultStatus> future = teleport(service, player, "testwarp", null);
         assertEquals(WarpResultStatus.SUCCESS, future.join());
 
         long remaining = service.getRemainingCooldownSeconds(playerId);
@@ -153,10 +172,10 @@ class DefaultWarpServiceRemediationTest {
         when(player.getScheduler()).thenReturn(scheduler);
 
         // First teleport initiates warmup
-        service.teleportToWarp(player, "spawn", null);
+        teleport(service, player, "spawn", null);
 
         // Second teleport while warmup is active returns WARMUP_ALREADY_ACTIVE
-        CompletableFuture<WarpResultStatus> future2 = service.teleportToWarp(player, "spawn", null);
+        CompletableFuture<WarpResultStatus> future2 = teleport(service, player, "spawn", null);
         assertEquals(WarpResultStatus.WARMUP_ALREADY_ACTIVE, future2.join());
     }
 
@@ -228,7 +247,7 @@ class DefaultWarpServiceRemediationTest {
         Warp warp = new Warp("UnknownWorldWarp", UUID.randomUUID(), "non_existent_world", 0, 64, 0, 0f, 0f, UUID.randomUUID(), "general", null, false, 1000L);
         cache.putWarp(warp);
 
-        CompletableFuture<WarpResultStatus> result = service.teleportToWarp(player, "unknownworldwarp", null);
+        CompletableFuture<WarpResultStatus> result = teleport(service, player, "unknownworldwarp", null);
         assertEquals(WarpResultStatus.WORLD_NOT_LOADED, result.join());
 
         // Cooldown must NOT be active
@@ -251,11 +270,11 @@ class DefaultWarpServiceRemediationTest {
         cache.putWarp(warp);
 
         // First attempt with incorrect password
-        CompletableFuture<WarpResultStatus> first = service.teleportToWarp(player, "vault", "wrong1");
+        CompletableFuture<WarpResultStatus> first = teleport(service, player, "vault", "wrong1");
         assertEquals(WarpResultStatus.INVALID_PASSWORD, first.join());
 
         // Rapid second attempt should also return INVALID_PASSWORD throttled without processing hashing
-        CompletableFuture<WarpResultStatus> second = service.teleportToWarp(player, "vault", "wrong2");
+        CompletableFuture<WarpResultStatus> second = teleport(service, player, "vault", "wrong2");
         assertEquals(WarpResultStatus.INVALID_PASSWORD, second.join());
     }
 
@@ -320,7 +339,7 @@ class DefaultWarpServiceRemediationTest {
         when(scheduler.runDelayed(any(), any(), any(), anyLong())).thenReturn(task);
         when(player.getScheduler()).thenReturn(scheduler);
 
-        service.teleportToWarp(player, "spawn", null);
+        teleport(service, player, "spawn", null);
 
         org.mockito.ArgumentCaptor<net.kyori.adventure.text.Component> captor = org.mockito.ArgumentCaptor.forClass(net.kyori.adventure.text.Component.class);
         verify(player).sendMessage(captor.capture());
@@ -347,11 +366,14 @@ class DefaultWarpServiceRemediationTest {
         WarpEconomyService mockEconomy = mock(WarpEconomyService.class);
         when(mockEconomy.isAvailable()).thenReturn(true);
         when(mockEconomy.getWarpCost(player)).thenReturn(50.0);
-        when(mockEconomy.processWarpCostAsync(player)).thenReturn(CompletableFuture.completedFuture(true));
+        UUID paymentPlayerId = player.getUniqueId();
+        when(mockEconomy.chargeExact(player.getUniqueId(), 50.0)).thenReturn(CompletableFuture.completedFuture(new Payment(paymentPlayerId, 50.0, true)));
+        when(mockEconomy.settle(any(), anyBoolean())).thenReturn(CompletableFuture.completedFuture(true));
 
         DefaultWarpService ecoService = new DefaultWarpService(
             mockPlugin, mockRepository, cache, mockEconomy, config, LoggerFactory.getLogger("Test-WarpService")
         );
+        ecoService.initialize().join();
 
         Warp warp = new Warp("Shop", worldId, "world", 0, 64, 0, 0f, 0f, UUID.randomUUID(), "general", null, false, 1000L);
         cache.putWarp(warp);
@@ -362,12 +384,12 @@ class DefaultWarpServiceRemediationTest {
         when(player.getScheduler()).thenReturn(scheduler);
 
         // Initiate warp teleport - should charge 50.0
-        ecoService.teleportToWarp(player, "shop", null);
-        verify(mockEconomy).processWarpCostAsync(player);
+        teleport(ecoService, player, "shop", null);
+        verify(mockEconomy).chargeExact(player.getUniqueId(), 50.0);
 
         // Cancel warmup on move - should refund 50.0
         ecoService.cancelWarmupOnMove(player);
-        verify(mockEconomy).processRefund(player, 50.0);
+        verify(mockEconomy).settle(new Payment(paymentPlayerId, 50.0, true), true);
     }
 
     @Test
@@ -383,14 +405,17 @@ class DefaultWarpServiceRemediationTest {
         WarpEconomyService mockEconomy = mock(WarpEconomyService.class);
         when(mockEconomy.isAvailable()).thenReturn(true);
         when(mockEconomy.getSetWarpCost(player)).thenReturn(200.0);
-        when(mockEconomy.processSetWarpCostAsync(player)).thenReturn(CompletableFuture.completedFuture(true));
+        UUID paymentPlayerId = player.getUniqueId();
+        when(mockEconomy.chargeExact(player.getUniqueId(), 200.0)).thenReturn(CompletableFuture.completedFuture(new Payment(paymentPlayerId, 200.0, true)));
+        when(mockEconomy.settle(any(), anyBoolean())).thenReturn(CompletableFuture.completedFuture(true));
 
         DefaultWarpService ecoService = new DefaultWarpService(
             mockPlugin, mockRepository, cache, mockEconomy, config, LoggerFactory.getLogger("Test-WarpService")
         );
+        ecoService.initialize().join();
 
         assertEquals(WarpResultStatus.SUCCESS, ecoService.setWarp(player, "Hub", false, null, null).join());
-        verify(mockEconomy).processSetWarpCostAsync(player);
+        verify(mockEconomy).chargeExact(player.getUniqueId(), 200.0);
     }
 
     @Test
@@ -403,21 +428,26 @@ class DefaultWarpServiceRemediationTest {
         WarpEconomyService mockEconomy = mock(WarpEconomyService.class);
         when(mockEconomy.isAvailable()).thenReturn(true);
         when(mockEconomy.getSetWarpCost(player)).thenReturn(100.0);
-        when(mockEconomy.processSetWarpCostAsync(player)).thenReturn(CompletableFuture.completedFuture(true));
+        UUID paymentPlayerId = player.getUniqueId();
+        when(mockEconomy.chargeExact(player.getUniqueId(), 100.0)).thenReturn(CompletableFuture.completedFuture(new Payment(paymentPlayerId, 100.0, true)));
+        when(mockEconomy.settle(any(), anyBoolean())).thenReturn(CompletableFuture.completedFuture(true));
 
         WarpRepository failingRepo = mock(WarpRepository.class);
+        when(failingRepo.initialize()).thenReturn(CompletableFuture.completedFuture(null));
+        when(failingRepo.loadAll()).thenAnswer(inv -> CompletableFuture.completedFuture(cache.getAllWarps().stream().collect(Collectors.toMap(Warp::name, value -> value))));
         when(failingRepo.save(any())).thenReturn(CompletableFuture.failedFuture(new RuntimeException("Disk full")));
 
         DefaultWarpService failingService = new DefaultWarpService(
             mockPlugin, failingRepo, cache, mockEconomy, config, LoggerFactory.getLogger("Test-WarpService")
         );
+        failingService.initialize().join();
 
         CompletableFuture<WarpResultStatus> result = failingService.setWarp(player, "FailedWarp", false, null, null);
         assertEquals(WarpResultStatus.ERROR, result.join());
 
         // Cache must NOT contain FailedWarp
         assertFalse(cache.getWarp("failedwarp").isPresent());
-        verify(mockEconomy).processRefund(player, 100.0);
+        verify(mockEconomy).settle(new Payment(paymentPlayerId, 100.0, true), true);
     }
 
     @Test
@@ -428,10 +458,13 @@ class DefaultWarpServiceRemediationTest {
 
         WarpRepository failingRepo = mock(WarpRepository.class);
         when(failingRepo.delete(any())).thenReturn(CompletableFuture.failedFuture(new RuntimeException("SQL error")));
+        when(failingRepo.initialize()).thenReturn(CompletableFuture.completedFuture(null));
+        when(failingRepo.loadAll()).thenReturn(CompletableFuture.completedFuture(Map.of("keepme", warp)));
 
         DefaultWarpService failingService = new DefaultWarpService(
             mockPlugin, failingRepo, cache, new NoOpWarpEconomyService(), config, LoggerFactory.getLogger("Test-WarpService")
         );
+        failingService.initialize().join();
 
         CompletableFuture<WarpResultStatus> result = failingService.deleteWarp("keepme");
         assertEquals(WarpResultStatus.ERROR, result.join());
@@ -480,15 +513,15 @@ class DefaultWarpServiceRemediationTest {
         when(player1.teleportAsync(any())).thenReturn(CompletableFuture.completedFuture(true));
         when(player2.teleportAsync(any())).thenReturn(CompletableFuture.completedFuture(true));
         org.mockito.Mockito.doAnswer(inv -> {
-            java.util.function.Consumer<ScheduledTask> consumer = inv.getArgument(1);
+            Consumer<ScheduledTask> consumer = inv.getArgument(1);
             consumer.accept(mock(ScheduledTask.class));
             return mock(ScheduledTask.class);
         }).when(scheduler).run(any(), any(), any());
 
         // Wrong password on player1
-        assertEquals(WarpResultStatus.INVALID_PASSWORD, service.teleportToWarp(player1, "secretwarp", "wrong").join());
+        assertEquals(WarpResultStatus.INVALID_PASSWORD, teleport(service, player1, "secretwarp", "wrong").join());
 
         // Correct password on player2
-        assertEquals(WarpResultStatus.SUCCESS, service.teleportToWarp(player2, "secretwarp", "superSecret123").join());
+        assertEquals(WarpResultStatus.SUCCESS, teleport(service, player2, "secretwarp", "superSecret123").join());
     }
 }

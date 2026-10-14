@@ -13,6 +13,7 @@ import org.bukkit.entity.Player;
 public interface WarpService {
 
     CompletableFuture<Void> initialize();
+    boolean isReady();
 
     CompletableFuture<WarpResultStatus> teleportToWarp(Player player, String warpName, String rawPassword);
 

@@ -1,6 +1,9 @@
 package com.lunatech.tpcore.module.warp.repository.impl;
 
 import com.lunatech.tpcore.module.warp.model.Warp;
+import com.lunatech.tpcore.config.model.WarpConfig;
+import com.lunatech.tpcore.module.warp.util.WarpIoExecutor;
+import java.util.Locale;
 import com.lunatech.tpcore.module.warp.repository.WarpRepository;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
@@ -19,8 +22,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import org.slf4j.Logger;
 
 public final class SqliteWarpRepository implements WarpRepository {
@@ -28,16 +29,27 @@ public final class SqliteWarpRepository implements WarpRepository {
     private final File dataFolder;
     private final Logger logger;
     private HikariDataSource dataSource;
-    private ExecutorService virtualExecutor;
+    private final WarpIoExecutor virtualExecutor;
+    private final int rowLimit;
 
     public SqliteWarpRepository(File dataFolder, Logger logger) {
+        this(dataFolder, logger, WarpConfig.createDefault().storageQueueCapacity());
+    }
+
+    public SqliteWarpRepository(File dataFolder, Logger logger, int queueCapacity) {
+        this(dataFolder, logger, queueCapacity, WarpConfig.createDefault().maxCachedWarps());
+    }
+
+    public SqliteWarpRepository(File dataFolder, Logger logger, int queueCapacity, int rowLimit) {
         this.dataFolder = Objects.requireNonNull(dataFolder, "dataFolder cannot be null");
         this.logger = Objects.requireNonNull(logger, "logger cannot be null");
+        this.virtualExecutor = new WarpIoExecutor(queueCapacity);
+        this.rowLimit = Math.max(1, rowLimit);
     }
 
     @Override
     public CompletableFuture<Void> initialize() {
-        return CompletableFuture.runAsync(() -> {
+        return virtualExecutor.run(() -> {
             if (!dataFolder.exists() && !dataFolder.mkdirs()) {
                 logger.warn("Failed to create database directory: {}", dataFolder.getAbsolutePath());
             }
@@ -56,7 +68,6 @@ public final class SqliteWarpRepository implements WarpRepository {
 
             try {
                 this.dataSource = new HikariDataSource(config);
-                this.virtualExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
                 try (Connection conn = dataSource.getConnection();
                      Statement stmt = conn.createStatement()) {
@@ -93,26 +104,28 @@ public final class SqliteWarpRepository implements WarpRepository {
 
     @Override
     public CompletableFuture<Map<String, Warp>> loadAll() {
-        return CompletableFuture.supplyAsync(() -> {
+        return virtualExecutor.submit(() -> {
             Map<String, Warp> warps = new HashMap<>();
-            String sql = "SELECT warp_name, world_id, world_name, x, y, z, yaw, pitch, creator_uuid, category, password_hash, permission_gated, created_at FROM tpcore_warps";
+            String sql = "SELECT warp_name, world_id, world_name, x, y, z, yaw, pitch, creator_uuid, category, password_hash, permission_gated, created_at FROM tpcore_warps LIMIT " + (rowLimit + 1);
             try (Connection conn = dataSource.getConnection();
                  PreparedStatement ps = conn.prepareStatement(sql);
                  ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
+                    if (warps.size() >= rowLimit) throw new IllegalStateException("Warp storage exceeds configured cache capacity");
                     Warp warp = mapResultSetToWarp(rs);
-                    warps.put(warp.name().toLowerCase(), warp);
+                    warps.put(warp.name().toLowerCase(Locale.ROOT), warp);
                 }
             } catch (SQLException e) {
                 logger.error("Failed to load warps from SQLite database", e);
+                throw new IllegalStateException("Failed to load warp storage", e);
             }
             return warps;
-        }, virtualExecutor);
+        });
     }
 
     @Override
     public CompletableFuture<Optional<Warp>> findByName(String warpName) {
-        return CompletableFuture.supplyAsync(() -> {
+        return virtualExecutor.submit(() -> {
             String sql = "SELECT warp_name, world_id, world_name, x, y, z, yaw, pitch, creator_uuid, category, password_hash, permission_gated, created_at FROM tpcore_warps WHERE warp_name = ? COLLATE NOCASE";
             try (Connection conn = dataSource.getConnection();
                  PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -124,38 +137,43 @@ public final class SqliteWarpRepository implements WarpRepository {
                 }
             } catch (SQLException e) {
                 logger.error("Failed to find warp {} in SQLite database", warpName, e);
+                throw new IllegalStateException("Failed to read warp storage", e);
             }
             return Optional.empty();
-        }, virtualExecutor);
+        });
     }
 
     @Override
     public CompletableFuture<List<Warp>> findByCategory(String category) {
-        return CompletableFuture.supplyAsync(() -> {
+        return virtualExecutor.submit(() -> {
             List<Warp> list = new ArrayList<>();
-            String sql = "SELECT warp_name, world_id, world_name, x, y, z, yaw, pitch, creator_uuid, category, password_hash, permission_gated, created_at FROM tpcore_warps WHERE category = ? COLLATE NOCASE";
+            String sql = "SELECT warp_name, world_id, world_name, x, y, z, yaw, pitch, creator_uuid, category, password_hash, permission_gated, created_at FROM tpcore_warps WHERE category = ? COLLATE NOCASE LIMIT " + (rowLimit + 1);
             try (Connection conn = dataSource.getConnection();
                  PreparedStatement ps = conn.prepareStatement(sql)) {
                 ps.setString(1, category);
                 try (ResultSet rs = ps.executeQuery()) {
                     while (rs.next()) {
+                        if (list.size() >= rowLimit) throw new IllegalStateException("Warp category exceeds configured cache capacity");
                         list.add(mapResultSetToWarp(rs));
                     }
                 }
             } catch (SQLException e) {
                 logger.error("Failed to find warps in category {} in SQLite database", category, e);
+                throw new IllegalStateException("Failed to read warp category", e);
             }
             return list;
-        }, virtualExecutor);
+        });
     }
 
     @Override
     public CompletableFuture<Void> save(Warp warp) {
-        return CompletableFuture.runAsync(() -> {
+        return virtualExecutor.run(() -> {
             String sql = """
                 INSERT INTO tpcore_warps (warp_name, world_id, world_name, x, y, z, yaw, pitch, creator_uuid, category, password_hash, permission_gated, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(warp_name) DO UPDATE SET
+                    warp_name = excluded.warp_name,
+                    created_at = excluded.created_at,
                     world_id = excluded.world_id,
                     world_name = excluded.world_name,
                     x = excluded.x,
@@ -188,12 +206,12 @@ public final class SqliteWarpRepository implements WarpRepository {
                 logger.error("Failed to save warp {} to SQLite database", warp.name(), e);
                 throw new RuntimeException("Database save failure for warp: " + warp.name(), e);
             }
-        }, virtualExecutor);
+        });
     }
 
     @Override
     public CompletableFuture<Void> saveAll(Collection<Warp> warps) {
-        return CompletableFuture.runAsync(() -> {
+        return virtualExecutor.run(() -> {
             if (warps == null || warps.isEmpty()) {
                 return;
             }
@@ -201,6 +219,8 @@ public final class SqliteWarpRepository implements WarpRepository {
                 INSERT INTO tpcore_warps (warp_name, world_id, world_name, x, y, z, yaw, pitch, creator_uuid, category, password_hash, permission_gated, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(warp_name) DO UPDATE SET
+                    warp_name = excluded.warp_name,
+                    created_at = excluded.created_at,
                     world_id = excluded.world_id,
                     world_name = excluded.world_name,
                     x = excluded.x,
@@ -244,12 +264,12 @@ public final class SqliteWarpRepository implements WarpRepository {
                 logger.error("Failed to batch save {} warps to SQLite database", warps.size(), e);
                 throw new RuntimeException("Database batch save failure", e);
             }
-        }, virtualExecutor);
+        });
     }
 
     @Override
     public CompletableFuture<Void> delete(String warpName) {
-        return CompletableFuture.runAsync(() -> {
+        return virtualExecutor.run(() -> {
             String sql = "DELETE FROM tpcore_warps WHERE warp_name = ? COLLATE NOCASE";
             try (Connection conn = dataSource.getConnection();
                  PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -259,29 +279,13 @@ public final class SqliteWarpRepository implements WarpRepository {
                 logger.error("Failed to delete warp {} from SQLite database", warpName, e);
                 throw new RuntimeException("Database delete failure for warp: " + warpName, e);
             }
-        }, virtualExecutor);
+        });
     }
 
     @Override
     public CompletableFuture<Void> close() {
-        return CompletableFuture.runAsync(() -> {
-            if (virtualExecutor != null && !virtualExecutor.isShutdown()) {
-                try {
-                    virtualExecutor.shutdown();
-                    if (!virtualExecutor.awaitTermination(3, java.util.concurrent.TimeUnit.SECONDS)) {
-                        virtualExecutor.shutdownNow();
-                    }
-                } catch (Exception e) {
-                    logger.error("Error shutting down virtualExecutor in SqliteWarpRepository", e);
-                }
-            }
-            if (dataSource != null && !dataSource.isClosed()) {
-                try {
-                    dataSource.close();
-                } catch (Exception e) {
-                    logger.error("Error closing HikariDataSource in SqliteWarpRepository", e);
-                }
-            }
+        return virtualExecutor.close(() -> {
+            if (dataSource != null) dataSource.close();
         });
     }
 

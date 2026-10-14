@@ -1,6 +1,9 @@
 package com.lunatech.tpcore.module.warp.repository.impl;
 
 import com.lunatech.tpcore.module.warp.model.Warp;
+import com.lunatech.tpcore.config.model.WarpConfig;
+import com.lunatech.tpcore.module.warp.util.WarpIoExecutor;
+import java.util.Locale;
 import com.lunatech.tpcore.module.warp.repository.WarpRepository;
 import java.io.File;
 import java.util.ArrayList;
@@ -13,8 +16,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.locks.ReentrantLock;
 import org.slf4j.Logger;
 import org.spongepowered.configurate.CommentedConfigurationNode;
@@ -26,30 +27,42 @@ public final class YamlWarpRepository implements WarpRepository {
 
     private final File warpFile;
     private final Logger logger;
-    private final ExecutorService virtualExecutor;
+    private final WarpIoExecutor virtualExecutor;
+    private final int rowLimit;
+    private final long maxStorageBytes;
     private final ReentrantLock fileLock = new ReentrantLock();
 
     public YamlWarpRepository(File dataFolder, Logger logger) {
+        this(dataFolder, logger, WarpConfig.createDefault().storageQueueCapacity());
+    }
+
+    public YamlWarpRepository(File dataFolder, Logger logger, int queueCapacity) {
+        this(dataFolder, logger, queueCapacity, WarpConfig.createDefault().maxCachedWarps(), WarpConfig.createDefault().maxStorageBytes());
+    }
+
+    public YamlWarpRepository(File dataFolder, Logger logger, int queueCapacity, int rowLimit, long maxStorageBytes) {
         Objects.requireNonNull(dataFolder, "dataFolder cannot be null");
         File warpsDir = new File(dataFolder, "warps");
         this.warpFile = new File(warpsDir, "warps.yml");
         this.logger = Objects.requireNonNull(logger, "logger cannot be null");
-        this.virtualExecutor = Executors.newVirtualThreadPerTaskExecutor();
+        this.virtualExecutor = new WarpIoExecutor(queueCapacity);
+        this.rowLimit = Math.max(1, rowLimit);
+        this.maxStorageBytes = maxStorageBytes;
     }
 
     @Override
     public CompletableFuture<Void> initialize() {
-        return CompletableFuture.runAsync(() -> {
+        return virtualExecutor.run(() -> {
             File parent = warpFile.getParentFile();
             if (parent != null && !parent.exists() && !parent.mkdirs()) {
                 logger.warn("Failed to create warps YAML directory: {}", parent.getAbsolutePath());
             }
-        }, virtualExecutor);
+        });
     }
 
     @Override
     public CompletableFuture<Map<String, Warp>> loadAll() {
-        return CompletableFuture.supplyAsync(() -> {
+        return virtualExecutor.submit(() -> {
             fileLock.lock();
             try {
                 if (!warpFile.exists()) {
@@ -64,6 +77,7 @@ public final class YamlWarpRepository implements WarpRepository {
                     CommentedConfigurationNode warpsNode = root.node("warps");
                     if (warpsNode.isMap()) {
                         for (Map.Entry<Object, ? extends CommentedConfigurationNode> entry : warpsNode.childrenMap().entrySet()) {
+                            if (warps.size() >= rowLimit) throw new IllegalStateException("Warp storage exceeds configured cache capacity");
                             String name = entry.getKey().toString();
                             CommentedConfigurationNode node = entry.getValue();
 
@@ -100,22 +114,23 @@ public final class YamlWarpRepository implements WarpRepository {
                                 permissionGated,
                                 createdAt
                             );
-                            warps.put(name.toLowerCase(), warp);
+                            warps.put(name.toLowerCase(Locale.ROOT), warp);
                         }
                     }
                 } catch (ConfigurateException e) {
                     logger.error("Failed to load warps from YAML file {}", warpFile.getAbsolutePath(), e);
+                    throw new IllegalStateException("Failed to load warp storage", e);
                 }
                 return warps;
             } finally {
                 fileLock.unlock();
             }
-        }, virtualExecutor);
+        });
     }
 
     @Override
     public CompletableFuture<Optional<Warp>> findByName(String warpName) {
-        return loadAll().thenApply(map -> Optional.ofNullable(map.get(warpName.toLowerCase())));
+        return loadAll().thenApply(map -> Optional.ofNullable(map.get(warpName.toLowerCase(Locale.ROOT))));
     }
 
     @Override
@@ -127,7 +142,7 @@ public final class YamlWarpRepository implements WarpRepository {
 
     @Override
     public CompletableFuture<Void> save(Warp warp) {
-        return CompletableFuture.runAsync(() -> {
+        return virtualExecutor.run(() -> {
             fileLock.lock();
             try {
                 YamlConfigurationLoader loader = createLoader(warpFile);
@@ -147,15 +162,16 @@ public final class YamlWarpRepository implements WarpRepository {
                 loader.save(root);
             } catch (ConfigurateException e) {
                 logger.error("Failed to save warp {} to YAML file", warp.name(), e);
+                throw new IllegalStateException("Failed to save warp storage", e);
             } finally {
                 fileLock.unlock();
             }
-        }, virtualExecutor);
+        });
     }
 
     @Override
     public CompletableFuture<Void> saveAll(Collection<Warp> warps) {
-        return CompletableFuture.runAsync(() -> {
+        return virtualExecutor.run(() -> {
             if (warps == null || warps.isEmpty()) {
                 return;
             }
@@ -179,15 +195,16 @@ public final class YamlWarpRepository implements WarpRepository {
                 loader.save(root);
             } catch (ConfigurateException e) {
                 logger.error("Failed to batch save {} warps to YAML file", warps.size(), e);
+                throw new IllegalStateException("Failed to batch save warp storage", e);
             } finally {
                 fileLock.unlock();
             }
-        }, virtualExecutor);
+        });
     }
 
     @Override
     public CompletableFuture<Void> delete(String warpName) {
-        return CompletableFuture.runAsync(() -> {
+        return virtualExecutor.run(() -> {
             if (!warpFile.exists()) {
                 return;
             }
@@ -206,18 +223,16 @@ public final class YamlWarpRepository implements WarpRepository {
                 loader.save(root);
             } catch (ConfigurateException e) {
                 logger.error("Failed to delete warp {} from YAML file", warpName, e);
+                throw new IllegalStateException("Failed to delete warp storage", e);
             } finally {
                 fileLock.unlock();
             }
-        }, virtualExecutor);
+        });
     }
 
     @Override
     public CompletableFuture<Void> close() {
-        return CompletableFuture.runAsync(() -> {
-            if (virtualExecutor != null && !virtualExecutor.isShutdown()) {
-                virtualExecutor.shutdown();
-            }
+        return virtualExecutor.close(() -> {
         });
     }
 
@@ -237,6 +252,7 @@ public final class YamlWarpRepository implements WarpRepository {
     }
 
     private YamlConfigurationLoader createLoader(File file) {
+        if (file.length() > maxStorageBytes) throw new IllegalStateException("Warp YAML exceeds configured storage byte limit");
         return YamlConfigurationLoader.builder()
             .file(file)
             .nodeStyle(NodeStyle.BLOCK)
