@@ -268,6 +268,29 @@ public final class SqliteWarpRepository implements WarpRepository {
     }
 
     @Override
+    public CompletableFuture<Void> replace(String oldName, Warp updated) {
+        return virtualExecutor.run(() -> {
+            String sql = """
+                UPDATE tpcore_warps SET warp_name=?, world_id=?, world_name=?, x=?, y=?, z=?, yaw=?, pitch=?,
+                    creator_uuid=?, category=?, password_hash=?, permission_gated=?, created_at=?
+                WHERE warp_name=? COLLATE NOCASE
+                """;
+            try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(sql)) {
+                statement.setString(1, updated.name());
+                statement.setString(2, updated.worldId() == null ? null : updated.worldId().toString());
+                statement.setString(3, updated.worldName());
+                statement.setDouble(4, updated.x()); statement.setDouble(5, updated.y()); statement.setDouble(6, updated.z());
+                statement.setFloat(7, updated.yaw()); statement.setFloat(8, updated.pitch());
+                statement.setString(9, updated.creatorUuid() == null ? null : updated.creatorUuid().toString());
+                statement.setString(10, updated.category()); statement.setString(11, updated.passwordHash());
+                statement.setBoolean(12, updated.permissionGated()); statement.setLong(13, updated.createdAt());
+                statement.setString(14, oldName);
+                if (statement.executeUpdate() != 1) throw new IllegalStateException("Warp disappeared during edit");
+            } catch (SQLException failure) { throw new IllegalStateException("Warp edit failed", failure); }
+        });
+    }
+
+    @Override
     public CompletableFuture<Void> delete(String warpName) {
         return virtualExecutor.run(() -> {
             String sql = "DELETE FROM tpcore_warps WHERE warp_name = ? COLLATE NOCASE";

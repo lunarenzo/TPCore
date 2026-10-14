@@ -18,6 +18,7 @@ public enum WarpResultStatus {
     LIMIT_REACHED,
     WARMUP_ALREADY_ACTIVE,
     INVALID_NAME,
+    INVALID_VALUE,
     INSUFFICIENT_FUNDS,
     ERROR
 }

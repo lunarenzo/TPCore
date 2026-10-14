@@ -59,6 +59,18 @@ public final class DefaultWarpCache implements WarpCache {
             return Snapshot.of(names);
         });
     }
+    @Override public void replaceWarp(String oldName, Warp updated) {
+        state.updateAndGet(old -> {
+            Map<String, Warp> names = new HashMap<>(old.names());
+            String source = oldName.toLowerCase(Locale.ROOT);
+            String target = updated.name().toLowerCase(Locale.ROOT);
+            if (!names.containsKey(source)) throw new IllegalStateException("Warp disappeared during edit");
+            if (!source.equals(target) && names.containsKey(target)) throw new IllegalStateException("Warp rename collision");
+            names.remove(source);
+            names.put(target, updated);
+            return Snapshot.of(names);
+        });
+    }
     @Override public Collection<Warp> getAllWarps() { return state.get().names().values(); }
     @Override public List<Warp> getWarpsByCategory(String category) {
         return category == null ? List.of() : state.get().categories().getOrDefault(category.toLowerCase(Locale.ROOT), List.of());

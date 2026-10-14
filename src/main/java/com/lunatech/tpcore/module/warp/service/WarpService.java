@@ -2,6 +2,7 @@ package com.lunatech.tpcore.module.warp.service;
 
 import com.lunatech.tpcore.config.model.WarpConfig;
 import com.lunatech.tpcore.module.warp.model.Warp;
+import com.lunatech.tpcore.module.warp.model.WarpEdit;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -13,6 +14,8 @@ import org.bukkit.entity.Player;
 public interface WarpService {
 
     CompletableFuture<Void> initialize();
+    /** Caller enforces staff permissions. Free edits preserve unrelated fields; accepted teleports retain their snapshot. */
+    CompletableFuture<WarpResultStatus> editWarp(String name, WarpEdit edit);
     boolean isReady();
 
     CompletableFuture<WarpResultStatus> teleportToWarp(Player player, String warpName, String rawPassword);

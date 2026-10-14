@@ -18,6 +18,7 @@ public interface WarpRepository {
     CompletableFuture<List<Warp>> findByCategory(String category);
 
     CompletableFuture<Void> save(Warp warp);
+    CompletableFuture<Void> replace(String oldName, Warp updated);
 
     CompletableFuture<Void> saveAll(Collection<Warp> warps);
 

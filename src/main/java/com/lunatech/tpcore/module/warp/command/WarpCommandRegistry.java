@@ -3,9 +3,11 @@ package com.lunatech.tpcore.module.warp.command;
 import com.lunatech.tpcore.config.model.WarpConfig;
 import com.lunatech.tpcore.constant.Permissions;
 import com.lunatech.tpcore.module.warp.model.Warp;
+import com.lunatech.tpcore.module.warp.model.WarpEdit;
 import com.lunatech.tpcore.module.warp.service.WarpResultStatus;
 import com.lunatech.tpcore.module.warp.service.WarpService;
 import com.lunatech.tpcore.util.MessageFormatter;
+import com.mojang.brigadier.Command;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
@@ -24,6 +26,7 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
 import org.bukkit.Bukkit;
+import org.bukkit.Location;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -268,7 +271,125 @@ public final class WarpCommandRegistry {
                 "Teleport another player to a warp",
                 List.of()
             );
+            registerStaffCommands(commands);
         });
+    }
+
+    private boolean staffPermission(CommandSender sender, String permission) {
+        return sender.hasPermission(permission) || sender.hasPermission(Permissions.WARP_ADMIN);
+    }
+
+    private boolean anyEditPermission(CommandSender sender) {
+        return staffPermission(sender, Permissions.WARP_INFO) || staffPermission(sender, Permissions.WARP_EDIT_RENAME)
+            || staffPermission(sender, Permissions.WARP_EDIT_RELOCATE) || staffPermission(sender, Permissions.WARP_EDIT_CATEGORY)
+            || staffPermission(sender, Permissions.WARP_EDIT_PASSWORD) || staffPermission(sender, Permissions.WARP_EDIT_PERMISSION);
+    }
+
+    private void registerStaffCommands(Commands commands) {
+        SuggestionProvider<CommandSourceStack> staffSuggestions = (context, builder) -> {
+            WarpService service = warpServiceSupplier.get();
+            if (service != null && configSupplier.get().enabled()) {
+                String remaining = builder.getRemaining().toLowerCase(Locale.ROOT);
+                for (Warp warp : service.getAllWarps()) if (warp.name().toLowerCase(Locale.ROOT).startsWith(remaining)) builder.suggest(warp.name());
+            }
+            return builder.buildFuture();
+        };
+        commands.register(Commands.literal("warpinfo")
+            .requires(source -> staffPermission(source.getSender(), Permissions.WARP_INFO))
+            .executes(context -> staffUsage(context.getSource().getSender()))
+            .then(Commands.argument("name", StringArgumentType.word()).suggests(staffSuggestions)
+                .executes(context -> warpInfo(context.getSource().getSender(), StringArgumentType.getString(context, "name"))))
+            .build());
+        commands.register(Commands.literal("editwarp")
+            .requires(source -> anyEditPermission(source.getSender()))
+            .executes(context -> staffUsage(context.getSource().getSender()))
+            .then(Commands.argument("name", StringArgumentType.word()).suggests(staffSuggestions)
+                .executes(context -> warpInfo(context.getSource().getSender(), StringArgumentType.getString(context, "name")))
+                .then(Commands.literal("rename").requires(source -> staffPermission(source.getSender(), Permissions.WARP_EDIT_RENAME))
+                    .then(Commands.argument("new-name", StringArgumentType.word())
+                        .executes(context -> editWarp(context.getSource().getSender(), StringArgumentType.getString(context, "name"),
+                            new WarpEdit.Rename(StringArgumentType.getString(context, "new-name")), Permissions.WARP_EDIT_RENAME))))
+                .then(Commands.literal("relocate").requires(source -> staffPermission(source.getSender(), Permissions.WARP_EDIT_RELOCATE))
+                    .executes(context -> relocateWarp(context.getSource().getSender(), StringArgumentType.getString(context, "name"))))
+                .then(Commands.literal("category").requires(source -> staffPermission(source.getSender(), Permissions.WARP_EDIT_CATEGORY))
+                    .then(Commands.argument("category", StringArgumentType.word())
+                        .executes(context -> editWarp(context.getSource().getSender(), StringArgumentType.getString(context, "name"),
+                            new WarpEdit.Category(StringArgumentType.getString(context, "category")), Permissions.WARP_EDIT_CATEGORY))))
+                .then(Commands.literal("password").requires(source -> staffPermission(source.getSender(), Permissions.WARP_EDIT_PASSWORD))
+                    .then(Commands.literal("set").then(Commands.argument("password", StringArgumentType.string())
+                        .executes(context -> editWarp(context.getSource().getSender(), StringArgumentType.getString(context, "name"),
+                            new WarpEdit.Password(StringArgumentType.getString(context, "password")), Permissions.WARP_EDIT_PASSWORD))))
+                    .then(Commands.literal("clear").executes(context -> editWarp(context.getSource().getSender(), StringArgumentType.getString(context, "name"),
+                        new WarpEdit.ClearPassword(), Permissions.WARP_EDIT_PASSWORD))))
+                .then(Commands.literal("permission").requires(source -> staffPermission(source.getSender(), Permissions.WARP_EDIT_PERMISSION))
+                    .then(Commands.literal("required").executes(context -> editWarp(context.getSource().getSender(), StringArgumentType.getString(context, "name"),
+                        new WarpEdit.Permission(true), Permissions.WARP_EDIT_PERMISSION)))
+                    .then(Commands.literal("public").executes(context -> editWarp(context.getSource().getSender(), StringArgumentType.getString(context, "name"),
+                        new WarpEdit.Permission(false), Permissions.WARP_EDIT_PERMISSION)))))
+            .build());
+    }
+
+    private int staffUsage(CommandSender sender) {
+        sendMessage(sender, configSupplier.get().enabled() ? configSupplier.get().editMessages().usage() : configSupplier.get().messages().moduleDisabled());
+        return Command.SINGLE_SUCCESS;
+    }
+
+    private int warpInfo(CommandSender sender, String name) {
+        WarpConfig settings = configSupplier.get();
+        WarpService service = warpServiceSupplier.get();
+        if (!settings.enabled()) sendDisabledMessage(sender);
+        else if (!staffPermission(sender, Permissions.WARP_INFO)) sendMessage(sender, settings.messages().noPermission(), Placeholder.unparsed("warp", name));
+        else if (service == null || !service.isReady()) sendMessage(sender, settings.messages().storageNotReady());
+        else {
+            Warp warp = service.getWarp(name).orElse(null);
+            if (warp == null) sendMessage(sender, settings.messages().warpNotFound(), Placeholder.unparsed("warp", name));
+            else sendMessage(sender, settings.editMessages().info(),
+                Placeholder.unparsed("warp", warp.name()), Placeholder.unparsed("world", warp.worldName()),
+                Placeholder.unparsed("world-id", String.valueOf(warp.worldId())),
+                Placeholder.unparsed("x", Double.toString(warp.x())), Placeholder.unparsed("y", Double.toString(warp.y())), Placeholder.unparsed("z", Double.toString(warp.z())),
+                Placeholder.unparsed("yaw", Float.toString(warp.yaw())), Placeholder.unparsed("pitch", Float.toString(warp.pitch())),
+                Placeholder.unparsed("category", warp.category()), Placeholder.unparsed("password-protected", Boolean.toString(warp.hasPassword())),
+                Placeholder.unparsed("permission-required", Boolean.toString(warp.permissionGated())),
+                Placeholder.unparsed("permission", "tpcore.warp." + warp.name().toLowerCase(Locale.ROOT)),
+                Placeholder.unparsed("creator", String.valueOf(warp.creatorUuid())), Placeholder.unparsed("created-at", Long.toString(warp.createdAt())));
+        }
+        return Command.SINGLE_SUCCESS;
+    }
+
+    private int relocateWarp(CommandSender sender, String name) {
+        if (!(sender instanceof Player player)) { sendOnlyPlayersMessage(sender); return Command.SINGLE_SUCCESS; }
+        if (!staffPermission(sender, Permissions.WARP_EDIT_RELOCATE)) { sendMessage(sender, configSupplier.get().messages().noPermission(), Placeholder.unparsed("warp", name)); return Command.SINGLE_SUCCESS; }
+        Location location = player.getLocation();
+        return editWarp(sender, name, new WarpEdit.Relocate(location.getWorld().getUID(), location.getWorld().getName(),
+            location.getX(), location.getY(), location.getZ(), location.getYaw(), location.getPitch()), Permissions.WARP_EDIT_RELOCATE);
+    }
+
+    private int editWarp(CommandSender sender, String name, WarpEdit edit, String permission) {
+        WarpConfig settings = configSupplier.get();
+        WarpService service = warpServiceSupplier.get();
+        if (!settings.enabled()) { sendDisabledMessage(sender); return Command.SINGLE_SUCCESS; }
+        if (!staffPermission(sender, permission)) { sendMessage(sender, settings.messages().noPermission(), Placeholder.unparsed("warp", name)); return Command.SINGLE_SUCCESS; }
+        if (service == null) { sendMessage(sender, settings.messages().storageNotReady()); return Command.SINGLE_SUCCESS; }
+        UUID replyId = sender instanceof Player player ? player.getUniqueId() : null;
+        CommandSender console = replyId == null ? sender : null;
+        String updatedName = edit instanceof WarpEdit.Rename rename ? rename.name() : name;
+        boolean rename = edit instanceof WarpEdit.Rename;
+        service.editWarp(name, edit).thenAccept(status -> {
+            String message = switch (status) {
+                case SUCCESS -> rename ? settings.editMessages().renameSuccess() : settings.editMessages().success();
+                case ALREADY_EXISTS -> settings.editMessages().renameCollision();
+                case WARP_NOT_FOUND -> settings.messages().warpNotFound();
+                case INVALID_NAME -> settings.messages().invalidWarpName();
+                case INVALID_VALUE -> settings.editMessages().invalidValue();
+                case BUSY -> settings.messages().operationBusy();
+                case NOT_READY -> settings.messages().storageNotReady();
+                default -> settings.messages().operationFailed();
+            };
+            sendReply(replyId, console, message, Placeholder.unparsed("warp", status == WarpResultStatus.WARP_NOT_FOUND ? name : updatedName), Placeholder.unparsed("old-name", name),
+                Placeholder.unparsed("old-permission", "tpcore.warp." + name.toLowerCase(Locale.ROOT)),
+                Placeholder.unparsed("permission", "tpcore.warp." + updatedName.toLowerCase(Locale.ROOT)));
+        });
+        return Command.SINGLE_SUCCESS;
     }
 
     private int executeWarp(CommandSender sender, String warpName, String rawPassword) {

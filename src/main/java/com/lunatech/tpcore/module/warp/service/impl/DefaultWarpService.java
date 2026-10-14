@@ -7,6 +7,7 @@ import com.lunatech.tpcore.module.warp.economy.WarpEconomyService.Payment;
 import com.lunatech.tpcore.module.warp.economy.WarpEconomyService;
 import com.lunatech.tpcore.module.warp.economy.impl.NoOpWarpEconomyService;
 import com.lunatech.tpcore.module.warp.model.Warp;
+import com.lunatech.tpcore.module.warp.model.WarpEdit;
 import com.lunatech.tpcore.module.warp.repository.WarpRepository;
 import com.lunatech.tpcore.module.warp.repository.impl.SqliteWarpRepository;
 import com.lunatech.tpcore.module.warp.repository.impl.YamlWarpRepository;
@@ -155,7 +156,7 @@ public final class DefaultWarpService implements WarpService {
         if (warp.hasPassword() && !player.hasPermission("tpcore.warp.admin") && !player.hasPermission("tpcore.warp.bypass.password")) {
             if (failedPasswordAttempts.get(id) != null) return completed(WarpResultStatus.INVALID_PASSWORD);
             if (rawPassword == null || rawPassword.isBlank()) return completed(WarpResultStatus.PASSWORD_REQUIRED);
-            if (!warp.passwordHash().equals(hashPassword(warp.name(), rawPassword)) && !warp.passwordHash().equals(hashLegacyPassword(rawPassword))) {
+            if (!passwordMatches(warp, rawPassword)) {
                 failedPasswordAttempts.put(id, System.currentTimeMillis() + 2000L);
                 return completed(WarpResultStatus.INVALID_PASSWORD);
             }
@@ -406,6 +407,75 @@ public final class DefaultWarpService implements WarpService {
     }
 
     @Override
+    public CompletableFuture<WarpResultStatus> editWarp(String warpName, WarpEdit edit) {
+        if (!isReady() || !config.enabled()) return completed(WarpResultStatus.NOT_READY);
+        if (!isValidWarpName(warpName)) return completed(WarpResultStatus.WARP_NOT_FOUND);
+        if (edit == null) return completed(WarpResultStatus.INVALID_VALUE);
+        if (edit instanceof WarpEdit.Rename rename && !isValidWarpName(rename.name())) return completed(WarpResultStatus.INVALID_NAME);
+        if (edit instanceof WarpEdit.Category category && !isValidWarpName(category.category())) return completed(WarpResultStatus.INVALID_VALUE);
+        if (edit instanceof WarpEdit.Password password && (password.value() == null || password.value().isBlank())) return completed(WarpResultStatus.INVALID_VALUE);
+        if (edit instanceof WarpEdit.Relocate location && (location.worldId() == null || location.worldName() == null || location.worldName().isBlank()
+            || !Double.isFinite(location.x()) || !Double.isFinite(location.y()) || !Double.isFinite(location.z())
+            || !Float.isFinite(location.yaw()) || !Float.isFinite(location.pitch()))) return completed(WarpResultStatus.INVALID_VALUE);
+        long stamp = storageAccess.tryReadLock();
+        if (stamp == 0) return completed(WarpResultStatus.BUSY);
+        if (!admission.tryAcquire()) { storageAccess.unlockRead(stamp); return completed(WarpResultStatus.BUSY); }
+        String source = warpName.toLowerCase(Locale.ROOT);
+        String target = edit instanceof WarpEdit.Rename rename ? rename.name().toLowerCase(Locale.ROOT) : source;
+        if (!inFlightMutations.add(source)) { admission.release(); storageAccess.unlockRead(stamp); return completed(WarpResultStatus.BUSY); }
+        if (!source.equals(target) && !inFlightMutations.add(target)) return releaseMutation(source, stamp, WarpResultStatus.BUSY);
+        CompletableFuture<WarpResultStatus> work;
+        try {
+            Warp original = cache.getWarp(source).orElse(null);
+            if (original == null) work = completed(WarpResultStatus.WARP_NOT_FOUND);
+            else if (!source.equals(target) && cache.getWarp(target).isPresent()) work = completed(WarpResultStatus.ALREADY_EXISTS);
+            else {
+                Warp updated = applyEdit(original, edit);
+                work = repository.replace(original.name(), updated).thenApply(ignored -> {
+                    if (!closed.get()) cache.replaceWarp(original.name(), updated);
+                    return WarpResultStatus.SUCCESS;
+                });
+            }
+        } catch (RuntimeException failure) { work = CompletableFuture.failedFuture(failure); }
+        return track(work.exceptionally(failure -> { logger.error("Failed to edit warp {}", source, failure); return WarpResultStatus.ERROR; })
+            .whenComplete((status, failure) -> {
+                inFlightMutations.remove(source);
+                if (!source.equals(target)) inFlightMutations.remove(target);
+                admission.release(); storageAccess.unlockRead(stamp);
+            }));
+    }
+
+    private Warp applyEdit(Warp warp, WarpEdit edit) {
+        String name = warp.name(), category = warp.category(), password = warp.passwordHash();
+        boolean permission = warp.permissionGated();
+        switch (edit) {
+            case WarpEdit.Rename rename -> {
+                if (warp.hasPassword() && !password.startsWith("name-sha256:")) password = "name-sha256:" + warp.name().toLowerCase(Locale.ROOT) + ":" + password;
+                name = rename.name();
+            }
+            case WarpEdit.Relocate location -> {
+                return warp.withLocation(location.worldName(), location.worldId(), location.x(), location.y(), location.z(), location.yaw(), location.pitch());
+            }
+            case WarpEdit.Category change -> category = change.category();
+            case WarpEdit.Password change -> password = hashPassword(warp.name(), change.value());
+            case WarpEdit.ClearPassword ignored -> password = null;
+            case WarpEdit.Permission change -> permission = change.required();
+        }
+        return new Warp(name, warp.worldId(), warp.worldName(), warp.x(), warp.y(), warp.z(), warp.yaw(), warp.pitch(),
+            warp.creatorUuid(), category, password, permission, warp.createdAt());
+    }
+
+    private boolean passwordMatches(Warp warp, String password) {
+        String stored = warp.passwordHash(), context = warp.name();
+        if (stored.startsWith("name-sha256:")) {
+            String[] parts = stored.split(":", 3);
+            if (parts.length != 3) return false;
+            context = parts[1]; stored = parts[2];
+        }
+        return stored.equals(hashPassword(context, password)) || stored.equals(hashLegacyPassword(password));
+    }
+
+    @Override
     public CompletableFuture<WarpResultStatus> deleteWarp(String warpName) {
         if (!ready || closed.get()) return completed(WarpResultStatus.NOT_READY);
         if (!isValidWarpName(warpName)) return completed(WarpResultStatus.WARP_NOT_FOUND);
@@ -585,7 +655,7 @@ public final class DefaultWarpService implements WarpService {
             return hexString.toString();
         } catch (NoSuchAlgorithmException e) {
             logger.error("Failed to compute SHA-256 hash", e);
-            return password;
+            throw new IllegalStateException("SHA-256 is unavailable", e);
         }
     }
 
@@ -603,7 +673,7 @@ public final class DefaultWarpService implements WarpService {
             return hexString.toString();
         } catch (NoSuchAlgorithmException e) {
             logger.error("Failed to compute legacy SHA-256 hash", e);
-            return password;
+            throw new IllegalStateException("SHA-256 is unavailable", e);
         }
     }
 

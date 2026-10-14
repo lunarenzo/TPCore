@@ -73,6 +73,8 @@ tasks {
     }
 
     shadowJar {
+        // Paper supplies SLF4J; do not package a duplicate API that ProGuard can shrink.
+        exclude("org/slf4j/**")
         archiveClassifier.set("")
         archiveFileName.set("TPCore-$pluginVersion.jar")
         relocate("org.spongepowered.configurate", "com.lunatech.tpcore.libs.configurate")

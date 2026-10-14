@@ -32,6 +32,16 @@ safety-checks:
 storage:
   type: "SQLITE"
 
+# Staff edits preserve other metadata and never incur creation charges.
+# Rename changes tpcore.warp.<name>; update external grants manually.
+edit-messages:
+  usage: "<prefix><yellow>Usage: /warpinfo <name> or /editwarp <name> rename <new-name> | relocate | category <category> | password set <password> | password clear | permission required | permission public</yellow>"
+  success: "<prefix><green>Updated warp <yellow><warp></yellow>.</green>"
+  rename-success: "<prefix><green>Renamed <yellow><old-name></yellow> to <yellow><warp></yellow>.</green> <yellow>Per-warp permission: <old-permission> → <permission>. Update external permission grants if required.</yellow>"
+  rename-collision: "<prefix><red>Cannot rename: warp <yellow><warp></yellow> already exists.</red>"
+  invalid-value: "<prefix><red>Invalid edit value. Categories use 1-32 letters, digits, underscores or hyphens; passwords must not be blank.</red>"
+  info: "<prefix><gold>Warp <warp></gold><newline><gray>World: <world> (<world-id>)<newline>Position: <x>, <y>, <z>; yaw <yaw>, pitch <pitch><newline>Category: <category><newline>Password protected: <password-protected><newline>Permission required: <permission-required> (<permission>)<newline>Creator UUID: <creator><newline>Created at (epoch ms): <created-at></gray>"
+
 # Module Messages (Alphabetically ordered keys)
 messages:
   cooldown-active: "<prefix><red>You must wait <gold><seconds>s</gold> before using /warp again!</red>"

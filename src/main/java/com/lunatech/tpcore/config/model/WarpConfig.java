@@ -61,9 +61,11 @@ public record WarpConfig(
     int maxPlayerStateEntries,
     int storageQueueCapacity,
     int operationTimeoutSeconds,
-    long maxStorageBytes
+    long maxStorageBytes,
+    WarpEditMessages editMessages
 ) {
     public WarpConfig {
+        if (editMessages == null) editMessages = WarpEditMessages.createDefault();
         maxConcurrentOperations = Math.max(1, Math.min(1024, maxConcurrentOperations));
         maxCachedWarps = Math.max(1, Math.min(16384, maxCachedWarps));
         maxPlayerStateEntries = Math.max(1, Math.min(16384, maxPlayerStateEntries));
@@ -81,8 +83,34 @@ public record WarpConfig(
         boolean refundOnCancel, WarpSafetyConfig safetyChecks, WarpStorageConfig storage, WarpMessages messages) {
         this(enabled, warmupSeconds, cooldownSeconds, cancelOnMove, cancelOnDamage, defaultPermissionGated,
             defaultCategory, warpsPerPage, maxWarps, economyEnabled, warpCost, setWarpCost, chargeTiming,
-            refundOnCancel, safetyChecks, storage, messages, 64, 4096, 2048, 128, 30, 16777216L);
+            refundOnCancel, safetyChecks, storage, messages, 64, 4096, 2048, 128, 30, 16777216L, WarpEditMessages.createDefault());
     }
+    public WarpConfig(boolean enabled, int warmupSeconds, int cooldownSeconds, boolean cancelOnMove,
+        boolean cancelOnDamage, boolean defaultPermissionGated, String defaultCategory, int warpsPerPage,
+        int maxWarps, boolean economyEnabled, double warpCost, double setWarpCost, String chargeTiming,
+        boolean refundOnCancel, WarpSafetyConfig safetyChecks, WarpStorageConfig storage, WarpMessages messages,
+        int maxConcurrentOperations, int maxCachedWarps, int maxPlayerStateEntries, int storageQueueCapacity,
+        int operationTimeoutSeconds, long maxStorageBytes) {
+        this(enabled, warmupSeconds, cooldownSeconds, cancelOnMove, cancelOnDamage, defaultPermissionGated,
+            defaultCategory, warpsPerPage, maxWarps, economyEnabled, warpCost, setWarpCost, chargeTiming,
+            refundOnCancel, safetyChecks, storage, messages, maxConcurrentOperations, maxCachedWarps,
+            maxPlayerStateEntries, storageQueueCapacity, operationTimeoutSeconds, maxStorageBytes, WarpEditMessages.createDefault());
+    }
+
+    @ConfigSerializable
+    public record WarpEditMessages(String usage, String success, String renameSuccess, String renameCollision, String invalidValue, String info) {
+        public static WarpEditMessages createDefault() {
+            return new WarpEditMessages(
+                "<prefix><yellow>Usage: /warpinfo <name> or /editwarp <name> rename <new-name> | relocate | category <category> | password set <password> | password clear | permission required | permission public</yellow>",
+                "<prefix><green>Updated warp <yellow><warp></yellow>.</green>",
+                "<prefix><green>Renamed <yellow><old-name></yellow> to <yellow><warp></yellow>.</green> <yellow>Per-warp permission: <old-permission> → <permission>. Update external permission grants if required.</yellow>",
+                "<prefix><red>Cannot rename: warp <yellow><warp></yellow> already exists.</red>",
+                "<prefix><red>Invalid edit value. Categories use 1-32 letters, digits, underscores or hyphens; passwords must not be blank.</red>",
+                "<prefix><gold>Warp <warp></gold><newline><gray>World: <world> (<world-id>)<newline>Position: <x>, <y>, <z>; yaw <yaw>, pitch <pitch><newline>Category: <category><newline>Password protected: <password-protected><newline>Permission required: <permission-required> (<permission>)<newline>Creator UUID: <creator><newline>Created at (epoch ms): <created-at></gray>"
+            );
+        }
+    }
+
     public String getNormalizedChargeTiming() {
         if (this.chargeTiming == null || this.chargeTiming.isBlank()) {
             return "CHARGE_ON_WARMUP";

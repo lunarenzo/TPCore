@@ -18,6 +18,34 @@ dependencies:
       join-classpath: true
 
 permissions:
+  tpcore.warp.info:
+    description: Inspect server warp metadata without revealing password hashes.
+    default: op
+  tpcore.warp.edit:
+    description: Grant all server warp editing permissions.
+    default: op
+    children:
+      tpcore.warp.info: true
+      tpcore.warp.edit.rename: true
+      tpcore.warp.edit.relocate: true
+      tpcore.warp.edit.category: true
+      tpcore.warp.edit.password: true
+      tpcore.warp.edit.permission: true
+  tpcore.warp.edit.rename:
+    description: Rename server warps; external per-warp grants must be updated manually.
+    default: op
+  tpcore.warp.edit.relocate:
+    description: Relocate server warps to the executing player's position.
+    default: op
+  tpcore.warp.edit.category:
+    description: Change server warp categories.
+    default: op
+  tpcore.warp.edit.password:
+    description: Set or clear server warp passwords.
+    default: op
+  tpcore.warp.edit.permission:
+    description: Toggle per-warp permission requirements.
+    default: op
   tpcore.tpa.player:
     description: Grants default TPA permissions for non-op players (use, here, accept, deny, cancel, toggle, block, unblock, blocklist, autoaccept)
     default: true

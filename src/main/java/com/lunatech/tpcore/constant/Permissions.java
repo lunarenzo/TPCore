@@ -44,6 +44,13 @@ public final class Permissions {
     public static final String WARP_LIST = "tpcore.warp.list";
     public static final String WARP_OTHER = "tpcore.warp.other";
     public static final String WARP_ADMIN = "tpcore.warp.admin";
+    public static final String WARP_INFO = "tpcore.warp.info";
+    public static final String WARP_EDIT = "tpcore.warp.edit";
+    public static final String WARP_EDIT_RENAME = "tpcore.warp.edit.rename";
+    public static final String WARP_EDIT_RELOCATE = "tpcore.warp.edit.relocate";
+    public static final String WARP_EDIT_CATEGORY = "tpcore.warp.edit.category";
+    public static final String WARP_EDIT_PASSWORD = "tpcore.warp.edit.password";
+    public static final String WARP_EDIT_PERMISSION = "tpcore.warp.edit.permission";
     public static final String WARP_BYPASS_WARMUP = "tpcore.warp.bypass.warmup";
     public static final String WARP_BYPASS_COOLDOWN = "tpcore.warp.bypass.cooldown";
     public static final String WARP_BYPASS_COST = "tpcore.warp.bypass.cost";

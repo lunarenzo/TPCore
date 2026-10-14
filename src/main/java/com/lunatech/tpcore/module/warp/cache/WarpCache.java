@@ -15,6 +15,7 @@ public interface WarpCache {
     Optional<Warp> getWarp(String warpName);
 
     void putWarp(Warp warp);
+    void replaceWarp(String oldName, Warp updated);
 
     void removeWarp(String warpName);
 

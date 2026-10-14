@@ -231,6 +231,29 @@ public final class YamlWarpRepository implements WarpRepository {
     }
 
     @Override
+    public CompletableFuture<Void> replace(String oldName, Warp updated) {
+        return virtualExecutor.run(() -> {
+            fileLock.lock();
+            try {
+                YamlConfigurationLoader loader = createLoader(warpFile);
+                CommentedConfigurationNode root = loader.load();
+                CommentedConfigurationNode warps = root.node("warps");
+                List<Object> sourceKeys = new ArrayList<>();
+                for (Object key : warps.childrenMap().keySet()) {
+                    String name = key.toString();
+                    if (name.equalsIgnoreCase(oldName)) sourceKeys.add(key);
+                    else if (name.equalsIgnoreCase(updated.name())) throw new IllegalStateException("Warp rename collision");
+                }
+                if (sourceKeys.isEmpty()) throw new IllegalStateException("Warp disappeared during edit");
+                for (Object sourceKey : sourceKeys) warps.node(sourceKey).set(null);
+                writeWarpToNode(warps.node(updated.name()), updated);
+                loader.save(root);
+            } catch (ConfigurateException failure) { throw new IllegalStateException("Warp edit failed", failure); }
+            finally { fileLock.unlock(); }
+        });
+    }
+
+    @Override
     public CompletableFuture<Void> close() {
         return virtualExecutor.close(() -> {
         });
