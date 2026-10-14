@@ -30,8 +30,6 @@ dependencies {
     compileOnly("me.clip:placeholderapi:2.11.6")
     implementation("org.spongepowered:configurate-yaml:4.1.2")
     implementation("com.zaxxer:HikariCP:5.1.0")
-    // SQLite's native resources use its original package names; do not relocate this driver.
-    implementation("org.xerial:sqlite-jdbc:3.45.1.0")
 
     testImplementation("io.papermc.paper:paper-api:1.20.6-R0.1-SNAPSHOT")
     testImplementation("com.github.MilkBowl:VaultAPI:1.7")
@@ -40,6 +38,7 @@ dependencies {
     testImplementation("org.junit.jupiter:junit-jupiter")
     testImplementation("org.mockito:mockito-core:5.11.0")
     testImplementation("org.mockito:mockito-junit-jupiter:5.11.0")
+    testImplementation("org.xerial:sqlite-jdbc:3.45.1.0")
     testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
