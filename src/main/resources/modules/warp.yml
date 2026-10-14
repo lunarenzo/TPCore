@@ -32,6 +32,52 @@ safety-checks:
 storage:
   type: "SQLITE"
 
+# Search is case-insensitive and matches part of a warp name.
+# Chat stays the default; /warps gui opens the optional inventory browser.
+# Presentation keys are warp names. Rename their config keys when renaming a warp.
+browsing:
+  inventory-enabled: false
+  inventory-rows: 6
+  max-search-length: 32
+  max-description-length: 512
+  max-presentation-entries: 512
+  default-icon: "BOOK"
+  category-icon: "CHEST"
+  previous-icon: "ARROW"
+  next-icon: "ARROW"
+  refresh-icon: "SUNFLOWER"
+  close-icon: "BARRIER"
+  # Example: hub: {icon: COMPASS, description: "Server arrival point"}
+  presentations: {}
+  messages:
+    usage: "<prefix><yellow>/warps [category|page] [page]; /warps search <term> [page]; /warps category <category> [search <term>] [page]; /warps categories; /warps gui [search <term> | category <category>] [page]</yellow>"
+    invalid-search: "<prefix><red>Search must contain 1–<limit> characters.</red>"
+    search-header: "<prefix><gold>Warps matching '<search>' in <category> (page <page>/<maxpages>):</gold>"
+    previous: "<yellow>[Previous]</yellow>"
+    next: "<yellow>[Next]</yellow>"
+    navigation: "<prefix><gray>Page <page>/<maxpages> — <total> results.</gray>"
+    categories-header: "<prefix><gold>Warp categories:</gold>"
+    category-item: "<yellow>[<category>]</yellow>"
+    inventory-disabled: "<prefix><yellow>The inventory warp browser is disabled.</yellow>"
+    inventory-title: "<gold>Warps: <category> (<page>/<maxpages>)</gold>"
+    item-name: "<yellow><name></yellow> <red><availability></red>"
+    item-lore:
+      - "<gray><description></gray>"
+      - "<gray>Category: <category></gray>"
+      - "<gray>World: <world></gray>"
+      - "<red><reason></red>"
+      - "<gray>Click to request teleport; passwords use /warp <name> <password>.</gray>"
+    category-title: "<gold>Warp categories (<page>/<maxpages>)</gold>"
+    category-name: "<yellow><category></yellow>"
+    category-lore:
+      - "<gray>Click to browse this category.</gray>"
+    refresh: "<green>[Refresh]</green>"
+    close: "<red>[Close]</red>"
+    all-categories: "All"
+    categories-button: "<yellow>[Categories]</yellow>"
+    search-button: "<yellow>[Search]</yellow>"
+    command-description: "Browse server warps"
+
 # Administrative controls; changing these settings reopens storage safely.
 control:
   delete-confirmation-seconds: 30

@@ -3,6 +3,11 @@ package com.lunatech.tpcore.module.warp.command;
 import com.lunatech.tpcore.config.model.WarpConfig;
 import com.lunatech.tpcore.constant.Permissions;
 import com.lunatech.tpcore.module.warp.model.Warp;
+import com.lunatech.tpcore.module.warp.gui.WarpBrowser;
+import com.lunatech.tpcore.module.warp.model.WarpBrowseQuery;
+import com.lunatech.tpcore.module.warp.util.WarpBrowsing;
+import com.mojang.brigadier.builder.LiteralArgumentBuilder;
+import net.kyori.adventure.text.event.ClickEvent;
 import com.lunatech.tpcore.module.warp.model.WarpEdit;
 import com.lunatech.tpcore.module.warp.service.WarpResultStatus;
 import com.lunatech.tpcore.module.warp.service.WarpService;
@@ -14,10 +19,8 @@ import com.mojang.brigadier.suggestion.SuggestionProvider;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
 import io.papermc.paper.command.brigadier.Commands;
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
-import java.util.ArrayList;
 import java.util.concurrent.CompletableFuture;
 import com.lunatech.tpcore.module.warp.model.DeletedWarp;
-import java.util.Collection;
 import java.util.Locale;
 import java.util.UUID;
 import java.util.List;
@@ -38,9 +41,15 @@ public final class WarpCommandRegistry {
     private final JavaPlugin plugin;
     private final Supplier<WarpService> warpServiceSupplier;
     private final Supplier<WarpConfig> configSupplier;
+    private final WarpBrowser browser;
     private final MiniMessage miniMessage = MiniMessage.miniMessage();
 
     public WarpCommandRegistry(JavaPlugin plugin, Supplier<WarpService> warpServiceSupplier, Supplier<WarpConfig> configSupplier) {
+        this(plugin, warpServiceSupplier, configSupplier, null);
+    }
+
+    public WarpCommandRegistry(JavaPlugin plugin, Supplier<WarpService> warpServiceSupplier, Supplier<WarpConfig> configSupplier, WarpBrowser browser) {
+        this.browser = browser;
         this.plugin = Objects.requireNonNull(plugin, "plugin cannot be null");
         this.warpServiceSupplier = Objects.requireNonNull(warpServiceSupplier, "warpServiceSupplier cannot be null");
         this.configSupplier = Objects.requireNonNull(configSupplier, "configSupplier cannot be null");
@@ -58,13 +67,8 @@ public final class WarpCommandRegistry {
                 WarpService service = warpServiceSupplier.get();
                 if (service != null) {
                     CommandSender sender = context.getSource().getSender();
-                    Player player = (sender instanceof Player p) ? p : null;
                     for (Warp warp : service.getAllWarps()) {
-                        boolean canSee = !warp.permissionGated()
-                            || player == null
-                            || player.hasPermission("tpcore.warp." + warp.name().toLowerCase(Locale.ROOT))
-                            || player.hasPermission("tpcore.warp.admin");
-                        if (!warp.unlisted() && canSee && warp.name().toLowerCase(Locale.ROOT).startsWith(remaining)) {
+                        if (WarpBrowsing.visible(sender, warp) && warp.name().toLowerCase(Locale.ROOT).startsWith(remaining)) {
                             builder.suggest(warp.name());
                         }
                     }
@@ -111,7 +115,7 @@ public final class WarpCommandRegistry {
                             return executeWarpsList(player, null, 1);
                         }
                         sendMessage(sender, configSupplier.get().messages().warpUsage());
-                        return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+                        return Command.SINGLE_SUCCESS;
                     })
                     .then(Commands.argument("name", StringArgumentType.word())
                         .suggests(warpSuggestions)
@@ -135,7 +139,7 @@ public final class WarpCommandRegistry {
                     .requires(src -> src.getSender().hasPermission(Permissions.WARP_SET))
                     .executes(ctx -> {
                         sendMessage(ctx.getSource().getSender(), configSupplier.get().messages().setWarpUsage());
-                        return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+                        return Command.SINGLE_SUCCESS;
                     })
                     .then(Commands.argument("name", StringArgumentType.word())
                         .suggests(warpSuggestions)
@@ -211,7 +215,7 @@ public final class WarpCommandRegistry {
                     .requires(src -> src.getSender().hasPermission(Permissions.WARP_DEL))
                     .executes(ctx -> {
                         sendMessage(ctx.getSource().getSender(), configSupplier.get().messages().delWarpUsage());
-                        return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+                        return Command.SINGLE_SUCCESS;
                     })
                     .then(Commands.argument("name", StringArgumentType.word())
                         .suggests(warpSuggestions)
@@ -223,33 +227,7 @@ public final class WarpCommandRegistry {
                 List.of("removewarp")
             );
 
-            // /warps [category|page] [page]
-            commands.register(
-                Commands.literal("warps")
-                    .requires(src -> src.getSender().hasPermission(Permissions.WARP_LIST))
-                    .executes(ctx -> executeWarpsList(ctx.getSource().getSender(), null, 1))
-                    .then(Commands.argument("query", StringArgumentType.word())
-                        .suggests(categorySuggestions)
-                        .executes(ctx -> {
-                            String query = StringArgumentType.getString(ctx, "query");
-                            if (query.matches("\\d+")) {
-                                int page = Integer.parseInt(query);
-                                return executeWarpsList(ctx.getSource().getSender(), null, page);
-                            }
-                            return executeWarpsList(ctx.getSource().getSender(), query, 1);
-                        })
-                        .then(Commands.argument("page", IntegerArgumentType.integer(1, 100))
-                            .executes(ctx -> executeWarpsList(
-                                ctx.getSource().getSender(),
-                                StringArgumentType.getString(ctx, "query"),
-                                IntegerArgumentType.getInteger(ctx, "page")
-                            ))
-                        )
-                    )
-                    .build(),
-                "List available server warps",
-                List.of("listwarps", "warplist")
-            );
+            registerBrowseCommands(commands);
 
             // /warpother [target] [name]
             commands.register(
@@ -257,7 +235,7 @@ public final class WarpCommandRegistry {
                     .requires(src -> src.getSender().hasPermission(Permissions.WARP_OTHER))
                     .executes(ctx -> {
                         sendMessage(ctx.getSource().getSender(), configSupplier.get().messages().warpOtherUsage());
-                        return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+                        return Command.SINGLE_SUCCESS;
                     })
                     .then(Commands.argument("target", StringArgumentType.word())
                         .suggests(playerSuggestions)
@@ -276,6 +254,105 @@ public final class WarpCommandRegistry {
             );
             registerStaffCommands(commands);
         });
+    }
+
+    private void registerBrowseCommands(Commands commands) {
+        commands.register(browseRoot("warps", false).then(browseRoot("gui", true)).build(), configSupplier.get().browsing().messages().commandDescription(), List.of("listwarps", "warplist"));
+    }
+
+    private LiteralArgumentBuilder<CommandSourceStack> browseRoot(String label, boolean gui) {
+        SuggestionProvider<CommandSourceStack> categories = (context, builder) -> {
+            WarpService service = warpServiceSupplier.get();
+            if (service != null && configSupplier.get().enabled()) {
+                var page = WarpBrowsing.page(service.getAllWarps(), warp -> WarpBrowsing.visible(context.getSource().getSender(), warp), new WarpBrowseQuery(null, null, 1, false), 1);
+                for (String category : page.categories()) if (category.startsWith(builder.getRemaining().toLowerCase(Locale.ROOT))) builder.suggest(category);
+            }
+            return builder.buildFuture();
+        };
+        return Commands.literal(label).requires(source -> source.getSender().hasPermission(Permissions.WARP_LIST))
+            .executes(context -> browse(context.getSource().getSender(), null, null, 1, gui))
+            .then(Commands.literal("help").executes(context -> {
+                WarpConfig settings = configSupplier.get();
+                sendMessage(context.getSource().getSender(), settings.enabled() ? settings.browsing().messages().usage() : settings.messages().moduleDisabled());
+                return Command.SINGLE_SUCCESS;
+            }))
+            .then(Commands.literal("search").then(Commands.argument("search", StringArgumentType.string())
+                .executes(context -> browse(context.getSource().getSender(), null, StringArgumentType.getString(context, "search"), 1, gui))
+                .then(Commands.argument("page", IntegerArgumentType.integer(1)).executes(context -> browse(context.getSource().getSender(), null,
+                    StringArgumentType.getString(context, "search"), IntegerArgumentType.getInteger(context, "page"), gui)))))
+            .then(Commands.literal("categories").executes(context -> categoryList(context.getSource().getSender(), gui, 1))
+                .then(Commands.argument("page", IntegerArgumentType.integer(1)).executes(context -> categoryList(context.getSource().getSender(), gui, IntegerArgumentType.getInteger(context, "page")))))
+            .then(Commands.literal("category").then(Commands.argument("category", StringArgumentType.string()).suggests(categories)
+                .executes(context -> browse(context.getSource().getSender(), StringArgumentType.getString(context, "category"), null, 1, gui))
+                .then(Commands.argument("page", IntegerArgumentType.integer(1)).executes(context -> browse(context.getSource().getSender(),
+                    StringArgumentType.getString(context, "category"), null, IntegerArgumentType.getInteger(context, "page"), gui)))
+                .then(Commands.literal("search").then(Commands.argument("search", StringArgumentType.string())
+                    .executes(context -> browse(context.getSource().getSender(), StringArgumentType.getString(context, "category"), StringArgumentType.getString(context, "search"), 1, gui))
+                    .then(Commands.argument("page", IntegerArgumentType.integer(1)).executes(context -> browse(context.getSource().getSender(),
+                        StringArgumentType.getString(context, "category"), StringArgumentType.getString(context, "search"), IntegerArgumentType.getInteger(context, "page"), gui)))))))
+            .then(Commands.argument("query", StringArgumentType.word()).suggests(categories)
+                .executes(context -> {
+                    String query = StringArgumentType.getString(context, "query");
+                    if (query.matches("\\d+")) {
+                        int page; try { page = Integer.parseInt(query); } catch (NumberFormatException failure) { page = Integer.MAX_VALUE; }
+                        return browse(context.getSource().getSender(), null, null, page, gui);
+                    }
+                    return browse(context.getSource().getSender(), query, null, 1, gui);
+                })
+                .then(Commands.argument("page", IntegerArgumentType.integer(1)).executes(context -> browse(context.getSource().getSender(),
+                    StringArgumentType.getString(context, "query"), null, IntegerArgumentType.getInteger(context, "page"), gui))));
+    }
+
+    private int browse(CommandSender sender, String category, String search, int page, boolean gui) {
+        WarpConfig settings = configSupplier.get();
+        if (search != null && (search.isBlank() || search.length() > settings.browsing().maxSearchLength())) {
+            sendMessage(sender, settings.browsing().messages().invalidSearch(), Placeholder.unparsed("limit", Integer.toString(settings.browsing().maxSearchLength()))); return Command.SINGLE_SUCCESS;
+        }
+        if (gui) {
+            if (!(sender instanceof Player player)) sendOnlyPlayersMessage(sender);
+            else if (browser == null) sendMessage(sender, settings.browsing().messages().inventoryDisabled());
+            else browser.open(player, new WarpBrowseQuery(category, search, page, false));
+            return Command.SINGLE_SUCCESS;
+        }
+        return executeWarpsList(sender, category, search, page);
+    }
+
+    private int categoryList(CommandSender sender, boolean gui, int requestedPage) {
+        WarpConfig settings = configSupplier.get(); WarpService service = warpServiceSupplier.get();
+        if (!settings.enabled()) { sendDisabledMessage(sender); return Command.SINGLE_SUCCESS; }
+        if (service == null || !service.isReady()) { sendMessage(sender, settings.messages().storageNotReady()); return Command.SINGLE_SUCCESS; }
+        if (gui) {
+            if (!(sender instanceof Player player)) sendOnlyPlayersMessage(sender);
+            else if (browser != null) browser.open(player, new WarpBrowseQuery(null, null, requestedPage, true));
+            else sendMessage(sender, settings.browsing().messages().inventoryDisabled());
+            return Command.SINGLE_SUCCESS;
+        }
+        var page = WarpBrowsing.page(service.getAllWarps(), warp -> WarpBrowsing.visible(sender, warp), new WarpBrowseQuery(null, null, requestedPage, true), settings.warpsPerPage());
+        if (page.categories().isEmpty()) sendMessage(sender, settings.messages().warpListEmpty());
+        else {
+            sendMessage(sender, settings.browsing().messages().categoriesHeader());
+            int size = Math.max(1, Math.min(settings.warpsPerPage(), page.categories().size()));
+            int start = (page.query().page() - 1) * size;
+            for (String category : page.categories().subList(start, Math.min(start + size, page.categories().size()))) sender.sendMessage(browseText(settings.browsing().messages().categoryItem(), settings,
+                Placeholder.unparsed("category", category)).clickEvent(ClickEvent.runCommand(browseCommand(new WarpBrowseQuery(category, null, 1, false), 1))));
+            sendMessage(sender, settings.browsing().messages().navigation(), Placeholder.unparsed("page", Integer.toString(page.query().page())), Placeholder.unparsed("maxpages", Integer.toString(page.pages())), Placeholder.unparsed("total", Integer.toString(page.total())));
+            if (page.query().page() > 1) sender.sendMessage(browseText(settings.browsing().messages().previous(), settings).clickEvent(ClickEvent.runCommand(browseCommand(page.query(), page.query().page() - 1))));
+            if (page.query().page() < page.pages()) sender.sendMessage(browseText(settings.browsing().messages().next(), settings).clickEvent(ClickEvent.runCommand(browseCommand(page.query(), page.query().page() + 1))));
+        }
+        return Command.SINGLE_SUCCESS;
+    }
+
+    public void teleportFromBrowser(Player player, String name) { executeWarp(player, name, null); }
+
+    private String browseCommand(WarpBrowseQuery query, int page) {
+        if (query.categories()) return "/warps categories " + page;
+        return "/warps" + (query.category().isEmpty() ? "" : " category " + StringArgumentType.escapeIfRequired(query.category()))
+            + (query.search().isEmpty() ? "" : " search " + StringArgumentType.escapeIfRequired(query.search())) + " " + page;
+    }
+
+    private Component browseText(String template, WarpConfig settings, TagResolver... resolvers) {
+        TagResolver[] all = new TagResolver[resolvers.length + 1]; all[0] = Placeholder.parsed("prefix", MessageFormatter.toMiniMessage(settings.messages().prefix()));
+        System.arraycopy(resolvers, 0, all, 1, resolvers.length); return miniMessage.deserialize(MessageFormatter.toMiniMessage(template), all);
     }
 
     private boolean staffPermission(CommandSender sender, String permission) {
@@ -352,8 +429,7 @@ public final class WarpCommandRegistry {
     }
 
     private boolean publiclyVisible(CommandSender sender, Warp warp) {
-        return !warp.unlisted() && (!warp.permissionGated() || !(sender instanceof Player)
-            || sender.hasPermission("tpcore.warp." + warp.name().toLowerCase(Locale.ROOT)) || sender.hasPermission(Permissions.WARP_ADMIN));
+        return WarpBrowsing.visible(sender, warp);
     }
 
     private int staffUsage(CommandSender sender) {
@@ -427,20 +503,21 @@ public final class WarpCommandRegistry {
         WarpConfig config = configSupplier.get();
         if (!config.enabled()) {
             sendDisabledMessage(sender);
-            return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+            return Command.SINGLE_SUCCESS;
         }
 
         if (!(sender instanceof Player player)) {
             sendOnlyPlayersMessage(sender);
-            return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+            return Command.SINGLE_SUCCESS;
         }
 
         WarpService service = warpServiceSupplier.get();
         if (service == null) {
             sendDisabledMessage(sender);
-            return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+            return Command.SINGLE_SUCCESS;
         }
 
+        if (!player.hasPermission(Permissions.WARP_USE)) { sendMessage(sender, config.messages().noPermission(), Placeholder.unparsed("warp", warpName)); return Command.SINGLE_SUCCESS; }
         UUID playerId = player.getUniqueId();
         service.teleportToWarp(player, warpName, rawPassword).thenAccept(status -> {
             if (status == WarpResultStatus.WARMUP_CANCELLED_MOVE || status == WarpResultStatus.WARMUP_CANCELLED_DAMAGE) return;
@@ -476,25 +553,25 @@ public final class WarpCommandRegistry {
             );
         });
 
-        return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+        return Command.SINGLE_SUCCESS;
     }
 
     private int executeSetWarp(CommandSender sender, String warpName, boolean overwrite, String password, String category) {
         WarpConfig config = configSupplier.get();
         if (!config.enabled()) {
             sendDisabledMessage(sender);
-            return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+            return Command.SINGLE_SUCCESS;
         }
 
         if (!(sender instanceof Player player)) {
             sendOnlyPlayersMessage(sender);
-            return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+            return Command.SINGLE_SUCCESS;
         }
 
         WarpService service = warpServiceSupplier.get();
         if (service == null) {
             sendDisabledMessage(sender);
-            return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+            return Command.SINGLE_SUCCESS;
         }
 
         UUID playerId = player.getUniqueId();
@@ -520,7 +597,7 @@ public final class WarpCommandRegistry {
             sendPlayerReply(playerId, rawMsg, Placeholder.unparsed("warp", warpName));
         });
 
-        return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+        return Command.SINGLE_SUCCESS;
     }
 
     private int executeDelWarp(CommandSender sender, String warpName, boolean confirm) {
@@ -590,52 +667,36 @@ public final class WarpCommandRegistry {
     }
 
     private int executeWarpsList(CommandSender sender, String category, int page) {
+        return executeWarpsList(sender, category, null, page);
+    }
+
+    private int executeWarpsList(CommandSender sender, String category, String search, int page) {
         WarpConfig config = configSupplier.get();
         if (!config.enabled()) {
             sendDisabledMessage(sender);
-            return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+            return Command.SINGLE_SUCCESS;
         }
 
         WarpService service = warpServiceSupplier.get();
-        if (service == null) {
-            sendDisabledMessage(sender);
-            return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+        if (service == null || !service.isReady()) {
+            sendMessage(sender, config.messages().storageNotReady());
+            return Command.SINGLE_SUCCESS;
         }
 
-        Collection<Warp> rawList = (category != null && !category.isBlank())
-            ? service.getWarpsByCategory(category)
-            : service.getAllWarps();
+        var result = WarpBrowsing.page(service.getAllWarps(), warp -> WarpBrowsing.visible(sender, warp), new WarpBrowseQuery(category, search, page, false), config.warpsPerPage());
+        if (result.total() == 0) { sendMessage(sender, config.messages().warpListEmpty()); return Command.SINGLE_SUCCESS; }
+        List<Warp> list = result.warps(); int targetPage = result.query().page(), maxPages = result.pages();
+        int startIndex = 0, endIndex = list.size();
 
-        Player playerSender = (sender instanceof Player p) ? p : null;
-        List<Warp> visibleList = rawList.stream()
-            .filter(warp -> !warp.unlisted())
-            .filter(warp -> !warp.permissionGated()
-                || playerSender == null
-                || playerSender.hasPermission("tpcore.warp." + warp.name().toLowerCase(Locale.ROOT))
-                || playerSender.hasPermission("tpcore.warp.admin"))
-            .toList();
-
-        if (visibleList.isEmpty()) {
-            sendMessage(sender, config.messages().warpListEmpty());
-            return com.mojang.brigadier.Command.SINGLE_SUCCESS;
-        }
-
-        List<Warp> list = new ArrayList<>(visibleList);
-        int perPage = Math.max(1, config.warpsPerPage());
-        int maxPages = Math.max(1, (int) Math.ceil((double) list.size() / perPage));
-        int targetPage = Math.max(1, Math.min(page, maxPages));
-
-        int startIndex = (targetPage - 1) * perPage;
-        int endIndex = Math.min(startIndex + perPage, list.size());
-
-        String headerTemplate = (category != null && !category.isBlank())
+        String headerTemplate = search != null ? config.browsing().messages().searchHeader() : (category != null && !category.isBlank())
             ? config.messages().warpListCategoryHeader()
             : config.messages().warpListHeader();
 
         sendMessage(
             sender,
             headerTemplate,
-            Placeholder.unparsed("category", category != null ? category : "All"),
+            Placeholder.unparsed("category", category != null ? category : config.browsing().messages().allCategories()),
+            Placeholder.unparsed("search", search == null ? "" : search),
             Placeholder.unparsed("page", String.valueOf(targetPage)),
             Placeholder.unparsed("maxpages", String.valueOf(maxPages))
         );
@@ -660,14 +721,22 @@ public final class WarpCommandRegistry {
             sender.sendMessage(item);
         }
 
-        return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+        var messages = config.browsing().messages();
+        sendMessage(sender, messages.navigation(), Placeholder.unparsed("page", Integer.toString(targetPage)), Placeholder.unparsed("maxpages", Integer.toString(maxPages)), Placeholder.unparsed("total", Integer.toString(result.total())));
+        if (targetPage > 1) sender.sendMessage(browseText(messages.previous(), config).clickEvent(ClickEvent.runCommand(browseCommand(result.query(), targetPage - 1))));
+        if (targetPage < maxPages) sender.sendMessage(browseText(messages.next(), config).clickEvent(ClickEvent.runCommand(browseCommand(result.query(), targetPage + 1))));
+        sender.sendMessage(browseText(messages.categoriesButton(), config).clickEvent(ClickEvent.runCommand("/warps categories")));
+        String searchCommand = "/warps" + (result.query().category().isEmpty() ? "" : " category " + StringArgumentType.escapeIfRequired(result.query().category())) + " search ";
+        sender.sendMessage(browseText(messages.searchButton(), config).clickEvent(ClickEvent.suggestCommand(searchCommand)));
+
+        return Command.SINGLE_SUCCESS;
     }
 
     private int executeWarpOther(CommandSender sender, String targetName, String warpName) {
         WarpConfig config = configSupplier.get();
         if (!config.enabled()) {
             sendDisabledMessage(sender);
-            return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+            return Command.SINGLE_SUCCESS;
         }
 
         Player target = Bukkit.getPlayer(targetName);
@@ -677,13 +746,13 @@ public final class WarpCommandRegistry {
                 config.messages().playerNotOnline(),
                 Placeholder.unparsed("target", targetName)
             );
-            return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+            return Command.SINGLE_SUCCESS;
         }
 
         WarpService service = warpServiceSupplier.get();
         if (service == null) {
             sendDisabledMessage(sender);
-            return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+            return Command.SINGLE_SUCCESS;
         }
 
         String senderName = sender instanceof Player p ? p.getName() : "Console";
@@ -715,7 +784,7 @@ public final class WarpCommandRegistry {
             }
         });
 
-        return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+        return Command.SINGLE_SUCCESS;
     }
 
     private void sendOnlyPlayersMessage(CommandSender sender) {

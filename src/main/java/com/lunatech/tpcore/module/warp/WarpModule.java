@@ -9,6 +9,8 @@ import com.lunatech.tpcore.module.warp.command.WarpCommandRegistry;
 import com.lunatech.tpcore.module.warp.economy.WarpEconomyService;
 import com.lunatech.tpcore.module.warp.economy.impl.VaultWarpEconomyService;
 import com.lunatech.tpcore.module.warp.listener.WarpEventListener;
+import com.lunatech.tpcore.module.warp.listener.WarpBrowserListener;
+import com.lunatech.tpcore.module.warp.gui.WarpBrowser;
 import com.lunatech.tpcore.module.warp.repository.WarpRepository;
 import com.lunatech.tpcore.module.warp.repository.impl.SqliteWarpRepository;
 import com.lunatech.tpcore.module.warp.repository.impl.YamlWarpRepository;
@@ -38,6 +40,7 @@ public final class WarpModule implements ReloadableModule {
     private final AtomicLong lifecycle = new AtomicLong();
     private WarpEventListener eventListener;
     private WarpCommandRegistry commandRegistry;
+    private WarpBrowser browser;
 
     public WarpModule(JavaPlugin plugin, ModularConfigManager configManager, WarpConfig config) {
         this.plugin = Objects.requireNonNull(plugin, "plugin cannot be null");
@@ -96,6 +99,7 @@ public final class WarpModule implements ReloadableModule {
                             });
                         });
                     } else {
+                        if (!next.browsing().equals(config.browsing()) && browser != null) browser.invalidate();
                         service.updateConfig(next); config = next; applied.complete(true);
                     }
                 } catch (RuntimeException failure) { applied.completeExceptionally(failure); }
@@ -110,7 +114,10 @@ public final class WarpModule implements ReloadableModule {
 
     public void enable() {
         if (!this.commandsRegistered) {
-            this.commandRegistry = new WarpCommandRegistry(this.plugin, this::getService, () -> this.config);
+            this.browser = new WarpBrowser(plugin, this::getService, () -> config, (player, name) -> commandRegistry.teleportFromBrowser(player, name));
+            this.commandRegistry = new WarpCommandRegistry(this.plugin, this::getService, () -> this.config, browser);
+            // Kept across module toggles to cancel interaction with an already-open obsolete menu.
+            plugin.getServer().getPluginManager().registerEvents(new WarpBrowserListener(browser), plugin);
             this.commandRegistry.registerAll();
             this.commandsRegistered = true;
         }
@@ -157,6 +164,7 @@ public final class WarpModule implements ReloadableModule {
     }
 
     public void disable() {
+        if (browser != null) browser.invalidate();
         if (!this.isInitialized) {
             return;
         }

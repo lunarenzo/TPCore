@@ -84,6 +84,7 @@ class WarpEditingCommandTest {
 
     @Test void publicDiscoveryOmitsUnlistedWarpButShowsClosedWarpWithBadge() throws Exception {
         WarpService service = mock(WarpService.class);
+        when(service.isReady()).thenReturn(true);
         Warp hidden = new Warp("secret", null, "world", 0, 64, 0, 0, 0, null, "hidden", null, false, 0, false, "", true);
         Warp closed = new Warp("hub", null, "world", 0, 64, 0, 0, 0, null, "general", null, false, 0, true, "Unsafe bridge", false);
         when(service.getAllWarps()).thenReturn(List.of(hidden, closed));

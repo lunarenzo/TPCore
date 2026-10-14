@@ -27,7 +27,7 @@ public record WarpConfig(
     @Comment("Default category assigned to warps if unassigned")
     String defaultCategory,
 
-    @Comment("Number of warps displayed per page in /warps GUI menu")
+    @Comment("Number of entries displayed per page in /warps chat browsing")
     int warpsPerPage,
 
     @Comment("Maximum total server warps allowed (0 for unlimited)")
@@ -64,11 +64,13 @@ public record WarpConfig(
     long maxStorageBytes,
     WarpEditMessages editMessages,
     WarpControlConfig control,
-    WarpControlMessages controlMessages
+    WarpControlMessages controlMessages,
+    WarpBrowseConfig browsing
 ) {
     public WarpConfig {
         if (editMessages == null) editMessages = WarpEditMessages.createDefault();
         if (control == null) control = WarpControlConfig.createDefault();
+        if (browsing == null) browsing = WarpBrowseConfig.createDefault();
         if (controlMessages == null) controlMessages = WarpControlMessages.createDefault();
         maxConcurrentOperations = Math.max(1, Math.min(1024, maxConcurrentOperations));
         maxCachedWarps = Math.max(1, Math.min(16384, maxCachedWarps));
@@ -112,6 +114,20 @@ public record WarpConfig(
             refundOnCancel, safetyChecks, storage, messages, maxConcurrentOperations, maxCachedWarps,
             maxPlayerStateEntries, storageQueueCapacity, operationTimeoutSeconds, maxStorageBytes, editMessages,
             WarpControlConfig.createDefault(), WarpControlMessages.createDefault());
+    }
+
+    public WarpConfig(boolean enabled, int warmupSeconds, int cooldownSeconds, boolean cancelOnMove,
+        boolean cancelOnDamage, boolean defaultPermissionGated, String defaultCategory, int warpsPerPage,
+        int maxWarps, boolean economyEnabled, double warpCost, double setWarpCost, String chargeTiming,
+        boolean refundOnCancel, WarpSafetyConfig safetyChecks, WarpStorageConfig storage, WarpMessages messages,
+        int maxConcurrentOperations, int maxCachedWarps, int maxPlayerStateEntries, int storageQueueCapacity,
+        int operationTimeoutSeconds, long maxStorageBytes, WarpEditMessages editMessages, WarpControlConfig control,
+        WarpControlMessages controlMessages) {
+        this(enabled, warmupSeconds, cooldownSeconds, cancelOnMove, cancelOnDamage, defaultPermissionGated,
+            defaultCategory, warpsPerPage, maxWarps, economyEnabled, warpCost, setWarpCost, chargeTiming,
+            refundOnCancel, safetyChecks, storage, messages, maxConcurrentOperations, maxCachedWarps,
+            maxPlayerStateEntries, storageQueueCapacity, operationTimeoutSeconds, maxStorageBytes, editMessages,
+            control, controlMessages, WarpBrowseConfig.createDefault());
     }
 
     @ConfigSerializable
