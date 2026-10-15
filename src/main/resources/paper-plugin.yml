@@ -26,6 +26,21 @@ dependencies:
       join-classpath: true
 
 permissions:
+  tpcore.warp.sign.use:
+    description: Use a warp sign, subject to normal warp permissions and policies.
+    default: true
+  tpcore.warp.sign.create:
+    description: Bind a sign face to an existing server warp.
+    default: op
+  tpcore.warp.sign.remove:
+    description: Remove a warp sign binding and clear that face.
+    default: op
+  tpcore.warp.sign.info:
+    description: Inspect a warp sign binding.
+    default: op
+  tpcore.warp.sign.break:
+    description: Break a block with a warp sign binding.
+    default: op
   tpcore.warp.status:
     description: View warp storage, capacity and payment health summaries.
     default: op

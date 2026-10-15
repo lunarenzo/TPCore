@@ -65,6 +65,10 @@ public final class WarpCommandRegistry {
     }
 
     public void registerAll() {
+        registerAll(null);
+    }
+
+    public void registerAll(WarpSignCommandRegistry signs) {
         this.plugin.getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS, event -> {
             final Commands commands = event.registrar();
 
@@ -263,6 +267,7 @@ public final class WarpCommandRegistry {
             );
             registerStaffCommands(commands);
             registerImportCommands(commands);
+            if (signs != null) signs.register(commands);
         });
     }
 
@@ -431,6 +436,7 @@ public final class WarpCommandRegistry {
     }
 
     public void teleportFromBrowser(Player player, String name) { executeWarp(player, name, null); }
+    public void teleportFromSign(Player player, String name) { executeWarp(player, name, null); }
 
     private String browseCommand(WarpBrowseQuery query, int page) {
         if (query.categories()) return "/warps categories " + page;

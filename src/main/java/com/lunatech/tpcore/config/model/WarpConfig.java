@@ -68,9 +68,11 @@ public record WarpConfig(
     WarpControlMessages controlMessages,
     WarpBrowseConfig browsing,
     WarpImportConfig essentialsImport,
-    WarpPolicyConfig policies
+    WarpPolicyConfig policies,
+    WarpSignConfig signs
 ) {
     public WarpConfig {
+        if (signs == null) signs = WarpSignConfig.createDefault();
         if (policies == null) policies = WarpPolicyConfig.createDefault();
         if (essentialsImport == null) essentialsImport = WarpImportConfig.createDefault();
         if (editMessages == null) editMessages = WarpEditMessages.createDefault();
@@ -86,6 +88,19 @@ public record WarpConfig(
         if (!Double.isFinite(warpCost) || warpCost < 0 || !Double.isFinite(setWarpCost) || setWarpCost < 0) {
             throw new IllegalArgumentException("Warp costs must be finite and nonnegative");
         }
+    }
+
+    public WarpConfig(boolean enabled, int warmupSeconds, int cooldownSeconds, boolean cancelOnMove,
+        boolean cancelOnDamage, boolean defaultPermissionGated, String defaultCategory, int warpsPerPage,
+        int maxWarps, boolean economyEnabled, double warpCost, double setWarpCost, String chargeTiming,
+        boolean refundOnCancel, WarpSafetyConfig safetyChecks, WarpStorageConfig storage, WarpMessages messages,
+        int maxConcurrentOperations, int maxCachedWarps, int maxPlayerStateEntries, int storageQueueCapacity,
+        int operationTimeoutSeconds, long maxStorageBytes, WarpEditMessages editMessages, WarpControlConfig control,
+        WarpControlMessages controlMessages, WarpBrowseConfig browsing, WarpImportConfig essentialsImport, WarpPolicyConfig policies) {
+        this(enabled, warmupSeconds, cooldownSeconds, cancelOnMove, cancelOnDamage, defaultPermissionGated, defaultCategory,
+            warpsPerPage, maxWarps, economyEnabled, warpCost, setWarpCost, chargeTiming, refundOnCancel, safetyChecks, storage,
+            messages, maxConcurrentOperations, maxCachedWarps, maxPlayerStateEntries, storageQueueCapacity, operationTimeoutSeconds,
+            maxStorageBytes, editMessages, control, controlMessages, browsing, essentialsImport, policies, WarpSignConfig.createDefault());
     }
 
     public WarpConfig(boolean enabled, int warmupSeconds, int cooldownSeconds, boolean cancelOnMove,

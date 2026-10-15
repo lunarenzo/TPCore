@@ -39,6 +39,11 @@ public final class Permissions {
     public static final String HOME_BYPASS_LIMIT = "tpcore.home.bypass.limit";
     public static final String HOME_ADMIN_BENCHMARK = "tpcore.home.admin.benchmark";
     public static final String WARP_USE = "tpcore.warp.use";
+    public static final String WARP_SIGN_CREATE = "tpcore.warp.sign.create";
+    public static final String WARP_SIGN_REMOVE = "tpcore.warp.sign.remove";
+    public static final String WARP_SIGN_INFO = "tpcore.warp.sign.info";
+    public static final String WARP_SIGN_BREAK = "tpcore.warp.sign.break";
+    public static final String WARP_SIGN_USE = "tpcore.warp.sign.use";
     public static final String WARP_SET = "tpcore.warp.set";
     public static final String WARP_DEL = "tpcore.warp.del";
     public static final String WARP_LIST = "tpcore.warp.list";

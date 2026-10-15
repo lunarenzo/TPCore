@@ -20,6 +20,50 @@
 # --- 1. EVERYDAY SETTINGS ----------------------------------------------------
 # true = enable server warps; false = disable this module.
 enabled: true
+
+# WARP SIGNS: 1) Place a normal or hanging sign. 2) /warpsign create hub
+# 3) Right-click the desired face with your main hand. No text marker activates a sign.
+# /warpsign info and /warpsign remove also select the next face you click.
+# Remove clears that face's four lines; the other face and wax/dye/glow are preserved.
+# Prices, passwords, permissions, warmups and world/combat/safety rules remain normal warp rules.
+# Signs bind to the original warp's name/creation metadata. Rebind after rename or overwrite.
+# Recovering the original deleted warp restores its original identity and can reactivate its signs.
+# protect-breaks guards direct player breaking only. Use world/claim protection for explosions,
+# fire, pistons/support removal and edits by other plugins. No sign registry or world scan is used.
+signs:
+  enabled: true
+  # How long a setup/remove/info selection waits for your next sign click.
+  selection-timeout-seconds: 30
+  # Suppresses repeated clicks before they reach the normal teleport/payment path.
+  click-cooldown-millis: 750
+  protect-breaks: true
+  # Exactly four MiniMessage lines. <warp> is inserted literally; no price is cached on signs.
+  # Appearance changes affect newly bound signs. Remove/recreate existing signs to restyle them.
+  lines:
+    - "<aqua>[Warp]</aqua>"
+    - "<gold><warp></gold>"
+    - "<gray>Right-click</gray>"
+    - "<dark_gray>TPCore</dark_gray>"
+  messages:
+    usage: "<prefix><gray>/warpsign create <name> | remove | info | cancel. Then right-click the desired sign face with your main hand.</gray>"
+    selected: "<prefix><yellow>Right-click a sign face within <seconds> seconds to <action>. /warpsign cancel stops selection.</yellow>"
+    create-action: "bind it to <warp>"
+    remove-action: "remove its warp binding and clear that face"
+    info-action: "inspect its warp binding"
+    cancelled: "<prefix><gray>Warp sign selection cancelled.</gray>"
+    expired: "<prefix><yellow>Warp sign selection expired. Run the command again.</yellow>"
+    created: "<prefix><green>Sign face bound to <warp>. Current warp access and prices apply on every click.</green>"
+    removed: "<prefix><green>Warp sign binding removed; that face is now blank.</green>"
+    info: "<prefix><gray>Bound warp: <gold><warp></gold>. Binding current: <valid>. Renamed or replaced warps need a new binding.</gray>"
+    not-sign: "<prefix><yellow>Right-click an existing sign, including a hanging sign.</yellow>"
+    not-bound: "<prefix><yellow>This sign face has no TPCore warp binding.</yellow>"
+    already-bound: "<prefix><yellow>Remove this face's existing binding with /warpsign remove before creating another.</yellow>"
+    stale: "<prefix><red>This sign binding is invalid, moved, or refers to a renamed/replaced warp. Ask an administrator to remove and recreate it.</red>"
+    failed: "<prefix><red>The sign could not be updated. Please try again.</red>"
+    no-permission: "<prefix><red>You do not have permission for this warp sign action.</red>"
+    disabled: "<prefix><yellow>Warp signs are currently disabled.</yellow>"
+    busy: "<prefix><yellow>Warp sign selection capacity is full. Please try again shortly.</yellow>"
+    edit-blocked: "<prefix><yellow>Remove this face's warp binding with /warpsign remove before editing its text.</yellow>"
 # Wait BEFORE leaving. 3 = a three-second countdown; 0 = no countdown.
 # Individual warp/category settings in section 5 can override this.
 warmup-seconds: 3

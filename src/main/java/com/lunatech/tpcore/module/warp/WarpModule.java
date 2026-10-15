@@ -15,6 +15,9 @@ import com.lunatech.tpcore.module.warp.repository.WarpRepository;
 import com.lunatech.tpcore.module.warp.repository.impl.SqliteWarpRepository;
 import com.lunatech.tpcore.module.warp.repository.impl.YamlWarpRepository;
 import com.lunatech.tpcore.module.warp.service.WarpService;
+import com.lunatech.tpcore.module.warp.service.WarpSignService;
+import com.lunatech.tpcore.module.warp.listener.WarpSignListener;
+import com.lunatech.tpcore.module.warp.command.WarpSignCommandRegistry;
 import com.lunatech.tpcore.module.warp.service.impl.DefaultWarpService;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
@@ -41,6 +44,7 @@ public final class WarpModule implements ReloadableModule {
     private WarpEventListener eventListener;
     private WarpCommandRegistry commandRegistry;
     private WarpBrowser browser;
+    private WarpSignService signs;
 
     public WarpModule(JavaPlugin plugin, ModularConfigManager configManager, WarpConfig config) {
         this.plugin = Objects.requireNonNull(plugin, "plugin cannot be null");
@@ -100,7 +104,9 @@ public final class WarpModule implements ReloadableModule {
                         });
                     } else {
                         if (!next.browsing().equals(config.browsing()) && browser != null) browser.invalidate();
-                        service.updateConfig(next); config = next; applied.complete(true);
+                        service.updateConfig(next); config = next;
+                        if (signs != null) signs.invalidate();
+                        applied.complete(true);
                     }
                 } catch (RuntimeException failure) { applied.completeExceptionally(failure); }
             });
@@ -118,7 +124,9 @@ public final class WarpModule implements ReloadableModule {
             this.commandRegistry = new WarpCommandRegistry(this.plugin, this::getService, () -> this.config, browser);
             // Kept across module toggles to cancel interaction with an already-open obsolete menu.
             plugin.getServer().getPluginManager().registerEvents(new WarpBrowserListener(browser), plugin);
-            this.commandRegistry.registerAll();
+            this.signs = new WarpSignService(plugin, () -> config, this::getService, (player, name) -> commandRegistry.teleportFromSign(player, name));
+            plugin.getServer().getPluginManager().registerEvents(new WarpSignListener(signs, () -> config), plugin);
+            this.commandRegistry.registerAll(new WarpSignCommandRegistry(signs));
             this.commandsRegistered = true;
         }
         if (!this.config.enabled()) {
@@ -129,6 +137,8 @@ public final class WarpModule implements ReloadableModule {
         if (this.isInitialized) {
             return;
         }
+
+        if (signs != null) signs.invalidate();
 
         instantiateAndInitializeStorage(this.config);
 
@@ -164,6 +174,7 @@ public final class WarpModule implements ReloadableModule {
     }
 
     public void disable() {
+        if (signs != null) signs.invalidate();
         if (browser != null) browser.invalidate();
         if (!this.isInitialized) {
             return;
