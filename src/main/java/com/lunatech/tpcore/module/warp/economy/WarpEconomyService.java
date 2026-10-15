@@ -2,6 +2,7 @@ package com.lunatech.tpcore.module.warp.economy;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.UUID;
+import com.lunatech.tpcore.module.warp.model.WarpDiagnostics;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
 
@@ -23,6 +24,8 @@ public interface WarpEconomyService {
     CompletableFuture<Void> close();
 
     boolean isAvailable();
+    WarpDiagnostics.Economy diagnostics();
+    CompletableFuture<WarpDiagnostics.PaymentPage> paymentIntents(int page, int pageSize);
 
     String format(double amount);
 

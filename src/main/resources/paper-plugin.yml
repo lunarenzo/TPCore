@@ -26,6 +26,12 @@ dependencies:
       join-classpath: true
 
 permissions:
+  tpcore.warp.status:
+    description: View warp storage, capacity and payment health summaries.
+    default: op
+  tpcore.warp.payments:
+    description: Inspect retained warp payment evidence without retrying transfers.
+    default: op
   tpcore.warp.import:
     description: Preview and confirm EssentialsX server warp imports.
     default: op

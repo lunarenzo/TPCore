@@ -4,6 +4,8 @@ import com.lunatech.tpcore.config.model.WarpConfig;
 import com.lunatech.tpcore.constant.Permissions;
 import com.lunatech.tpcore.module.warp.economy.WarpEconomyService;
 import com.lunatech.tpcore.module.warp.repository.impl.WarpRefundJournal;
+import com.lunatech.tpcore.module.warp.model.WarpDiagnostics;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
@@ -28,26 +30,42 @@ public final class VaultWarpEconomyService implements WarpEconomyService {
     private final Set<CompletableFuture<?>> pending = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean closed = new AtomicBoolean();
     private volatile boolean reconciliationRequired;
+    private final CompletableFuture<Void> journalInitialized;
 
     public VaultWarpEconomyService(Plugin plugin, Supplier<WarpConfig> config, Logger logger) {
+        this(plugin, config, logger, VaultUnlockedWarpAdapter.discover(plugin.getClass().getClassLoader()).orElse(null));
+    }
+
+    VaultWarpEconomyService(Plugin plugin, Supplier<WarpConfig> config, Logger logger, VaultUnlockedWarpAdapter adapter) {
         this.config = config;
         this.logger = logger;
         pluginName = plugin.getName();
-        adapter = VaultUnlockedWarpAdapter.discover(plugin.getClass().getClassLoader()).orElse(null);
+        this.adapter = adapter;
         WarpConfig settings = config.get();
         admission = new Semaphore(settings.maxConcurrentOperations());
         journal = new WarpRefundJournal(plugin.getDataFolder().toPath().resolve("warps/refunds.properties"),
             settings.maxPlayerStateEntries(), settings.storageQueueCapacity());
-        journal.ready().thenRun(() -> {
+        journalInitialized = journal.ready().thenRun(() -> {
             reconciliationRequired = journal.pending() > 0;
             if (reconciliationRequired) logger.error("Warp economy has {} unresolved payment intents in warps/refunds.properties; reconcile them before enabling more payments", journal.pending());
-        }).exceptionally(failure -> { logger.error("Warp refund journal initialization failed", failure); return null; });
+        });
+        journalInitialized.exceptionally(failure -> { logger.error("Warp refund journal initialization failed", failure); return null; });
     }
 
-    @Override public boolean isAvailable() { return adapter != null && !closed.get(); }
+    @Override public boolean isAvailable() { return adapter != null && !closed.get() && journalInitialized.isDone()
+        && !journalInitialized.isCompletedExceptionally() && !reconciliationRequired; }
+
+    @Override public WarpDiagnostics.Economy diagnostics() {
+        return new WarpDiagnostics.Economy(isAvailable(), journal.isReady(), reconciliationRequired,
+            pending.size(), journal.isReady() ? journal.pending() : -1, journal.capacity());
+    }
+    @Override public CompletableFuture<WarpDiagnostics.PaymentPage> paymentIntents(int page, int pageSize) {
+        return journal.snapshot(page, pageSize);
+    }
 
     private <T> CompletableFuture<T> admitted(Supplier<CompletableFuture<T>> action) {
-        if (closed.get() || !admission.tryAcquire()) return CompletableFuture.failedFuture(new IllegalStateException("Warp economy is closed or busy"));
+        if (closed.get()) return CompletableFuture.failedFuture(new IllegalStateException("Warp economy is closed"));
+        if (!admission.tryAcquire()) return CompletableFuture.failedFuture(new RejectedExecutionException("Warp economy is busy"));
         try {
             CompletableFuture<T> future = action.get();
             pending.add(future);
@@ -59,16 +77,23 @@ public final class VaultWarpEconomyService implements WarpEconomyService {
     @Override public CompletableFuture<Payment> chargeExact(UUID playerId, double amount) {
         if (amount <= 0.0) return CompletableFuture.completedFuture(new Payment(playerId, 0.0, true));
         if (!Double.isFinite(amount) || adapter == null) return CompletableFuture.failedFuture(new IllegalStateException("Native async economy provider is required"));
-        return admitted(() -> journal.ready().thenCompose(ignored -> {
+        return admitted(() -> journalInitialized.thenCompose(ignored -> {
             if (reconciliationRequired) return CompletableFuture.failedFuture(new IllegalStateException("Unresolved warp payments require reconciliation"));
-            return journal.record(playerId, amount).thenCompose(ticket ->
-                adapter.withdraw(pluginName, playerId, amount).thenCompose(paid -> paid >= 0.0
-                    ? journal.update(ticket, playerId, paid).thenApply(done -> new Payment(playerId, paid, true, ticket))
-                    : journal.complete(ticket).thenApply(done -> new Payment(playerId, 0.0, false)))
-                .thenCompose(payment -> payment.successful() && Double.compare(payment.amount(), amount) != 0
-                    ? settle(payment, true).thenApply(done -> new Payment(playerId, 0.0, false))
-                    : CompletableFuture.completedFuture(payment))
-                .whenComplete((payment, failure) -> { if (failure != null) reconciliationRequired = true; }));
+            return adapter.has(pluginName, playerId, amount).thenCompose(enough -> {
+                if (!enough) return CompletableFuture.completedFuture(new Payment(playerId, 0.0, false));
+                return journal.record(playerId, amount).thenCompose(ticket -> {
+                    return adapter.withdraw(pluginName, playerId, amount).thenCompose(paid -> {
+                        if (paid < 0.0) return journal.complete(ticket).thenApply(done -> new Payment(playerId, 0.0, false));
+                        return journal.update(ticket, playerId, paid).thenApply(done -> new Payment(playerId, paid, true, ticket));
+                    });
+                }).whenComplete((payment, failure) -> { if (failure != null) reconciliationRequired = true; })
+                    .thenCompose(payment -> {
+                        if (!payment.successful()) return CompletableFuture.failedFuture(new IllegalStateException("Economy provider rejected the withdrawal"));
+                        if (Double.compare(payment.amount(), amount) != 0) return settle(payment, true).thenCompose(done ->
+                            CompletableFuture.failedFuture(new IllegalStateException("Economy receipt amount differs from the quote")));
+                        return CompletableFuture.completedFuture(payment);
+                    });
+            });
         }));
     }
 

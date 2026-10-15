@@ -5,6 +5,7 @@ import com.lunatech.tpcore.module.warp.model.Warp;
 import com.lunatech.tpcore.module.warp.model.WarpEdit;
 import com.lunatech.tpcore.module.warp.model.DeletedWarp;
 import com.lunatech.tpcore.module.warp.model.WarpImportPlan;
+import com.lunatech.tpcore.module.warp.model.WarpDiagnostics;
 import java.util.Map;
 import java.util.Collection;
 import java.util.List;
@@ -22,6 +23,8 @@ public interface WarpService {
     /** Caller enforces staff permissions. Free edits preserve unrelated fields and cancel pending teleports before dispatch. */
     CompletableFuture<WarpResultStatus> editWarp(String name, WarpEdit edit);
     boolean isReady();
+    WarpDiagnostics diagnostics();
+    CompletableFuture<WarpDiagnostics.PaymentPage> paymentIntents(int page, int pageSize);
 
     CompletableFuture<WarpResultStatus> teleportToWarp(Player player, String warpName, String rawPassword);
 

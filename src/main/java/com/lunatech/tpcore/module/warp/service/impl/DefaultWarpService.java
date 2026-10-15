@@ -13,6 +13,8 @@ import com.lunatech.tpcore.module.warp.model.Warp;
 import com.lunatech.tpcore.module.warp.model.WarpEdit;
 import com.lunatech.tpcore.module.warp.model.DeletedWarp;
 import com.lunatech.tpcore.module.warp.model.WarpImportPlan;
+import com.lunatech.tpcore.module.warp.model.WarpDiagnostics;
+import java.util.concurrent.RejectedExecutionException;
 import com.lunatech.tpcore.module.warp.util.WarpIoExecutor;
 import java.util.HashMap;
 import com.lunatech.tpcore.module.warp.repository.WarpRepository;
@@ -87,6 +89,7 @@ public final class DefaultWarpService implements WarpService {
     private volatile PolicyState policies;
     private volatile boolean ready;
     private final Semaphore admission;
+    private final int operationCapacity;
     private final AtomicInteger reservedCreates = new AtomicInteger();
     private final StampedLock storageAccess = new StampedLock();
     private final String storageType;
@@ -136,6 +139,7 @@ public final class DefaultWarpService implements WarpService {
         this.config = Objects.requireNonNull(config, "config cannot be null");
         this.logger = Objects.requireNonNull(logger, "logger cannot be null");
         this.admission = new Semaphore(config.maxConcurrentOperations());
+        this.operationCapacity = config.maxConcurrentOperations();
         this.cooldowns = new BoundedExpiryCache(config.maxPlayerStateEntries());
         this.failedPasswordAttempts = new BoundedExpiryCache(config.maxPlayerStateEntries());
         this.combatTags = new BoundedExpiryCache(config.maxPlayerStateEntries());
@@ -166,6 +170,36 @@ public final class DefaultWarpService implements WarpService {
     }
 
     @Override public boolean isReady() { return ready && !closed.get(); }
+
+    @Override public WarpDiagnostics diagnostics() {
+        WarpConfig settings = config;
+        return new WarpDiagnostics(storageType, isReady(), cache.getWarpCount(), settings.maxWarps(),
+            settings.maxCachedWarps(), operationCapacity - admission.availablePermits(), operationCapacity,
+            activeWarmups.size(), inFlightMutations.size(), activeMigration.get() != null, economyService.diagnostics());
+    }
+
+    @Override public CompletableFuture<WarpDiagnostics.PaymentPage> paymentIntents(int page, int pageSize) {
+        return economyService.paymentIntents(page, pageSize);
+    }
+
+    private static WarpResultStatus failureStatus(Throwable failure, WarpResultStatus fallback) {
+        while (failure instanceof CompletionException && failure.getCause() != null) failure = failure.getCause();
+        if (failure instanceof FundingFailure funding) return failureStatus(funding.getCause(), WarpResultStatus.ECONOMY_UNAVAILABLE);
+        return failure instanceof RejectedExecutionException ? WarpResultStatus.BUSY : fallback;
+    }
+
+    private static final class FundingFailure extends RuntimeException {
+        FundingFailure(Throwable cause) { super(cause); }
+    }
+
+    private CompletableFuture<Payment> charge(UUID playerId, double amount) {
+        try {
+            return economyService.chargeExact(playerId, amount).handle((payment, failure) -> {
+                if (failure != null) throw new FundingFailure(failure);
+                return payment;
+            });
+        } catch (RuntimeException failure) { return CompletableFuture.failedFuture(new FundingFailure(failure)); }
+    }
 
     private PolicyState policyState(WarpConfig settings) {
         return new PolicyState(settings, new WarpSafetyInspector.Policy(settings.safetyChecks()), new WarpProtection(settings.policies(), logger));
@@ -272,7 +306,7 @@ public final class DefaultWarpService implements WarpService {
                     if (!valid) finish(session, WarpResultStatus.INSUFFICIENT_FUNDS);
                     else schedulePlayer(session, current -> beginWarmup(session, current, bypass));
                 })
-                : economyService.chargeExact(id, cost).thenCompose(payment -> {
+                : charge(id, cost).thenCompose(payment -> {
                     session.payment = payment;
                     if (payment.successful()) notifyPayment(session.id, payment.amount(), false, session.config);
                     if (!payment.successful()) { finish(session, WarpResultStatus.INSUFFICIENT_FUNDS); return CompletableFuture.completedFuture(false); }
@@ -284,7 +318,7 @@ public final class DefaultWarpService implements WarpService {
             logger.error("Warp quote or funding failed for {}", id, failure);
             finish(session, WarpResultStatus.ERROR); releaseSessionWork(session); return session.result;
         }
-        track(session, funding).exceptionally(failure -> { logger.error("Warp payment failed for {}", id, failure); finish(session, WarpResultStatus.ERROR); return null; });
+        track(session, funding).exceptionally(failure -> { logger.error("Warp payment failed for {}", id, failure); finish(session, failureStatus(failure, WarpResultStatus.ECONOMY_UNAVAILABLE)); return null; });
         releaseSessionWork(session);
         armTimeout(session, Math.max(0L, session.effective.warmupSeconds()) + settings.operationTimeoutSeconds());
         return session.result;
@@ -322,7 +356,7 @@ public final class DefaultWarpService implements WarpService {
             if (session.result.isDone() || closed.get()) return settle(session, true);
             Destination destination = Destination.snapshot(location);
             if (session.chargeOnSuccess && session.payment == null) {
-                return economyService.chargeExact(session.id, session.quotedCost).thenCompose(payment -> {
+                return charge(session.id, session.quotedCost).thenCompose(payment -> {
                     session.payment = payment;
                     if (!payment.successful()) { finish(session, WarpResultStatus.INSUFFICIENT_FUNDS); return CompletableFuture.completedFuture(false); }
                     if (session.result.isDone() || closed.get()) return settle(session, true);
@@ -332,7 +366,7 @@ public final class DefaultWarpService implements WarpService {
             }
             dispatchTeleport(session, destination);
             return CompletableFuture.completedFuture(true);
-        })).exceptionally(failure -> { logger.error("Warp preparation failed for {}", session.id, failure); finish(session, WarpResultStatus.ERROR); return null; });
+        })).exceptionally(failure -> { logger.error("Warp preparation failed for {}", session.id, failure); finish(session, failureStatus(failure, WarpResultStatus.ERROR)); return null; });
     }
 
     private boolean currentDestination(WarmupSession session) {
@@ -518,7 +552,7 @@ public final class DefaultWarpService implements WarpService {
             if (creating) reservedCreates.decrementAndGet();
             return releaseMutation(name, stamp, WarpResultStatus.ECONOMY_UNAVAILABLE);
         }
-        CompletableFuture<WarpResultStatus> work = economyService.chargeExact(warp.creatorUuid(), cost).thenCompose(payment -> {
+        CompletableFuture<WarpResultStatus> work = charge(warp.creatorUuid(), cost).thenCompose(payment -> {
             if (!payment.successful()) return completed(WarpResultStatus.INSUFFICIENT_FUNDS);
             notifyPayment(warp.creatorUuid(), payment.amount(), false, settings);
             if (closed.get()) return economyService.settle(payment, true).thenApply(done -> WarpResultStatus.ERROR);
@@ -529,10 +563,11 @@ public final class DefaultWarpService implements WarpService {
                 }
                 return economyService.settle(payment, failure != null).thenApply(done -> {
                     if (failure != null && done) notifyPayment(warp.creatorUuid(), payment.amount(), true, settings);
-                    return failure == null && done ? WarpResultStatus.SUCCESS : WarpResultStatus.ERROR;
+                    if (!done) return WarpResultStatus.ERROR;
+                    return failure == null ? WarpResultStatus.SUCCESS : failureStatus(failure, WarpResultStatus.ERROR);
                 });
             });
-        }).exceptionally(failure -> { logger.error("Failed to create warp {}", name, failure); return WarpResultStatus.ERROR; });
+        }).exceptionally(failure -> { logger.error("Failed to create warp {}", name, failure); return failureStatus(failure, WarpResultStatus.ERROR); });
         work = work.whenComplete((value, failure) -> {
             if (creating) reservedCreates.decrementAndGet();
             inFlightMutations.remove(name); admission.release(); storageAccess.unlockRead(stamp);
@@ -580,7 +615,7 @@ public final class DefaultWarpService implements WarpService {
                 });
             }
         } catch (RuntimeException failure) { work = CompletableFuture.failedFuture(failure); }
-        return track(work.exceptionally(failure -> { logger.error("Failed to edit warp {}", source, failure); return WarpResultStatus.ERROR; })
+        return track(work.exceptionally(failure -> { logger.error("Failed to edit warp {}", source, failure); return failureStatus(failure, WarpResultStatus.ERROR); })
             .whenComplete((status, failure) -> {
                 inFlightMutations.remove(source);
                 if (!source.equals(target)) inFlightMutations.remove(target);
@@ -644,7 +679,7 @@ public final class DefaultWarpService implements WarpService {
         return track(writing.thenApply(ignored -> {
             if (!closed.get()) { cancelAffected(name, WarpResultStatus.WARP_CHANGED); cache.removeWarp(name); }
             return WarpResultStatus.SUCCESS;
-        }).exceptionally(failure -> { logger.error("Failed to delete warp {}", name, failure); return WarpResultStatus.ERROR; })
+        }).exceptionally(failure -> { logger.error("Failed to delete warp {}", name, failure); return failureStatus(failure, WarpResultStatus.ERROR); })
             .whenComplete((value, failure) -> { inFlightMutations.remove(name); admission.release(); storageAccess.unlockRead(stamp); }));
     }
 
@@ -730,7 +765,7 @@ public final class DefaultWarpService implements WarpService {
                 }
             });
         } catch (RuntimeException failure) { work = CompletableFuture.failedFuture(failure); }
-        return track(work.exceptionally(failure -> { logger.error("Failed to restore deleted warp {}", id, failure); return WarpResultStatus.ERROR; })
+        return track(work.exceptionally(failure -> { logger.error("Failed to restore deleted warp {}", id, failure); return failureStatus(failure, WarpResultStatus.ERROR); })
             .whenComplete((value, failure) -> { admission.release(); storageAccess.unlockRead(stamp); }));
     }
 

@@ -1,6 +1,8 @@
 package com.lunatech.tpcore.module.warp.economy.impl;
 
 import com.lunatech.tpcore.module.warp.economy.WarpEconomyService;
+import com.lunatech.tpcore.module.warp.model.WarpDiagnostics;
+import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.UUID;
@@ -11,6 +13,12 @@ import org.bukkit.entity.Player;
  * Null-object fallback implementation of WarpEconomyService used when Vault is absent or economy is disabled.
  */
 public final class NoOpWarpEconomyService implements WarpEconomyService {
+    @Override public WarpDiagnostics.Economy diagnostics() {
+        return new WarpDiagnostics.Economy(false, false, false, 0, 0, 0);
+    }
+    @Override public CompletableFuture<WarpDiagnostics.PaymentPage> paymentIntents(int page, int pageSize) {
+        return CompletableFuture.completedFuture(new WarpDiagnostics.PaymentPage(1, 1, 0, List.of()));
+    }
     @Override public CompletableFuture<Payment> chargeExact(UUID id, double amount) {
         return CompletableFuture.completedFuture(new Payment(id, 0.0, true));
     }

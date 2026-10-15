@@ -421,7 +421,7 @@ messages:
   cost-refunded: "<prefix><gold><cost></gold> <green>has been refunded to your account.</green>"
   del-warp-success: "<prefix><green>Warp <yellow><warp></yellow> has been deleted.</green>"
   del-warp-usage: "<prefix><red>Usage: <gold>/delwarp <name></gold></red>"
-  insufficient-funds: "<prefix><red>You do not have enough money! Required: <gold><cost></gold>, Balance: <gold><balance></gold></red>"
+  insufficient-funds: "<prefix><red>You do not have enough money! Required: <gold><cost></gold>.</red>"
   invalid-password: "<prefix><red>Incorrect password for warp <yellow><warp></yellow>!</red>"
   invalid-warp-name: "<prefix><red>Invalid warp name! Warp names must be 1-32 alphanumeric characters.</red>"
   limit-reached: "<prefix><red>You have reached the maximum warp limit!</red>"
@@ -454,4 +454,28 @@ messages:
   operation-failed: "<prefix><red>Warp operation failed. Please contact an administrator.</red>"
   operation-busy: "<prefix><yellow>Warp service is busy. Please try again shortly.</yellow>"
   storage-not-ready: "<prefix><yellow>Warp storage is not ready. Please try again shortly.</yellow>"
-  economy-unavailable: "<prefix><red>Paid warps require an available native asynchronous economy provider.</red>"
+  economy-unavailable: "<prefix><red>Paid warp processing is unavailable. Please contact an administrator.</red>"
+
+  # /warpstatus is a read-only health view. Payment evidence needs both
+  # tpcore.warp.status and tpcore.warp.payments (or tpcore.warp.admin).
+  # Payment pages reuse warps-per-page, capped internally at 100 entries.
+  # Existing insufficient-funds templates support <cost> and <balance>.
+  # Balance is shown as diagnostics.unknown because it is not queried.
+  diagnostics:
+    "yes": "yes"
+    "no": "no"
+    unknown: "unavailable"
+    status:
+      - "<prefix><gold>Warp status</gold> <gray>(live observations)</gray>"
+      - "<gray>Storage: <white><storage></white> | Ready: <white><ready></white> | Module enabled: <white><enabled></white></gray>"
+      - "<gray>Warps: <white><warps></white> | Configured limit (0 = unlimited): <white><warp-limit></white> | Cache capacity: <white><cache-capacity></white></gray>"
+      - "<gray>Operations: <white><pending>/<operation-capacity></white> | Teleports: <white><teleports></white> | Mutations: <white><mutations></white> | Migration: <white><migrating></white></gray>"
+      - "<gray>Economy usable: <white><economy></white> | Journal ready: <white><journal-ready></white> | Reconciliation required: <white><reconciliation></white></gray>"
+      - "<gray>Payment operations: <white><payment-operations></white> | Retained intents: <white><intents>/<intent-capacity></white> (may include active payments)</gray>"
+      - "<gray>Authorized staff: /warpstatus payments [page] shows evidence only. No transfers are retried.</gray>"
+    payment-header:
+      - "<prefix><gold>Payment evidence</gold> <gray>Page <page>/<pages> | <total> retained intents</gray>"
+      - "<yellow>warps/refunds.properties records player UUID | amount. These records do not prove a debit or refund completed. Compare provider debit/credit history before changing anything; never retry an ambiguous refund blindly.</yellow>"
+    payment-entry: "<gray>Ticket <white><ticket></white> | Record: <white><record></white></gray>"
+    no-payments: "<prefix><gray>No retained payment intents.</gray>"
+    failure: "<prefix><red>Payment evidence is unavailable. Check the server log and preserve warps/refunds.properties.</red>"

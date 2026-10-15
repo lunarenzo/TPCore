@@ -23,6 +23,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import com.lunatech.tpcore.module.warp.model.DeletedWarp;
 import com.lunatech.tpcore.module.warp.model.WarpImportPlan;
+import com.lunatech.tpcore.module.warp.model.WarpDiagnostics;
 import java.util.HashMap;
 import java.util.Map;
 import org.bukkit.World;
@@ -454,6 +455,15 @@ public final class WarpCommandRegistry {
     }
 
     private void registerStaffCommands(Commands commands) {
+        commands.register(Commands.literal("warpstatus")
+            .requires(source -> staffPermission(source.getSender(), Permissions.WARP_STATUS))
+            .executes(context -> warpStatus(context.getSource().getSender(), false, 1))
+            .then(Commands.literal("payments")
+                .requires(source -> staffPermission(source.getSender(), Permissions.WARP_PAYMENTS))
+                .executes(context -> warpStatus(context.getSource().getSender(), true, 1))
+                .then(Commands.argument("page", IntegerArgumentType.integer(1))
+                    .executes(context -> warpStatus(context.getSource().getSender(), true, IntegerArgumentType.getInteger(context, "page")))))
+            .build());
         SuggestionProvider<CommandSourceStack> staffSuggestions = (context, builder) -> {
             WarpService service = warpServiceSupplier.get();
             if (service != null && configSupplier.get().enabled()) {
@@ -606,12 +616,13 @@ public final class WarpCommandRegistry {
 
         WarpService service = warpServiceSupplier.get();
         if (service == null) {
-            sendDisabledMessage(sender);
+            sendMessage(sender, config.messages().storageNotReady());
             return Command.SINGLE_SUCCESS;
         }
 
         if (!player.hasPermission(Permissions.WARP_USE)) { sendMessage(sender, config.messages().noPermission(), Placeholder.unparsed("warp", warpName)); return Command.SINGLE_SUCCESS; }
         UUID playerId = player.getUniqueId();
+        double quotedCost = service.getWarp(warpName).map(warp -> config.policies().resolve(warp.name(), warp.category(), config).price()).orElse(config.warpCost());
         service.teleportToWarp(player, warpName, rawPassword).thenAccept(status -> {
             if (status == WarpResultStatus.WARMUP_CANCELLED_MOVE || status == WarpResultStatus.WARMUP_CANCELLED_DAMAGE) return;
             String rawMsg = switch (status) {
@@ -632,7 +643,7 @@ public final class WarpCommandRegistry {
                 case BUSY -> config.messages().operationBusy();
                 case NOT_READY -> config.messages().storageNotReady();
                 case ECONOMY_UNAVAILABLE -> config.messages().economyUnavailable();
-                case INSUFFICIENT_FUNDS -> config.messages().operationFailed();
+                case INSUFFICIENT_FUNDS -> config.messages().insufficientFunds();
                 default -> config.messages().operationFailed();
             };
 
@@ -645,6 +656,8 @@ public final class WarpCommandRegistry {
                 Placeholder.unparsed("warp", warpName),
                 Placeholder.unparsed("seconds", String.valueOf(remainingSecs)),
                 Placeholder.unparsed("world", worldName),
+                Placeholder.unparsed("cost", Double.toString(quotedCost)),
+                Placeholder.unparsed("balance", config.messages().diagnostics().unknown()),
                 Placeholder.unparsed("reason", service.getWarp(warpName).map(Warp::closureReason).orElse(config.controlMessages().defaultClosureReason()))
             );
         });
@@ -666,7 +679,7 @@ public final class WarpCommandRegistry {
 
         WarpService service = warpServiceSupplier.get();
         if (service == null) {
-            sendDisabledMessage(sender);
+            sendMessage(sender, config.messages().storageNotReady());
             return Command.SINGLE_SUCCESS;
         }
 
@@ -687,6 +700,8 @@ public final class WarpCommandRegistry {
                 rawMsg = config.messages().storageNotReady();
             } else if (status == WarpResultStatus.ECONOMY_UNAVAILABLE) {
                 rawMsg = config.messages().economyUnavailable();
+            } else if (status == WarpResultStatus.INSUFFICIENT_FUNDS) {
+                rawMsg = config.messages().insufficientFunds();
             } else if (status == WarpResultStatus.WORLD_RESTRICTED) {
                 rawMsg = config.policies().messages().worldRestricted();
             } else if (status == WarpResultStatus.PROTECTION_DENIED) {
@@ -694,7 +709,9 @@ public final class WarpCommandRegistry {
             } else {
                 rawMsg = config.messages().operationFailed();
             }
-            sendPlayerReply(playerId, rawMsg, Placeholder.unparsed("warp", warpName));
+            sendPlayerReply(playerId, rawMsg, Placeholder.unparsed("warp", warpName),
+                Placeholder.unparsed("cost", Double.toString(config.setWarpCost())),
+                Placeholder.unparsed("balance", config.messages().diagnostics().unknown()));
         });
 
         return Command.SINGLE_SUCCESS;
@@ -730,6 +747,17 @@ public final class WarpCommandRegistry {
             case WORLD_RESTRICTED -> settings.policies().messages().worldRestricted();
             case COMBAT_TAGGED -> settings.policies().messages().combatTagged();
             case PROTECTION_DENIED -> settings.policies().messages().protectionDenied();
+            case WORLD_NOT_LOADED -> settings.messages().worldNotLoaded();
+            case UNSAFE_LOCATION -> settings.messages().unsafeLocation();
+            case WARP_CLOSED -> settings.controlMessages().closed();
+            case WARP_CHANGED -> settings.controlMessages().changed();
+            case ECONOMY_UNAVAILABLE -> settings.messages().economyUnavailable();
+            case INSUFFICIENT_FUNDS -> settings.messages().insufficientFunds();
+            case NO_PERMISSION -> settings.messages().noPermission();
+            case PASSWORD_REQUIRED -> settings.messages().passwordRequired();
+            case INVALID_PASSWORD -> settings.messages().invalidPassword();
+            case COOLDOWN_ACTIVE -> settings.messages().cooldownActive();
+            case WARMUP_ALREADY_ACTIVE -> settings.messages().warmupAlreadyActive();
             default -> settings.messages().operationFailed();
         };
     }
@@ -835,6 +863,53 @@ public final class WarpCommandRegistry {
         return Command.SINGLE_SUCCESS;
     }
 
+    private int warpStatus(CommandSender sender, boolean payments, int page) {
+        WarpConfig settings = configSupplier.get();
+        if (!staffPermission(sender, Permissions.WARP_STATUS) || (payments && !staffPermission(sender, Permissions.WARP_PAYMENTS))) {
+            sendMessage(sender, settings.messages().noPermission());
+            return Command.SINGLE_SUCCESS;
+        }
+        WarpService service = warpServiceSupplier.get();
+        if (service == null) { sendMessage(sender, settings.messages().storageNotReady()); return Command.SINGLE_SUCCESS; }
+        UUID id = sender instanceof Player player ? player.getUniqueId() : null;
+        CommandSender console = id == null ? sender : null;
+        var messages = settings.messages().diagnostics();
+        if (payments) {
+            service.paymentIntents(page, settings.warpsPerPage()).whenComplete((evidence, failure) -> {
+                if (failure != null) {
+                    plugin.getSLF4JLogger().error("Cannot read warp payment evidence", failure);
+                    sendRestrictedReply(id, console, Permissions.WARP_PAYMENTS, messages.failure());
+                    return;
+                }
+                TagResolver[] values = {Placeholder.unparsed("page", Integer.toString(evidence.page())),
+                    Placeholder.unparsed("pages", Integer.toString(evidence.pages())), Placeholder.unparsed("total", Integer.toString(evidence.total()))};
+                for (String line : messages.paymentHeader()) sendRestrictedReply(id, console, Permissions.WARP_PAYMENTS, line, values);
+                if (evidence.entries().isEmpty()) sendRestrictedReply(id, console, Permissions.WARP_PAYMENTS, messages.noPayments());
+                for (var entry : evidence.entries()) sendRestrictedReply(id, console, Permissions.WARP_PAYMENTS, messages.paymentEntry(),
+                    Placeholder.unparsed("ticket", entry.ticket()), Placeholder.unparsed("record", entry.evidence()));
+            });
+        } else {
+            WarpDiagnostics state = service.diagnostics();
+            WarpDiagnostics.Economy economy = state.economy();
+            TagResolver[] values = {
+                Placeholder.unparsed("storage", state.storage()), Placeholder.unparsed("ready", state.ready() ? messages.yes() : messages.no()),
+                Placeholder.unparsed("enabled", settings.enabled() ? messages.yes() : messages.no()),
+                Placeholder.unparsed("warps", Integer.toString(state.warps())), Placeholder.unparsed("warp-limit", Integer.toString(state.warpLimit())),
+                Placeholder.unparsed("cache-capacity", Integer.toString(state.cacheCapacity())),
+                Placeholder.unparsed("pending", Integer.toString(state.pendingOperations())), Placeholder.unparsed("operation-capacity", Integer.toString(state.operationCapacity())),
+                Placeholder.unparsed("teleports", Integer.toString(state.activeTeleports())), Placeholder.unparsed("mutations", Integer.toString(state.pendingMutations())),
+                Placeholder.unparsed("migrating", state.migrating() ? messages.yes() : messages.no()),
+                Placeholder.unparsed("economy", settings.economyEnabled() && economy.available() ? messages.yes() : messages.no()),
+                Placeholder.unparsed("journal-ready", economy.journalReady() ? messages.yes() : messages.no()),
+                Placeholder.unparsed("reconciliation", economy.reconciliationRequired() ? messages.yes() : messages.no()),
+                Placeholder.unparsed("payment-operations", Integer.toString(economy.activeOperations())),
+                Placeholder.unparsed("intents", economy.retainedIntents() < 0 ? messages.unknown() : Integer.toString(economy.retainedIntents())),
+                Placeholder.unparsed("intent-capacity", Integer.toString(economy.intentCapacity()))};
+            for (String line : messages.status()) sendRestrictedReply(id, console, Permissions.WARP_STATUS, line, values);
+        }
+        return Command.SINGLE_SUCCESS;
+    }
+
     private int executeWarpOther(CommandSender sender, String targetName, String warpName) {
         WarpConfig config = configSupplier.get();
         if (!config.enabled()) {
@@ -854,7 +929,7 @@ public final class WarpCommandRegistry {
 
         WarpService service = warpServiceSupplier.get();
         if (service == null) {
-            sendDisabledMessage(sender);
+            sendMessage(sender, config.messages().storageNotReady());
             return Command.SINGLE_SUCCESS;
         }
 
@@ -873,6 +948,7 @@ public final class WarpCommandRegistry {
                 replyId, console,
                 rawMsg,
                 Placeholder.unparsed("target", targetName),
+                Placeholder.unparsed("world", service.getWarp(warpName).map(Warp::worldName).orElse(config.messages().diagnostics().unknown())),
                 Placeholder.unparsed("reason", service.getWarp(warpName).map(Warp::closureReason).orElse(config.controlMessages().defaultClosureReason())),
                 Placeholder.unparsed("warp", warpName)
             );
@@ -923,11 +999,23 @@ public final class WarpCommandRegistry {
     }
 
     private void sendPlayerReply(UUID id, String template, TagResolver... resolvers) {
+        sendPlayerReply(id, null, template, resolvers);
+    }
+
+    private void sendRestrictedReply(UUID id, CommandSender console, String permission, String template, TagResolver... resolvers) {
+        if (id != null) sendPlayerReply(id, permission, template, resolvers);
+        else Bukkit.getGlobalRegionScheduler().execute(plugin, () -> {
+            if (staffPermission(console, Permissions.WARP_STATUS) && staffPermission(console, permission)) sendDirectMessage(console, template, resolvers);
+        });
+    }
+
+    private void sendPlayerReply(UUID id, String permission, String template, TagResolver... resolvers) {
         Player handle = Bukkit.getPlayer(id);
         if (handle == null) return;
         handle.getScheduler().run(plugin, ignored -> {
             Player current = Bukkit.getPlayer(id);
-            if (current != null) sendDirectMessage(current, template, resolvers);
+            if (current != null && (permission == null || (staffPermission(current, Permissions.WARP_STATUS)
+                && staffPermission(current, permission)))) sendDirectMessage(current, template, resolvers);
         }, null);
     }
 

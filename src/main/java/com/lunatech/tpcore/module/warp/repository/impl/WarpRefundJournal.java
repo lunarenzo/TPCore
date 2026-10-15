@@ -1,6 +1,9 @@
 package com.lunatech.tpcore.module.warp.repository.impl;
 
 import com.lunatech.tpcore.module.warp.util.WarpIoExecutor;
+import com.lunatech.tpcore.module.warp.model.WarpDiagnostics.PaymentIntent;
+import com.lunatech.tpcore.module.warp.model.WarpDiagnostics.PaymentPage;
+import java.util.Comparator;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -32,6 +35,9 @@ public final class WarpRefundJournal {
                     if (Files.size(path) > capacity * 256L) throw new IOException("Refund journal exceeds configured capacity");
                     try (InputStream input = Files.newInputStream(path)) { entries.load(input); }
                     if (entries.size() > capacity) throw new IOException("Too many pending refunds");
+                    // A normal UUID/amount record is much shorter. Reject corrupt fields before exposing them in chat.
+                    if (entries.entrySet().stream().anyMatch(entry -> entry.getKey().toString().length() > 256
+                        || entry.getValue().toString().length() > 256)) throw new IOException("Oversized warp payment evidence field");
                     pending = entries.size();
                 }
             } catch (IOException failure) { throw new IllegalStateException("Cannot read warp refund journal", failure); }
@@ -40,6 +46,23 @@ public final class WarpRefundJournal {
 
     public CompletableFuture<Void> ready() { return initialized; }
     public int pending() { return pending; }
+    public int capacity() { return capacity; }
+    public boolean isReady() { return initialized.isDone() && !initialized.isCompletedExceptionally(); }
+
+    public CompletableFuture<PaymentPage> snapshot(int requestedPage, int requestedSize) {
+        int size = Math.max(1, Math.min(100, requestedSize));
+        if (!isReady()) return CompletableFuture.failedFuture(new IllegalStateException("Payment journal is not ready"));
+        return io.submit(() -> {
+            int total = entries.size();
+            int pages = Math.max(1, (total + size - 1) / size);
+            int page = Math.max(1, Math.min(requestedPage, pages));
+            var evidence = entries.entrySet().stream()
+                .sorted(Comparator.comparing(entry -> entry.getKey().toString()))
+                .skip((long) (page - 1) * size).limit(size)
+                .map(entry -> new PaymentIntent(entry.getKey().toString(), entry.getValue().toString())).toList();
+            return new PaymentPage(page, pages, total, evidence);
+        });
+    }
 
     public CompletableFuture<UUID> record(UUID playerId, double amount) {
         return initialized.thenCompose(ignored -> io.submit(() -> {

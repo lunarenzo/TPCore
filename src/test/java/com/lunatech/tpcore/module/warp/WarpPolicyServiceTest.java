@@ -20,6 +20,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.function.Consumer;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
@@ -37,6 +38,29 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 class WarpPolicyServiceTest {
+    @Test void fundingQueueRejectionAndProviderFailureRemainDistinct() throws Exception {
+        for (boolean busy : new boolean[] {true, false}) {
+            try (var f = new Fixture(policy(12, 3, 5, WorldRule.unrestricted(), false, false))) {
+                RuntimeException failure = busy ? new RejectedExecutionException("queue full") : new IllegalStateException("provider unavailable");
+                when(f.economy.chargeExact(eq(f.id), anyDouble())).thenReturn(CompletableFuture.failedFuture(failure));
+                assertEquals(busy ? WarpResultStatus.BUSY : WarpResultStatus.ECONOMY_UNAVAILABLE,
+                    f.service.teleportToWarp(f.player, "hub", null).get(2, TimeUnit.SECONDS));
+                assertEquals(0, f.service.diagnostics().pendingOperations());
+                verify(f.player, never()).teleportAsync(any());
+            }
+        }
+    }
+
+    @Test void statusShowsAnAdmittedWarmupAndReleasesItsCapacityOnQuit() throws Exception {
+        try (var f = new Fixture(policy(12, 3, 5, WorldRule.unrestricted(), false, false))) {
+            var result = f.service.teleportToWarp(f.player, "hub", null);
+            assertEquals(1, f.service.diagnostics().activeTeleports());
+            assertEquals(1, f.service.diagnostics().pendingOperations());
+            f.service.cancelWarmupOnQuit(f.id);
+            assertTrue(result.isDone());
+            assertEquals(0, f.service.diagnostics().pendingOperations());
+        }
+    }
     private WarpPolicyConfig policy(double price, int warmup, int cooldown, WorldRule source, boolean combat, boolean hook) {
         var d = WarpPolicyConfig.createDefault();
         return new WarpPolicyConfig(Map.of("hub", new WarpPolicyConfig.Override(price, warmup, cooldown)), Map.of(),

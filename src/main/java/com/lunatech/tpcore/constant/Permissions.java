@@ -45,6 +45,8 @@ public final class Permissions {
     public static final String WARP_OTHER = "tpcore.warp.other";
     public static final String WARP_ADMIN = "tpcore.warp.admin";
     public static final String WARP_INFO = "tpcore.warp.info";
+    public static final String WARP_STATUS = "tpcore.warp.status";
+    public static final String WARP_PAYMENTS = "tpcore.warp.payments";
     public static final String WARP_EDIT = "tpcore.warp.edit";
     public static final String WARP_EDIT_RENAME = "tpcore.warp.edit.rename";
     public static final String WARP_EDIT_RELOCATE = "tpcore.warp.edit.relocate";

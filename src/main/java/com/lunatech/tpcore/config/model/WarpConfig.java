@@ -331,8 +331,15 @@ public record WarpConfig(
         String operationFailed,
         String operationBusy,
         String storageNotReady,
-        String economyUnavailable
+        String economyUnavailable,
+        WarpDiagnosticMessages diagnostics
     ) {
+        public WarpMessages {
+            if (diagnostics == null) diagnostics = WarpDiagnosticMessages.createDefault();
+        }
+        public WarpMessages(String cooldownActive, String costDeducted, String costRefunded, String delWarpSuccess, String delWarpUsage, String insufficientFunds, String invalidPassword, String invalidWarpName, String limitReached, String moduleDisabled, String noPermission, String onlyPlayers, String passwordRequired, String playerNotOnline, String prefix, String setWarpConfirm, String setWarpSuccess, String setWarpUsage, String teleportOtherSuccess, String teleportSuccess, String teleportedByOther, String unsafeLocation, String warmupAlreadyActive, String warmupCancelledDamage, String warmupCancelledMove, String warmupStart, String warpListCategoryHeader, String warpListEmpty, String warpListHeader, String warpListItem, String warpNotFound, String warpOtherUsage, String warpUsage, String worldNotLoaded, String operationFailed, String operationBusy, String storageNotReady, String economyUnavailable) {
+            this(cooldownActive, costDeducted, costRefunded, delWarpSuccess, delWarpUsage, insufficientFunds, invalidPassword, invalidWarpName, limitReached, moduleDisabled, noPermission, onlyPlayers, passwordRequired, playerNotOnline, prefix, setWarpConfirm, setWarpSuccess, setWarpUsage, teleportOtherSuccess, teleportSuccess, teleportedByOther, unsafeLocation, warmupAlreadyActive, warmupCancelledDamage, warmupCancelledMove, warmupStart, warpListCategoryHeader, warpListEmpty, warpListHeader, warpListItem, warpNotFound, warpOtherUsage, warpUsage, worldNotLoaded, operationFailed, operationBusy, storageNotReady, economyUnavailable, WarpDiagnosticMessages.createDefault());
+        }
         public WarpMessages(String cooldownActive, String costDeducted, String costRefunded, String delWarpSuccess, String delWarpUsage, String insufficientFunds, String invalidPassword, String invalidWarpName, String limitReached, String moduleDisabled, String noPermission, String onlyPlayers, String passwordRequired, String playerNotOnline, String prefix, String setWarpConfirm, String setWarpSuccess, String setWarpUsage, String teleportOtherSuccess, String teleportSuccess, String teleportedByOther, String unsafeLocation, String warmupAlreadyActive, String warmupCancelledDamage, String warmupCancelledMove, String warmupStart, String warpListCategoryHeader, String warpListEmpty, String warpListHeader, String warpListItem, String warpNotFound, String warpOtherUsage, String warpUsage, String worldNotLoaded) {
             this(cooldownActive, costDeducted, costRefunded, delWarpSuccess, delWarpUsage, insufficientFunds, invalidPassword, invalidWarpName, limitReached, moduleDisabled, noPermission, onlyPlayers, passwordRequired, playerNotOnline, prefix, setWarpConfirm, setWarpSuccess, setWarpUsage, teleportOtherSuccess, teleportSuccess, teleportedByOther, unsafeLocation, warmupAlreadyActive, warmupCancelledDamage, warmupCancelledMove, warmupStart, warpListCategoryHeader, warpListEmpty, warpListHeader, warpListItem, warpNotFound, warpOtherUsage, warpUsage, worldNotLoaded, createDefault().operationFailed(), createDefault().operationBusy(), createDefault().storageNotReady(), createDefault().economyUnavailable());
         }
@@ -344,7 +351,7 @@ public record WarpConfig(
                 "<prefix><gold><cost></gold> <green>has been refunded to your account.</green>",
                 "<prefix><green>Warp <yellow><warp></yellow> has been deleted.</green>",
                 "<prefix><red>Usage: <gold>/delwarp <name></gold></red>",
-                "<prefix><red>You do not have enough money! Required: <gold><cost></gold>, Balance: <gold><balance></gold></red>",
+                "<prefix><red>You do not have enough money! Required: <gold><cost></gold>.</red>",
                 "<prefix><red>Incorrect password for warp <yellow><warp></yellow>!</red>",
                 "<prefix><red>Invalid warp name! Warp names must be 1-32 alphanumeric characters.</red>",
                 "<prefix><red>You have reached the maximum warp limit!</red>",
@@ -376,7 +383,7 @@ public record WarpConfig(
                 "<prefix><red>Warp operation failed. Please contact an administrator.</red>",
                 "<prefix><yellow>Warp service is busy. Please try again shortly.</yellow>",
                 "<prefix><yellow>Warp storage is not ready. Please try again shortly.</yellow>",
-                "<prefix><red>Paid warps require an available native asynchronous economy provider.</red>"
+                "<prefix><red>Paid warp processing is unavailable. Please contact an administrator.</red>"
             );
         }
     }
