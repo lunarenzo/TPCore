@@ -9,6 +9,8 @@ import com.lunatech.tpcore.module.warp.economy.impl.NoOpWarpEconomyService;
 import com.lunatech.tpcore.module.warp.model.Warp;
 import com.lunatech.tpcore.module.warp.model.WarpEdit;
 import com.lunatech.tpcore.module.warp.model.DeletedWarp;
+import com.lunatech.tpcore.module.warp.model.WarpImportPlan;
+import com.lunatech.tpcore.module.warp.util.WarpIoExecutor;
 import java.util.HashMap;
 import com.lunatech.tpcore.module.warp.repository.WarpRepository;
 import com.lunatech.tpcore.module.warp.repository.impl.SqliteWarpRepository;
@@ -68,6 +70,12 @@ public final class DefaultWarpService implements WarpService {
     private final AtomicReference<CompletableFuture<?>> activeMigration = new AtomicReference<>();
     private final AtomicReference<CompletableFuture<Void>> initialization = new AtomicReference<>();
     private final AtomicReference<CompletableFuture<Void>> closing = new AtomicReference<>();
+    private final WarpIoExecutor importIo = new WarpIoExecutor(1);
+    private final EssentialsWarpImport importer = new EssentialsWarpImport();
+    private record PendingImport(UUID actor, long expiresAt, WarpConfig settings, Map<String, WarpImportPlan.WorldData> worlds, WarpImportPlan plan) {}
+    private final AtomicReference<PendingImport> importPreview = new AtomicReference<>();
+    private final AtomicInteger importGeneration = new AtomicInteger();
+    private final AtomicReference<UUID> importActor = new AtomicReference<>();
     private final AtomicBoolean closed = new AtomicBoolean();
     private volatile boolean ready;
     private final Semaphore admission;
@@ -647,6 +655,8 @@ public final class DefaultWarpService implements WarpService {
         }
     }
     @Override public void cancelWarmupOnQuit(UUID id) {
+        UUID owner = importActor.get();
+        if (id.equals(owner) && importActor.compareAndSet(owner, null)) { importPreview.set(null); importGeneration.incrementAndGet(); }
         takeConfirmation(id);
         WarmupSession session = activeWarmups.get(id);
         if (session != null) cancel(session, WarpResultStatus.ERROR);
@@ -684,6 +694,7 @@ public final class DefaultWarpService implements WarpService {
     @Override
     public void updateConfig(WarpConfig newConfig) {
         if (newConfig != null) {
+            importPreview.set(null); importActor.set(null); importGeneration.incrementAndGet();
             cache.setCapacity(newConfig.maxCachedWarps());
             this.config = newConfig;
         }
@@ -727,6 +738,69 @@ public final class DefaultWarpService implements WarpService {
         return track(result);
     }
 
+    @Override
+    public CompletableFuture<WarpImportPlan> previewEssentialsImport(UUID actor, String policy, Map<String, WarpImportPlan.WorldData> worlds) {
+        if (!ready || closed.get() || !config.enabled()) return CompletableFuture.failedFuture(EssentialsWarpImport.failure("NOT_READY"));
+        long stamp = storageAccess.tryWriteLock();
+        if (stamp == 0) return CompletableFuture.failedFuture(EssentialsWarpImport.failure("BUSY"));
+        WarpConfig settings = config; int generation = importGeneration.get();
+        Map<String, WarpImportPlan.WorldData> worldSnapshot = Map.copyOf(worlds);
+        Map<String, Warp> destination = new HashMap<>();
+        for (Warp warp : cache.getAllWarps()) destination.put(warp.name().toLowerCase(Locale.ROOT), warp);
+        importPreview.set(null);
+        importActor.set(actor);
+        return track(importIo.submit(() -> {
+            var source = importer.read(plugin.getDataFolder().toPath(), settings.essentialsImport());
+            WarpImportPlan plan = importer.plan(source, destination, worldSnapshot, settings, policy);
+            if (closed.get() || generation != importGeneration.get() || !settings.equals(config)) throw EssentialsWarpImport.failure("STALE");
+            PendingImport pending = new PendingImport(actor, System.nanoTime() + TimeUnit.SECONDS.toNanos(settings.essentialsImport().previewSeconds()), settings, worldSnapshot, plan);
+            importPreview.set(pending);
+            if (closed.get() || generation != importGeneration.get() || !actor.equals(importActor.get())) {
+                importPreview.compareAndSet(pending, null); throw EssentialsWarpImport.failure("STALE");
+            }
+            return plan;
+        }).whenComplete((value, failure) -> { if (failure != null) importActor.compareAndSet(actor, null); storageAccess.unlockWrite(stamp); }));
+    }
+
+    @Override
+    public CompletableFuture<WarpImportPlan.Result> confirmEssentialsImport(UUID actor, UUID token, Map<String, WarpImportPlan.WorldData> worlds) {
+        if (!ready || closed.get() || !config.enabled()) return CompletableFuture.failedFuture(EssentialsWarpImport.failure("NOT_READY"));
+        long stamp = storageAccess.tryWriteLock();
+        if (stamp == 0) return CompletableFuture.failedFuture(EssentialsWarpImport.failure("BUSY"));
+        PendingImport preview = importPreview.get();
+        if (preview == null || !preview.actor().equals(actor) || !preview.plan().token().equals(token) || System.nanoTime() >= preview.expiresAt()
+            || !preview.settings().equals(config) || !preview.worlds().equals(worlds)) {
+            storageAccess.unlockWrite(stamp); return CompletableFuture.failedFuture(EssentialsWarpImport.failure("STALE"));
+        }
+        importPreview.compareAndSet(preview, null);
+        importActor.compareAndSet(preview.actor(), null);
+        WarpImportPlan plan = preview.plan();
+        if (plan.selected().isEmpty()) { storageAccess.unlockWrite(stamp); return CompletableFuture.failedFuture(EssentialsWarpImport.failure("EMPTY")); }
+        for (Warp warp : plan.selected()) { inFlightMutations.add(warp.name().toLowerCase(Locale.ROOT)); cancelAffected(warp.name(), WarpResultStatus.WARP_CHANGED); }
+        var work = repository.loadAll().thenCombine(repository.loadDeleted(), (destination, history) -> {
+            if (!destination.equals(plan.destination())) throw EssentialsWarpImport.failure("STALE");
+            return history;
+        }).thenCompose(history -> importIo.submit(() -> {
+            var source = importer.read(plugin.getDataFolder().toPath(), preview.settings().essentialsImport());
+            if (!source.fingerprints().equals(plan.fingerprints()) || closed.get() || !preview.settings().equals(config)) throw EssentialsWarpImport.failure("STALE");
+            return importer.backup(plugin.getDataFolder().toPath(), source, plan, history, preview.settings(), logger);
+        })).thenCompose(backup -> {
+            if (closed.get() || !preview.settings().equals(config)) return CompletableFuture.failedFuture(EssentialsWarpImport.failure("STALE"));
+            return repository.saveAll(plan.selected()).thenApply(ignored -> {
+                if (!closed.get()) {
+                    Map<String, Warp> merged = new HashMap<>(plan.destination());
+                    for (Warp warp : plan.selected()) merged.put(warp.name().toLowerCase(Locale.ROOT), warp);
+                    cache.populate(merged);
+                }
+                return new WarpImportPlan.Result(plan.selected().size(), backup);
+            });
+        });
+        return track(work.whenComplete((value, failure) -> {
+            for (Warp warp : plan.selected()) inFlightMutations.remove(warp.name().toLowerCase(Locale.ROOT));
+            storageAccess.unlockWrite(stamp);
+        }));
+    }
+
     private boolean isValidStorageType(String type) {
         return "SQLITE".equalsIgnoreCase(type) || "YAML".equalsIgnoreCase(type);
     }
@@ -746,6 +820,7 @@ public final class DefaultWarpService implements WarpService {
         CompletableFuture<Void> result = new CompletableFuture<>();
         if (!closing.compareAndSet(null, result)) return closing.get();
         closed.set(true); ready = false; deletionConfirmations.set(Map.of());
+        importPreview.set(null); importActor.set(null); importGeneration.incrementAndGet();
         activeWarmups.values().forEach(session -> cancel(session, WarpResultStatus.ERROR));
         cache.clear(); cooldowns.clear(); failedPasswordAttempts.clear();
         CompletableFuture.allOf(acceptedWork.toArray(CompletableFuture[]::new))
@@ -753,7 +828,7 @@ public final class DefaultWarpService implements WarpService {
             .handle((ignored, failure) -> {
                 if (failure != null) logger.error("Warp work did not finish cleanly during shutdown; payment journal requires reconciliation", failure);
                 return null;
-            }).thenCompose(ignored -> economyService.close())
+            }).thenCompose(ignored -> importIo.close(() -> {})).thenCompose(ignored -> economyService.close())
             .handle((ignored, failure) -> {
                 if (failure != null) logger.error("Warp economy did not close cleanly", failure);
                 return null;

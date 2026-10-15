@@ -38,7 +38,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 class WarpBrowserTest {
-    private static WarpConfig settings(boolean enabled, int capacity) {
+    static WarpConfig settings(boolean enabled, int capacity) {
         return settings(enabled, capacity, Map.of());
     }
     private static WarpConfig settings(boolean enabled, int capacity, Map<String, WarpBrowseConfig.Presentation> presentations) {

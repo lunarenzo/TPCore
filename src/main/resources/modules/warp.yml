@@ -32,8 +32,52 @@ safety-checks:
 storage:
   type: "SQLITE"
 
+# Imports read EssentialsX files directly; EssentialsX need not be installed.
+# Paths are relative to the server plugins directory and must remain inside it.
+# Backups are kept in TPCore/warp-import-backups; the limit refuses new imports,
+# never automatically deletes a recovery copy. Archive old copies manually.
+essentials-import:
+  source-folder: "Essentials/warps"
+  max-files: 1024
+  max-file-bytes: 65536
+  max-total-bytes: 4194304
+  preview-seconds: 120
+  preview-lines: 20
+  max-backups: 5
+  category: "imported"
+  permission-required: true
+  messages:
+    description: "Preview and import EssentialsX server warps"
+    usage: "<prefix><yellow>/warpimport essentials preview [skip|replace|rename]; /warpimport essentials confirm <token></yellow>"
+    preview: "<prefix><gold>EssentialsX preview: <files> files; <count> selected; <conflicts> conflicts; <invalid> invalid; policy <policy>.</gold>"
+    entry: "<gray><file>: <name> → <target> — <reason></gray>"
+    confirmation: "<prefix><yellow>Run /warpimport essentials confirm <token> within <seconds>s. A newer preview replaces this one.</yellow>"
+    success: "<prefix><green>Imported <count> warps. Backup: <backup></green>"
+    failure: "<prefix><red>Import: <reason></red>"
+    omitted: "<prefix><gray><count> more entries omitted from chat.</gray>"
+    permission-notice: "<prefix><yellow>New imported warps require permission: <required>. EssentialsX permission grants, signs and costs are not imported.</yellow>"
+    reasons:
+      NEW: "Create"
+      REPLACE: "Replace destination; preserve TPCore access settings"
+      RENAME: "Create under a new name"
+      SKIP: "Keep existing warp"
+      INVALID_FILE: "Invalid YAML or fields"
+      INVALID_NAME: "Invalid name (use 1-32 letters, digits, _ or -)"
+      INVALID_WORLD: "World is not loaded or cannot be resolved"
+      INVALID_LOCATION: "Invalid coordinates or rotation"
+      DUPLICATE: "Duplicate source name; skipped"
+      BUSY: "Warp storage or another import is busy"
+      NOT_READY: "Warp module or storage is unavailable"
+      STALE: "Preview expired or source, destination, worlds or configuration changed; preview again"
+      LIMIT: "Import exceeds configured file, byte or warp limits"
+      SOURCE: "Source folder is missing or is outside the plugins directory"
+      BACKUP_LIMIT: "Backup limit reached; archive old warp-import-backups directories before retrying"
+      IO: "I/O failed; no successful import is reported. Check the server log and any backup"
+      EMPTY: "Preview contains no importable warps"
+
 # Search is case-insensitive and matches part of a warp name.
-# Chat stays the default; /warps gui opens the optional inventory browser.
+# When enabled, /warps opens inventory browsing for players; console keeps chat.
+# /warps gui explicitly opens inventory browsing when this feature is enabled.
 # Presentation keys are warp names. Rename their config keys when renaming a warp.
 browsing:
   inventory-enabled: false

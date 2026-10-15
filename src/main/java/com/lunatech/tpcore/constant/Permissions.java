@@ -53,6 +53,7 @@ public final class Permissions {
     public static final String WARP_EDIT_AVAILABILITY = "tpcore.warp.edit.availability";
     public static final String WARP_EDIT_VISIBILITY = "tpcore.warp.edit.visibility";
     public static final String WARP_RECOVER = "tpcore.warp.recover";
+    public static final String WARP_IMPORT = "tpcore.warp.import";
     public static final String WARP_EDIT_PERMISSION = "tpcore.warp.edit.permission";
     public static final String WARP_BYPASS_WARMUP = "tpcore.warp.bypass.warmup";
     public static final String WARP_BYPASS_COOLDOWN = "tpcore.warp.bypass.cooldown";

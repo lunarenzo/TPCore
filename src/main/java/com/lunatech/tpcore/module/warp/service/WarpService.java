@@ -4,6 +4,8 @@ import com.lunatech.tpcore.config.model.WarpConfig;
 import com.lunatech.tpcore.module.warp.model.Warp;
 import com.lunatech.tpcore.module.warp.model.WarpEdit;
 import com.lunatech.tpcore.module.warp.model.DeletedWarp;
+import com.lunatech.tpcore.module.warp.model.WarpImportPlan;
+import java.util.Map;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -51,6 +53,8 @@ public interface WarpService {
     void updateConfig(WarpConfig newConfig);
 
     CompletableFuture<Integer> migrateData(String fromStorage, String toStorage);
+    CompletableFuture<WarpImportPlan> previewEssentialsImport(UUID actor, String policy, Map<String, WarpImportPlan.WorldData> worlds);
+    CompletableFuture<WarpImportPlan.Result> confirmEssentialsImport(UUID actor, UUID token, Map<String, WarpImportPlan.WorldData> worlds);
 
     CompletableFuture<Void> close();
 }

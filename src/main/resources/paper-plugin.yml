@@ -18,6 +18,9 @@ dependencies:
       join-classpath: true
 
 permissions:
+  tpcore.warp.import:
+    description: Preview and confirm EssentialsX server warp imports.
+    default: op
   tpcore.warp.del:
     description: Confirm and archive server warp deletions.
     default: op

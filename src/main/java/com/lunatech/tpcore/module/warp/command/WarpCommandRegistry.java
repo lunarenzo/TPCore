@@ -20,7 +20,12 @@ import io.papermc.paper.command.brigadier.CommandSourceStack;
 import io.papermc.paper.command.brigadier.Commands;
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import com.lunatech.tpcore.module.warp.model.DeletedWarp;
+import com.lunatech.tpcore.module.warp.model.WarpImportPlan;
+import java.util.HashMap;
+import java.util.Map;
+import org.bukkit.World;
 import java.util.Locale;
 import java.util.UUID;
 import java.util.List;
@@ -37,6 +42,9 @@ import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public final class WarpCommandRegistry {
+
+    private static final ClickEvent WARP_RUN_TEMPLATE = ClickEvent.runCommand("/warp <name>");
+    private static final ClickEvent WARP_SUGGEST_TEMPLATE = ClickEvent.suggestCommand("/warp <name>");
 
     private final JavaPlugin plugin;
     private final Supplier<WarpService> warpServiceSupplier;
@@ -253,11 +261,90 @@ public final class WarpCommandRegistry {
                 List.of()
             );
             registerStaffCommands(commands);
+            registerImportCommands(commands);
         });
     }
 
     private void registerBrowseCommands(Commands commands) {
         commands.register(browseRoot("warps", false).then(browseRoot("gui", true)).build(), configSupplier.get().browsing().messages().commandDescription(), List.of("listwarps", "warplist"));
+    }
+
+    private void registerImportCommands(Commands commands) {
+        var preview = Commands.literal("preview").executes(context -> executeImport(context.getSource().getSender(), "skip", null));
+        for (String policy : List.of("skip", "replace", "rename")) preview.then(Commands.literal(policy)
+            .executes(context -> executeImport(context.getSource().getSender(), policy, null)));
+        commands.register(Commands.literal("warpimport").requires(source -> staffPermission(source.getSender(), Permissions.WARP_IMPORT))
+            .executes(context -> { sendMessage(context.getSource().getSender(), configSupplier.get().essentialsImport().messages().usage()); return Command.SINGLE_SUCCESS; })
+            .then(Commands.literal("essentials").then(preview).then(Commands.literal("confirm")
+                .then(Commands.argument("token", StringArgumentType.word()).executes(context -> executeImport(context.getSource().getSender(), null, StringArgumentType.getString(context, "token"))))))
+            .build(), configSupplier.get().essentialsImport().messages().description(), List.of());
+    }
+
+    private int executeImport(CommandSender sender, String policy, String rawToken) {
+        WarpConfig settings = configSupplier.get();
+        if (!settings.enabled()) { sendDisabledMessage(sender); return Command.SINGLE_SUCCESS; }
+        if (!staffPermission(sender, Permissions.WARP_IMPORT)) { sendMessage(sender, settings.messages().noPermission()); return Command.SINGLE_SUCCESS; }
+        UUID id = sender instanceof Player player ? player.getUniqueId() : null;
+        UUID actor = id == null ? new UUID(0, 0) : id;
+        CommandSender console = id == null ? sender : null;
+        UUID token;
+        try { token = rawToken == null ? null : UUID.fromString(rawToken); }
+        catch (IllegalArgumentException failure) { sendMessage(sender, settings.essentialsImport().messages().usage()); return Command.SINGLE_SUCCESS; }
+        Bukkit.getGlobalRegionScheduler().execute(plugin, () -> {
+            try {
+                WarpService service = warpServiceSupplier.get();
+                if (service == null || !service.isReady()) throw new IllegalStateException("NOT_READY");
+                Map<String, WarpImportPlan.WorldData> worlds = new HashMap<>();
+                for (World world : Bukkit.getWorlds()) {
+                    var snapshot = new WarpImportPlan.WorldData(world.getUID(), world.getName(), world.getMinHeight(), world.getMaxHeight());
+                    worlds.put("id:" + snapshot.id(), snapshot); worlds.put("name:" + snapshot.name().toLowerCase(Locale.ROOT), snapshot);
+                }
+                Runnable begin = () -> {
+                    try {
+                        if (token == null) service.previewEssentialsImport(actor, policy, worlds).whenComplete((plan, failure) -> {
+                            if (failure != null) importFailure(id, console, settings, failure);
+                            else {
+                                var messages = settings.essentialsImport().messages();
+                                sendReply(id, console, messages.preview(), Placeholder.unparsed("files", Integer.toString(plan.fingerprints().size())),
+                                    Placeholder.unparsed("count", Integer.toString(plan.selected().size())), Placeholder.unparsed("conflicts", Integer.toString(plan.conflicts())),
+                                    Placeholder.unparsed("invalid", Integer.toString(plan.invalid())), Placeholder.unparsed("policy", plan.policy()));
+                                int limit = Math.min(plan.entries().size(), settings.essentialsImport().previewLines());
+                                for (var entry : plan.entries().subList(0, limit)) sendReply(id, console, messages.entry(), Placeholder.unparsed("file", entry.file()),
+                                    Placeholder.unparsed("name", entry.name()), Placeholder.unparsed("target", entry.target()), Placeholder.unparsed("reason", messages.reasons().getOrDefault(entry.reason(), entry.reason())));
+                                if (limit < plan.entries().size()) sendReply(id, console, messages.omitted(), Placeholder.unparsed("count", Integer.toString(plan.entries().size() - limit)));
+                                sendReply(id, console, messages.permissionNotice(), Placeholder.unparsed("required", Boolean.toString(settings.essentialsImport().permissionRequired())));
+                                if (!plan.selected().isEmpty()) sendReply(id, console, messages.confirmation(), Placeholder.unparsed("token", plan.token().toString()),
+                                    Placeholder.unparsed("seconds", Integer.toString(settings.essentialsImport().previewSeconds())));
+                            }
+                        });
+                        else service.confirmEssentialsImport(actor, token, worlds).whenComplete((result, failure) -> {
+                            if (failure != null) importFailure(id, console, settings, failure);
+                            else sendReply(id, console, settings.essentialsImport().messages().success(), Placeholder.unparsed("count", Integer.toString(result.count())), Placeholder.unparsed("backup", result.backup()));
+                        });
+                    } catch (RuntimeException failure) { importFailure(id, console, settings, failure); }
+                };
+                if (id == null) begin.run();
+                else {
+                    Player handle = Bukkit.getPlayer(id);
+                    if (handle != null) handle.getScheduler().run(plugin, ignored -> {
+                        Player current = Bukkit.getPlayer(id);
+                        if (current == null) return;
+                        if (staffPermission(current, Permissions.WARP_IMPORT)) begin.run();
+                        else sendMessage(current, configSupplier.get().messages().noPermission());
+                    }, null);
+                }
+            } catch (RuntimeException failure) { importFailure(id, console, settings, failure); }
+        });
+        return Command.SINGLE_SUCCESS;
+    }
+
+    private void importFailure(UUID id, CommandSender console, WarpConfig settings, Throwable failure) {
+        Throwable cause = failure;
+        while (cause.getCause() != null && cause instanceof CompletionException) cause = cause.getCause();
+        String code = cause.getMessage();
+        String reason = settings.essentialsImport().messages().reasons().getOrDefault(code == null ? "IO" : code, settings.essentialsImport().messages().reasons().getOrDefault("IO", "IO"));
+        if (code == null || !settings.essentialsImport().messages().reasons().containsKey(code) || code.equals("IO") || code.equals("SOURCE")) plugin.getSLF4JLogger().error("EssentialsX warp import failed", failure);
+        sendReply(id, console, settings.essentialsImport().messages().failure(), Placeholder.unparsed("reason", reason));
     }
 
     private LiteralArgumentBuilder<CommandSourceStack> browseRoot(String label, boolean gui) {
@@ -308,7 +395,7 @@ public final class WarpCommandRegistry {
         if (search != null && (search.isBlank() || search.length() > settings.browsing().maxSearchLength())) {
             sendMessage(sender, settings.browsing().messages().invalidSearch(), Placeholder.unparsed("limit", Integer.toString(settings.browsing().maxSearchLength()))); return Command.SINGLE_SUCCESS;
         }
-        if (gui) {
+        if (gui || sender instanceof Player && settings.browsing().inventoryEnabled()) {
             if (!(sender instanceof Player player)) sendOnlyPlayersMessage(sender);
             else if (browser == null) sendMessage(sender, settings.browsing().messages().inventoryDisabled());
             else browser.open(player, new WarpBrowseQuery(category, search, page, false));
@@ -321,7 +408,7 @@ public final class WarpCommandRegistry {
         WarpConfig settings = configSupplier.get(); WarpService service = warpServiceSupplier.get();
         if (!settings.enabled()) { sendDisabledMessage(sender); return Command.SINGLE_SUCCESS; }
         if (service == null || !service.isReady()) { sendMessage(sender, settings.messages().storageNotReady()); return Command.SINGLE_SUCCESS; }
-        if (gui) {
+        if (gui || sender instanceof Player && settings.browsing().inventoryEnabled()) {
             if (!(sender instanceof Player player)) sendOnlyPlayersMessage(sender);
             else if (browser != null) browser.open(player, new WarpBrowseQuery(null, null, requestedPage, true));
             else sendMessage(sender, settings.browsing().messages().inventoryDisabled());
@@ -718,7 +805,7 @@ public final class WarpCommandRegistry {
                     Placeholder.unparsed("reason", warp.closureReason())
                 )
             );
-            sender.sendMessage(item);
+            sender.sendMessage(resolveWarpClickCommands(item, StringArgumentType.escapeIfRequired(warp.name())));
         }
 
         var messages = config.browsing().messages();
@@ -795,6 +882,15 @@ public final class WarpCommandRegistry {
     private void sendDisabledMessage(CommandSender sender) {
         WarpConfig config = configSupplier.get();
         sendMessage(sender, config.messages().moduleDisabled());
+    }
+
+    /** MiniMessage does not expand component placeholders inside command arguments. */
+    private Component resolveWarpClickCommands(Component component, String warpArgument) {
+        ClickEvent event = component.clickEvent();
+        if (WARP_RUN_TEMPLATE.equals(event)) component = component.clickEvent(ClickEvent.runCommand("/warp " + warpArgument));
+        else if (WARP_SUGGEST_TEMPLATE.equals(event)) component = component.clickEvent(ClickEvent.suggestCommand("/warp " + warpArgument));
+        if (component.children().isEmpty()) return component;
+        return component.children(component.children().stream().map(child -> resolveWarpClickCommands(child, warpArgument)).toList());
     }
 
     private void sendMessage(CommandSender sender, String template, TagResolver... customResolvers) {

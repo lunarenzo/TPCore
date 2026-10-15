@@ -65,9 +65,11 @@ public record WarpConfig(
     WarpEditMessages editMessages,
     WarpControlConfig control,
     WarpControlMessages controlMessages,
-    WarpBrowseConfig browsing
+    WarpBrowseConfig browsing,
+    WarpImportConfig essentialsImport
 ) {
     public WarpConfig {
+        if (essentialsImport == null) essentialsImport = WarpImportConfig.createDefault();
         if (editMessages == null) editMessages = WarpEditMessages.createDefault();
         if (control == null) control = WarpControlConfig.createDefault();
         if (browsing == null) browsing = WarpBrowseConfig.createDefault();
@@ -81,6 +83,20 @@ public record WarpConfig(
         if (!Double.isFinite(warpCost) || warpCost < 0 || !Double.isFinite(setWarpCost) || setWarpCost < 0) {
             throw new IllegalArgumentException("Warp costs must be finite and nonnegative");
         }
+    }
+
+    public WarpConfig(boolean enabled, int warmupSeconds, int cooldownSeconds, boolean cancelOnMove,
+        boolean cancelOnDamage, boolean defaultPermissionGated, String defaultCategory, int warpsPerPage,
+        int maxWarps, boolean economyEnabled, double warpCost, double setWarpCost, String chargeTiming,
+        boolean refundOnCancel, WarpSafetyConfig safetyChecks, WarpStorageConfig storage, WarpMessages messages,
+        int maxConcurrentOperations, int maxCachedWarps, int maxPlayerStateEntries, int storageQueueCapacity,
+        int operationTimeoutSeconds, long maxStorageBytes, WarpEditMessages editMessages, WarpControlConfig control,
+        WarpControlMessages controlMessages, WarpBrowseConfig browsing) {
+        this(enabled, warmupSeconds, cooldownSeconds, cancelOnMove, cancelOnDamage, defaultPermissionGated,
+            defaultCategory, warpsPerPage, maxWarps, economyEnabled, warpCost, setWarpCost, chargeTiming,
+            refundOnCancel, safetyChecks, storage, messages, maxConcurrentOperations, maxCachedWarps,
+            maxPlayerStateEntries, storageQueueCapacity, operationTimeoutSeconds, maxStorageBytes, editMessages,
+            control, controlMessages, browsing, WarpImportConfig.createDefault());
     }
 
     public WarpConfig(boolean enabled, int warmupSeconds, int cooldownSeconds, boolean cancelOnMove,
