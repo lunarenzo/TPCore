@@ -1,88 +1,321 @@
-# TPCore - Warp Module Configuration
-enabled: true
-warmup-seconds: 3
-cooldown-seconds: 10
-cancel-on-move: true
-cancel-on-damage: true
-default-permission-gated: false
-default-category: "general"
-warps-per-page: 8
-max-warps: 100
-# Resource admission limits (restart module to change storage queue capacity)
-max-concurrent-operations: 64
-max-cached-warps: 4096
-max-player-state-entries: 2048
-storage-queue-capacity: 128
-operation-timeout-seconds: 30
-# Maximum YAML input size; SQLite reads are bounded by max-cached-warps.
-max-storage-bytes: 16777216
+# ============================================================================
+# TPCore server warps - modules/warp.yml
+# ============================================================================
+# QUICK START: most servers only need these choices:
+#   1. Set warmup-seconds and cooldown-seconds below.
+#   2. Set browsing.inventory-enabled to true for a chest menu instead of chat.
+#   3. Keep economy-enabled false for free warps.
+#   4. Leave policies empty/disabled unless you need optional restrictions.
+# Save this file, then run: /tpcore reload warp
+#
+# [] = empty list. {} = no named entries configured. Examples starting with #
+# are inactive. Replace the matching setting to use one; do not duplicate keys.
+# Use spaces for indentation. All durations below say whether they use seconds/days.
+# Existing server files keep their old values/comments when updating the plugin.
+# Use this template as a reference; do not delete your file to update comments.
+#
+# SECTIONS: 1 Basics | 2 Browser | 3 Money | 4 Safety | 5 Optional rules
+#           6 Delete/recovery | 7 Import | 8 Storage | 9 Advanced | 10 Messages
 
-# Paid operations require VaultUnlocked 2.20+ and a provider exposing native AsyncEconomy.
+# --- 1. EVERYDAY SETTINGS ----------------------------------------------------
+# true = enable server warps; false = disable this module.
+enabled: true
+# Wait BEFORE leaving. 3 = a three-second countdown; 0 = no countdown.
+# Individual warp/category settings in section 5 can override this.
+warmup-seconds: 3
+# Wait AFTER a successful warp before requesting another; 0 = no cooldown.
+cooldown-seconds: 10
+# true = cancel a pending warp when the player moves to another block.
+cancel-on-move: true
+# true = cancel a pending warp after damage. Combat lockout is separate (section 5).
+cancel-on-damage: true
+# NEW warps only: true requires tpcore.warp.<name> as an extra permission.
+# Example: hub requires tpcore.warp.hub. false adds no per-warp requirement.
+# Existing warp: /editwarp hub permission required (or public).
+default-permission-gated: false
+# Category for new warps with no supplied category. Existing warps are unchanged.
+# Assign an existing warp: /editwarp hub category resources
+default-category: "general"
+# Normal server-wide creation limit; 0 removes this limit. Staff may bypass it.
+# The advanced max-cached-warps capacity still applies, including to staff.
+max-warps: 100
+
+# --- 2. CHAT / INVENTORY BROWSER ---------------------------------------------
+# Number of warps per CHAT page. Inventory size is configured separately below.
+warps-per-page: 8
+# /warps search hub finds names containing hub (case-insensitive).
+# /warps categories lists categories already assigned to visible warps.
+browsing:
+  # false: /warps shows clickable chat. true: players get a chest-style menu.
+  # Console always uses chat. /warps gui also requires this to be true.
+  inventory-enabled: false
+  # Menu height: 2-6 rows, with 9 slots per row. Navigation uses some slots.
+  # Used only when inventory-enabled is true.
+  inventory-rows: 6
+  # Advanced input limit: maximum characters in a name search.
+  max-search-length: 32
+  # Advanced input limit: maximum characters in one custom description below.
+  max-description-length: 512
+  # Advanced limit: number of named icon/description entries allowed below.
+  max-presentation-entries: 512
+  # Inventory item names for warp entries and navigation buttons.
+  # Use uppercase Minecraft material names, such as BOOK, COMPASS or CHEST.
+  default-icon: "BOOK"
+  category-icon: "CHEST"
+  previous-icon: "ARROW"
+  next-icon: "ARROW"
+  refresh-icon: "SUNFLOWER"
+  close-icon: "BARRIER"
+  # OPTIONAL: appearance for an EXISTING warp. This does not create a warp,
+  # assign its category, or move its destination. {} keeps default appearances.
+  # Replace the presentations line with this example:
+  # presentations:
+  #   hub:
+  #     icon: COMPASS
+  #     description: "Return to the server hub"
+  # After /editwarp hub rename lobby, rename this entry to lobby too.
+  presentations: {}
+  # APPEARANCE ONLY: titles, descriptions, buttons and chat navigation text.
+  # Leave this entire messages block unchanged unless customizing the text.
+  messages:
+    usage: "<prefix><yellow>/warps [category|page] [page]; /warps search <term> [page]; /warps category <category> [search <term>] [page]; /warps categories; /warps gui [search <term> | category <category>] [page]</yellow>"
+    invalid-search: "<prefix><red>Search must contain 1–<limit> characters.</red>"
+    search-header: "<prefix><gold>Warps matching '<search>' in <category> (page <page>/<maxpages>):</gold>"
+    previous: "<yellow>[Previous]</yellow>"
+    next: "<yellow>[Next]</yellow>"
+    navigation: "<prefix><gray>Page <page>/<maxpages> — <total> results.</gray>"
+    categories-header: "<prefix><gold>Warp categories:</gold>"
+    category-item: "<yellow>[<category>]</yellow>"
+    inventory-disabled: "<prefix><yellow>The inventory warp browser is disabled.</yellow>"
+    inventory-title: "<gold>Warps: <category> (<page>/<maxpages>)</gold>"
+    item-name: "<yellow><name></yellow> <red><availability></red>"
+    item-lore:
+      - "<gray><description></gray>"
+      - "<gray>Category: <category></gray>"
+      - "<gray>World: <world></gray>"
+      - "<red><reason></red>"
+      - "<gray>Click to request teleport; passwords use /warp <name> <password>.</gray>"
+    category-title: "<gold>Warp categories (<page>/<maxpages>)</gold>"
+    category-name: "<yellow><category></yellow>"
+    category-lore:
+      - "<gray>Click to browse this category.</gray>"
+    refresh: "<green>[Refresh]</green>"
+    close: "<red>[Close]</red>"
+    all-categories: "All"
+    categories-button: "<yellow>[Categories]</yellow>"
+    search-button: "<yellow>[Search]</yellow>"
+    command-description: "Browse server warps"
+
+# --- 3. MONEY ---------------------------------------------------------------
+# false = disable ALL teleport/creation fees, including overrides in section 5.
+# true requires VaultUnlocked 2.20+ AND an economy provider with native
+# AsyncEconomy support. Ordinary Vault alone is not enough. If a positive fee
+# cannot be processed safely, TPCore refuses that operation.
 economy-enabled: false
+# Default teleport price in your economy currency; 0.0 = free.
 warp-cost: 0.0
+# Price for /setwarp creation/overwrite. Dedicated /editwarp edits are free.
 set-warp-cost: 0.0
+# CHARGE_ON_WARMUP: take money when the request starts.
+# CHARGE_ON_SUCCESS: check funds first, then charge after safety checks, BEFORE
+# attempting the teleport. This is not a withdrawal after the player arrives.
+# A failed CHARGE_ON_SUCCESS teleport refunds its receipt.
 charge-timing: "CHARGE_ON_WARMUP"
+# For CHARGE_ON_WARMUP: true refunds ordinary cancelled/failed requests;
+# false may keep the payment. Closed/changed warps, revoked access and world,
+# combat/protection denials still refund the amount on the actual receipt.
 refund-on-cancel: true
 
+# --- 4. DESTINATION SAFETY ---------------------------------------------------
 safety-checks:
+  # Keep true to inspect the ground, standing space, border and hazards.
+  # false skips ALL terrain checks in this section and can put players in danger.
   prevent-unsafe-teleport: true
+  # true rejects destinations reaching the Nether ceiling configured below.
   prevent-nether-roof: true
+  # Ceiling height in blocks. Leave 128 for the usual Nether roof.
   max-nether-height: 128
-  # EXACT never adjusts coordinates. NEARBY tries integer offsets, closest first.
-  # The Euclidean radius includes vertical movement; no separate deep surface scan.
+  # Choose ONE approach when the saved landing spot is unsafe:
+  # EXACT: refuse the warp; never adjust its saved coordinates.
+  #        Useful for carefully positioned entrances or checkpoints.
+  # NEARBY: try the saved spot first, then look nearby for a safe one.
+  #         Useful when a small adjustment is acceptable.
   destination-policy: "NEARBY"
+  # NEARBY only: maximum straight-line movement in blocks, including up/down.
+  # 3 means within 3 blocks of the saved point. Range: 0-10; 0 checks only that point.
+  # EXACT ignores this setting.
   max-adjustment-distance: 3
+  # Advanced NEARBY limit: positions to check, including the saved point.
+  # Usually leave 256. Range: 1-2048. A small limit may stop the search early.
   max-candidates: 256
-  # DENY: no water. SURFACE: water below feet only. ALLOW: also permit immersion.
-  # Waterlogged solids remain rejected in every mode.
+  # DENY: no water at the landing spot or immediately beneath the player.
+  # SURFACE: initial feet position must be above the water, not inside it.
+  # This does not make players walk on water; they may fall in after arrival.
+  # ALLOW: also permit landing in water. Check your builds for drowning risks.
+  # Waterlogged solid blocks remain rejected in every mode.
   water-policy: "ALLOW"
-  # Uppercase Material name fragments; an empty list disables these hazard exclusions.
-  hazard-patterns: [LAVA, FIRE, MAGMA, CACTUS, BERRY_BUSH, WITHER_ROSE, POWDER_SNOW, WEB, BUBBLE, POINTED_DRIPSTONE, RESPAWN_ANCHOR, PORTAL, GATEWAY, VOID, PRESSURE_PLATE, TRIPWIRE, SCULK_SENSOR, SCULK_SHRIEKER]
+  # Advanced: reject block types whose uppercase names CONTAIN these words.
+  # FIRE also matches CAMPFIRE. These are name fragments, not wildcards.
+  # [] removes these extra exclusions, not the other safety checks.
+  # Usually leave this list unchanged.
+  hazard-patterns:
+    - LAVA
+    - FIRE
+    - MAGMA
+    - CACTUS
+    - BERRY_BUSH
+    - WITHER_ROSE
+    - POWDER_SNOW
+    - WEB
+    - BUBBLE
+    - POINTED_DRIPSTONE
+    - RESPAWN_ANCHOR
+    - PORTAL
+    - GATEWAY
+    - VOID
+    - PRESSURE_PLATE
+    - TRIPWIRE
+    - SCULK_SENSOR
+    - SCULK_SHRIEKER
 
+# --- 5. OPTIONAL TRAVEL RULES ------------------------------------------------
+# All defaults below leave overrides, world restrictions, combat lockout and
+# external protection hooks inactive. You can ignore this section to start.
 policies:
-  # Missing fields inherit individually: warp -> category -> global.
-  # Zero explicitly means free / no warmup / no cooldown. Economy must be enabled.
-  # Example: hub: {price: 0.0, warmup-seconds: 0, cooldown-seconds: 0}
-  # Keys are case-insensitive names. Rename config keys when renaming warps.
+  # A. DIFFERENT PRICES / DELAYS FOR INDIVIDUAL WARPS
+  # Resolve EACH property: named warp -> its category -> the global value above.
+  # Missing property = inherit. Setting 0 = free or no delay.
+  # These entries do NOT create warps. Create them with /setwarp first.
+  # Replace the warps line with this example to make hub free and instant:
+  # warps:
+  #   hub:
+  #     price: 0.0
+  #     warmup-seconds: 0
+  #     cooldown-seconds: 0
+  # Names are case-insensitive. Rename this config key when renaming a warp.
+  # Prices need economy-enabled: true. Duration overrides do not need economy.
   warps: {}
+  # B. DIFFERENT PRICES / DELAYS FOR A WHOLE CATEGORY
+  # Replace the categories line with:
+  # categories:
+  #   resources:
+  #     price: 25.0
+  #     warmup-seconds: 5
+  #     cooldown-seconds: 60
+  # Assign a warp: /editwarp mine category resources
+  # mine then costs 25, waits 5 seconds, and has a 60-second cooldown.
+  # If policies.warps.mine sets ONLY price: 0.0, mine is free but still uses
+  # that category's 5-second warmup and 60-second cooldown.
+  # Override ranges: warmup 0-300 seconds; cooldown 0-86400 seconds; price >= 0.
+  # Up to 4096 named warp entries and 4096 category entries are allowed.
   categories: {}
-  # Empty allowed = all worlds; denied always wins. Exact names, case-insensitive.
-  # These rules apply to staff-forced teleports too; there is no implicit admin bypass.
-  creation-worlds: {allowed: [], denied: []}
-  source-worlds: {allowed: [], denied: []}
-  destination-worlds: {allowed: [], denied: []}
+  # C. WHERE MAY STAFF CREATE OR RELOCATE WARPS?
+  # Affects /setwarp, relocation and EssentialsX imports.
+  # Example: allowed: [world] allows creation only in the world named world.
+  # For all three lists below: [] in allowed = all worlds except denied.
+  # A nonempty allowed list permits ONLY those names; denied always wins.
+  # Names are case-insensitive. Each list supports up to 256 world names.
+  creation-worlds:
+    allowed: []
+    denied: []
+  # D. WHERE MAY A PLAYER START A WARP?
+  # Example: denied: [arena] stops players escaping a world named arena via warps.
+  source-worlds:
+    allowed: []
+    denied: []
+  # E. WHICH WORLDS MAY PLAYERS WARP INTO?
+  # Example: denied: [event] prevents arrival in a world named event.
+  # Travel rules also apply to /warpother; being an admin is not a bypass.
+  destination-worlds:
+    allowed: []
+    denied: []
+  # F. OPTIONAL COMBAT LOCKOUT
+  # true prevents starting/finishing a warp for combat-seconds after a hit.
+  # Unlike cancel-on-damage, this also stops starting a NEW warp between attacks.
+  # Only non-cancelled hits causing positive damage count. false disables this rule.
   combat-enabled: false
+  # Time blocked after the most recent qualifying hit. Only used if enabled above.
+  # Range: 1-300 seconds. Reconnecting does not clear an unexpired combat tag.
   combat-seconds: 10
-  # PvP tags attacker and victim, including player-fired projectiles. False tags all damage.
+  # true: tag both players in PvP, including player-fired arrows.
+  # false: also tag players damaged by mobs or environmental hazards.
+  # This is TPCore damage tracking, not a connection to another combat plugin.
   combat-pvp-only: true
-  # Optional, public-API reflection; no extra dependencies are bundled.
-  # Queries supported only on Paper's main thread. Enabled on Folia, missing,
-  # disabled or incompatible providers DENY creation and travel. Reload after enabling a provider.
+  # G. OPTIONAL EXTERNAL PROTECTION - LEAVE BOTH FALSE ON FOLIA
+  # Enable only on Paper with the matching compatible plugin installed/enabled.
+  # WorldGuard checks build permission for creation; exit at the source and entry
+  # at the selected destination when travelling.
+  # IMPORTANT: a missing/incompatible/disabled/unsupported enabled hook REFUSES
+  # creation and travel. Enabling either on Folia therefore blocks warps.
+  # Bulk import is also refused while either is enabled. Reload warp after
+  # enabling/replacing a provider. These switches do not install either plugin.
   worldguard-enabled: false
+  # GriefPrevention requires Build trust for creation and Access trust at arrival.
+  # Access trust is not an exit restriction; use source-worlds for world escape rules.
   griefprevention-enabled: false
+  # APPEARANCE ONLY: quotes and denial messages. Leave unchanged if desired.
   messages:
     quote: "<prefix><yellow>Warp <warp>: price <price>; warmup <warmup>s; cooldown <cooldown>s.</yellow>"
     world-restricted: "<prefix><red>Warp creation or travel is not allowed by the world rules.</red>"
     combat-tagged: "<prefix><red>You cannot warp while combat tagged. Wait until combat expires.</red>"
     protection-denied: "<prefix><red>Protection denied this operation, or an enabled protection hook is unavailable or unsupported. Ask an administrator.</red>"
 
-storage:
-  type: "SQLITE"
+# --- 6. DELETE / RECOVERY ----------------------------------------------------
+# Inspect: /warpinfo hub                   Edit one property: /editwarp hub ...
+# Close: /editwarp hub close Under construction    Reopen: /editwarp hub open
+# Hide: /editwarp hub unlisted             Show again: /editwarp hub listed
+# Closed = visible but unusable. Unlisted = absent from discovery; users who
+# know its name can still request it, subject to permissions/password/rules.
+# Delete: /delwarp hub, then /delwarp hub confirm
+# Recover: /warprecover list, then /warprecover <entry-id> from that list.
+# Changing these limits safely restarts the warp module during reload.
+control:
+  # Time to confirm /delwarp before its confirmation expires. Range: 1-300 seconds.
+  delete-confirmation-seconds: 30
+  # Keep at most this many deleted warp snapshots. Older entries can be removed
+  # when newer ones fill the history. Range: 1-4096. This is not a full backup.
+  recovery-max-entries: 100
+  # Snapshots also expire after this many days, even if history is not full.
+  # Range: 1-365. Once removed/expired, /warprecover cannot restore them.
+  recovery-retention-days: 7
+  # Maximum characters in the reason staff enter when closing a warp. Range: 1-4096.
+  closure-reason-max-length: 256
 
-# Imports read EssentialsX files directly; EssentialsX need not be installed.
-# Paths are relative to the server plugins directory and must remain inside it.
-# Backups are kept in TPCore/warp-import-backups; the limit refuses new imports,
-# never automatically deletes a recovery copy. Archive old copies manually.
+# --- 7. OPTIONAL ESSENTIALSX IMPORT -----------------------------------------
+# Ignore this section unless moving server warps from EssentialsX.
+# This reads EssentialsX warp files; it is separate from SQLITE/YAML migration.
+# 1. Preview only: /warpimport essentials preview skip
+#    skip keeps same-named TPCore warps; replace changes their destination while
+#    retaining TPCore access settings; rename creates a different unused name.
+# 2. Read the counts/warnings. Nothing is imported by previewing.
+# 3. Run /warpimport essentials confirm <token> using the token shown in chat.
+# A newer preview replaces the previous one. Destination worlds must be loaded.
 essentials-import:
+  # Relative to the server plugins folder: default means plugins/Essentials/warps.
+  # Must remain inside plugins. EssentialsX need not be installed/running.
   source-folder: "Essentials/warps"
+  # Advanced safeguard: maximum source warp files. Usually leave this unchanged.
   max-files: 1024
+  # Advanced safeguard: maximum bytes in one source file. 65536 = 64 KiB.
   max-file-bytes: 65536
+  # Advanced safeguard: maximum combined source bytes. 4194304 = 4 MiB.
   max-total-bytes: 4194304
+  # Time to confirm a preview: 120 = two minutes. Range: 1-600 seconds.
   preview-seconds: 120
+  # Maximum detail lines printed in chat. The summary still shows total counts.
   preview-lines: 20
+  # Before importing, keep a recovery copy in TPCore/warp-import-backups.
+  # At 5 backup directories, new imports are REFUSED; no old backup is auto-deleted.
+  # Move older backups somewhere safe yourself before importing again. Range: 1-20.
   max-backups: 5
+  # Category for NEW imported warps. Replaced warps keep their existing category.
   category: "imported"
+  # true: NEW imports need tpcore.warp.<name>. Example: tpcore.warp.hub.
+  # false: NEW imports do not require that extra individual permission.
+  # Replaced warps keep their access settings. EssentialsX permission grants,
+  # prices and sign links are NOT imported. Configure those separately.
   permission-required: true
+  # APPEARANCE ONLY: import commands, preview text and warning explanations.
   messages:
     description: "Preview and import EssentialsX server warps"
     usage: "<prefix><yellow>/warpimport essentials preview [skip|replace|rename]; /warpimport essentials confirm <token></yellow>"
@@ -113,61 +346,47 @@ essentials-import:
       IO: "I/O failed; no successful import is reported. Check the server log and any backup"
       EMPTY: "Preview contains no importable warps"
 
-# Search is case-insensitive and matches part of a warp name.
-# When enabled, /warps opens inventory browsing for players; console keeps chat.
-# /warps gui explicitly opens inventory browsing when this feature is enabled.
-# Presentation keys are warp names. Rename their config keys when renaming a warp.
-browsing:
-  inventory-enabled: false
-  inventory-rows: 6
-  max-search-length: 32
-  max-description-length: 512
-  max-presentation-entries: 512
-  default-icon: "BOOK"
-  category-icon: "CHEST"
-  previous-icon: "ARROW"
-  next-icon: "ARROW"
-  refresh-icon: "SUNFLOWER"
-  close-icon: "BARRIER"
-  # Example: hub: {icon: COMPASS, description: "Server arrival point"}
-  presentations: {}
-  messages:
-    usage: "<prefix><yellow>/warps [category|page] [page]; /warps search <term> [page]; /warps category <category> [search <term>] [page]; /warps categories; /warps gui [search <term> | category <category>] [page]</yellow>"
-    invalid-search: "<prefix><red>Search must contain 1–<limit> characters.</red>"
-    search-header: "<prefix><gold>Warps matching '<search>' in <category> (page <page>/<maxpages>):</gold>"
-    previous: "<yellow>[Previous]</yellow>"
-    next: "<yellow>[Next]</yellow>"
-    navigation: "<prefix><gray>Page <page>/<maxpages> — <total> results.</gray>"
-    categories-header: "<prefix><gold>Warp categories:</gold>"
-    category-item: "<yellow>[<category>]</yellow>"
-    inventory-disabled: "<prefix><yellow>The inventory warp browser is disabled.</yellow>"
-    inventory-title: "<gold>Warps: <category> (<page>/<maxpages>)</gold>"
-    item-name: "<yellow><name></yellow> <red><availability></red>"
-    item-lore:
-      - "<gray><description></gray>"
-      - "<gray>Category: <category></gray>"
-      - "<gray>World: <world></gray>"
-      - "<red><reason></red>"
-      - "<gray>Click to request teleport; passwords use /warp <name> <password>.</gray>"
-    category-title: "<gold>Warp categories (<page>/<maxpages>)</gold>"
-    category-name: "<yellow><category></yellow>"
-    category-lore:
-      - "<gray>Click to browse this category.</gray>"
-    refresh: "<green>[Refresh]</green>"
-    close: "<red>[Close]</red>"
-    all-categories: "All"
-    categories-button: "<yellow>[Categories]</yellow>"
-    search-button: "<yellow>[Search]</yellow>"
-    command-description: "Browse server warps"
+# --- 8. STORAGE -------------------------------------------------------------
+storage:
+  # SQLITE or YAML. Leave SQLITE unless intentionally using YAML files instead.
+  # Changing this alone does NOT copy saved warps. Back up your data and use
+  # /tpcore migrate warp <from> <to> for an intentional data migration.
+  # This is TPCore storage, not the EssentialsX importer.
+  type: "SQLITE"
 
-# Administrative controls; changing these settings reopens storage safely.
-control:
-  delete-confirmation-seconds: 30
-  recovery-max-entries: 100
-  recovery-retention-days: 7
-  closure-reason-max-length: 256
+# --- 9. ADVANCED LIMITS - USUALLY LEAVE THESE UNCHANGED -----------------------
+# These protect memory/storage. They are NOT gameplay prices, player warp
+# allowances or recommended player counts. Increasing them does not ensure speed.
+# Reloading capacity changes safely restarts this module; choose a quiet time.
+# A full server restart is not required for that module restart.
 
-# Plain closure reasons are rendered as text, never MiniMessage markup.
+# Maximum accepted operations at once, including pending warmups/payments.
+# When full, new operations get a busy message. Range: 1-1024.
+max-concurrent-operations: 64
+# Hard upper bound on stored warps loaded into memory. Range: 1-16384.
+# Unlike max-warps, staff bypass permissions cannot exceed this capacity.
+max-cached-warps: 4096
+# Maximum UUID records per cooldown/password/combat cache, not online players.
+# When required state cannot be tracked, operations may be refused. If combat
+# tracking fills, warps are conservatively blocked for the combat duration.
+# Range: 1-16384. Leave room for reconnecting/recent players.
+max-player-state-entries: 2048
+# Maximum queued storage I/O jobs, not database connections. Range: 1-1024.
+# When full, storage operations may be refused.
+storage-queue-capacity: 128
+# Time allowed beyond the warmup for a teleport operation before timing out.
+# Also used by lifecycle/storage work. Range: 1-300 seconds.
+operation-timeout-seconds: 30
+# Maximum YAML input bytes, also used by import backup snapshots.
+# 16777216 = 16 MiB. Range: 1024 to 134217728 (128 MiB).
+# This is NOT a maximum size for the SQLite database or plugin JAR.
+max-storage-bytes: 16777216
+
+# --- 10. MESSAGE CUSTOMIZATION - OPTIONAL -----------------------------------
+# Everything below is player/staff text; you do not need to edit it to enable
+# features. Browser, policy and import text stays in each matching section above.
+# Keep placeholders such as <warp>, <name> and <seconds> when editing text.
+# Plain closure reasons entered by staff are text, not MiniMessage formatting.
 control-messages:
   closed: "<prefix><red>Warp <yellow><warp></yellow> is closed: <reason></red>"
   changed: "<prefix><yellow>Warp <warp> changed before teleportation. Please try again.</yellow>"
