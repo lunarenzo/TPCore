@@ -1,6 +1,7 @@
 package com.lunatech.tpcore.config.model;
 
 import java.util.Locale;
+import java.util.Set;
 import org.spongepowered.configurate.objectmapping.ConfigSerializable;
 import org.spongepowered.configurate.objectmapping.meta.Comment;
 
@@ -66,9 +67,11 @@ public record WarpConfig(
     WarpControlConfig control,
     WarpControlMessages controlMessages,
     WarpBrowseConfig browsing,
-    WarpImportConfig essentialsImport
+    WarpImportConfig essentialsImport,
+    WarpPolicyConfig policies
 ) {
     public WarpConfig {
+        if (policies == null) policies = WarpPolicyConfig.createDefault();
         if (essentialsImport == null) essentialsImport = WarpImportConfig.createDefault();
         if (editMessages == null) editMessages = WarpEditMessages.createDefault();
         if (control == null) control = WarpControlConfig.createDefault();
@@ -83,6 +86,20 @@ public record WarpConfig(
         if (!Double.isFinite(warpCost) || warpCost < 0 || !Double.isFinite(setWarpCost) || setWarpCost < 0) {
             throw new IllegalArgumentException("Warp costs must be finite and nonnegative");
         }
+    }
+
+    public WarpConfig(boolean enabled, int warmupSeconds, int cooldownSeconds, boolean cancelOnMove,
+        boolean cancelOnDamage, boolean defaultPermissionGated, String defaultCategory, int warpsPerPage,
+        int maxWarps, boolean economyEnabled, double warpCost, double setWarpCost, String chargeTiming,
+        boolean refundOnCancel, WarpSafetyConfig safetyChecks, WarpStorageConfig storage, WarpMessages messages,
+        int maxConcurrentOperations, int maxCachedWarps, int maxPlayerStateEntries, int storageQueueCapacity,
+        int operationTimeoutSeconds, long maxStorageBytes, WarpEditMessages editMessages, WarpControlConfig control,
+        WarpControlMessages controlMessages, WarpBrowseConfig browsing, WarpImportConfig essentialsImport) {
+        this(enabled, warmupSeconds, cooldownSeconds, cancelOnMove, cancelOnDamage, defaultPermissionGated,
+            defaultCategory, warpsPerPage, maxWarps, economyEnabled, warpCost, setWarpCost, chargeTiming,
+            refundOnCancel, safetyChecks, storage, messages, maxConcurrentOperations, maxCachedWarps,
+            maxPlayerStateEntries, storageQueueCapacity, operationTimeoutSeconds, maxStorageBytes, editMessages,
+            control, controlMessages, browsing, essentialsImport, WarpPolicyConfig.createDefault());
     }
 
     public WarpConfig(boolean enabled, int warmupSeconds, int cooldownSeconds, boolean cancelOnMove,
@@ -233,8 +250,34 @@ public record WarpConfig(
     public record WarpSafetyConfig(
         boolean preventUnsafeTeleport,
         boolean preventNetherRoof,
-        int maxNetherHeight
+        int maxNetherHeight,
+        String destinationPolicy,
+        int maxAdjustmentDistance,
+        int maxCandidates,
+        String waterPolicy,
+        Set<String> hazardPatterns
     ) {
+        public WarpSafetyConfig {
+            if (destinationPolicy == null) destinationPolicy = "NEARBY";
+            destinationPolicy = destinationPolicy.toUpperCase(Locale.ROOT);
+            if (!destinationPolicy.equals("EXACT") && !destinationPolicy.equals("NEARBY")) throw new IllegalArgumentException("Safety destination-policy must be EXACT or NEARBY");
+            maxAdjustmentDistance = Math.max(0, Math.min(10, maxAdjustmentDistance));
+            maxCandidates = Math.max(1, Math.min(2048, maxCandidates));
+            if (waterPolicy == null) waterPolicy = "ALLOW";
+            waterPolicy = waterPolicy.toUpperCase(Locale.ROOT);
+            if (!waterPolicy.equals("DENY") && !waterPolicy.equals("SURFACE") && !waterPolicy.equals("ALLOW")) throw new IllegalArgumentException("Safety water-policy must be DENY, SURFACE or ALLOW");
+            if (hazardPatterns == null) hazardPatterns = defaultHazards();
+            if (hazardPatterns.size() > 128 || hazardPatterns.stream().anyMatch(value -> value == null || !value.matches("[A-Z0-9_]{1,64}")))
+                throw new IllegalArgumentException("At most 128 uppercase hazard name fragments are allowed");
+            hazardPatterns = Set.copyOf(hazardPatterns);
+        }
+        private static Set<String> defaultHazards() {
+            return Set.of("LAVA", "FIRE", "MAGMA", "CACTUS", "BERRY_BUSH", "WITHER_ROSE", "POWDER_SNOW", "WEB", "BUBBLE",
+                "POINTED_DRIPSTONE", "RESPAWN_ANCHOR", "PORTAL", "GATEWAY", "VOID", "PRESSURE_PLATE", "TRIPWIRE", "SCULK_SENSOR", "SCULK_SHRIEKER");
+        }
+        public WarpSafetyConfig(boolean preventUnsafeTeleport, boolean preventNetherRoof, int maxNetherHeight) {
+            this(preventUnsafeTeleport, preventNetherRoof, maxNetherHeight, "NEARBY", 3, 256, "ALLOW", defaultHazards());
+        }
         public static WarpSafetyConfig createDefault() {
             return new WarpSafetyConfig(true, true, 128);
         }

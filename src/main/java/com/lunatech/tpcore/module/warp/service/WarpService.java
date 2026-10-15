@@ -15,6 +15,8 @@ import java.util.concurrent.CompletableFuture;
 import org.bukkit.entity.Player;
 
 public interface WarpService {
+    void recordCombat(UUID playerId);
+    WarpResultStatus checkCreation(Player player);
 
     CompletableFuture<Void> initialize();
     /** Caller enforces staff permissions. Free edits preserve unrelated fields and cancel pending teleports before dispatch. */

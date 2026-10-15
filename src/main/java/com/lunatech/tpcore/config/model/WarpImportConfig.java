@@ -32,6 +32,7 @@ public record WarpImportConfig(String sourceFolder, int maxFiles, int maxFileByt
                 Map.entry("RENAME", "Create under a new name"), Map.entry("SKIP", "Keep existing warp"),
                 Map.entry("INVALID_FILE", "Invalid YAML or fields"), Map.entry("INVALID_NAME", "Invalid name (use 1-32 letters, digits, _ or -)"),
                 Map.entry("INVALID_WORLD", "World is not loaded or cannot be resolved"), Map.entry("INVALID_LOCATION", "Invalid coordinates or rotation"),
+                Map.entry("RESTRICTED", "Creation world is disallowed, or protection requires individual creation checks"),
                 Map.entry("DUPLICATE", "Duplicate source name; skipped"), Map.entry("BUSY", "Warp storage or another import is busy"),
                 Map.entry("NOT_READY", "Warp module or storage is unavailable"), Map.entry("STALE", "Preview expired or source, destination, worlds or configuration changed; preview again"),
                 Map.entry("LIMIT", "Import exceeds configured file, byte or warp limits"), Map.entry("SOURCE", "Source folder is missing or is outside the plugins directory"),

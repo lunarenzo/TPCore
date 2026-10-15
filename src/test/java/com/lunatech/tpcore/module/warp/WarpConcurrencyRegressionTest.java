@@ -68,7 +68,6 @@ class WarpConcurrencyRegressionTest {
         when(repository.close()).thenReturn(CompletableFuture.completedFuture(null));
         economy = mock(WarpEconomyService.class);
         when(economy.isAvailable()).thenReturn(true);
-        when(economy.getWarpCost(player)).thenReturn(50.0);
         when(economy.getSetWarpCost(player)).thenReturn(50.0);
         payment = new CompletableFuture<>();
         when(economy.chargeExact(id, 50.0)).thenReturn(payment);
@@ -76,7 +75,13 @@ class WarpConcurrencyRegressionTest {
         when(economy.close()).thenReturn(CompletableFuture.completedFuture(null));
         cache = new DefaultWarpCache();
         service = new DefaultWarpService(mock(Plugin.class), repository, cache, economy,
-            WarpConfig.createDefault(), LoggerFactory.getLogger("WarpConcurrencyRegression"));
+            paidConfig(50), LoggerFactory.getLogger("WarpConcurrencyRegression"));
+    }
+
+    private WarpConfig paidConfig(double price) {
+        WarpConfig d = WarpConfig.createDefault();
+        return new WarpConfig(true, 3, 10, true, true, false, "general", 8, 100, true, price, 50,
+            d.chargeTiming(), d.refundOnCancel(), d.safetyChecks(), d.storage(), d.messages());
     }
 
     private void ready() {
@@ -109,7 +114,7 @@ class WarpConcurrencyRegressionTest {
 
     @Test void closingPaidWarmupRefundsEvenWhenOrdinaryCancellationRefundsAreDisabled() {
         WarpConfig defaults = WarpConfig.createDefault();
-        service.updateConfig(new WarpConfig(true, 3, 10, true, true, false, "general", 8, 100, false, 0, 0,
+        service.updateConfig(new WarpConfig(true, 3, 10, true, true, false, "general", 8, 100, true, 50, 50,
             "CHARGE_ON_WARMUP", false, defaults.safetyChecks(), defaults.storage(), defaults.messages()));
         ready();
         when(repository.replace(anyString(), any())).thenReturn(CompletableFuture.completedFuture(null));
@@ -152,7 +157,7 @@ class WarpConcurrencyRegressionTest {
         CompletableFuture<WarpResultStatus> result = service.teleportToWarp(player, "hub", null);
         Payment receipt = new Payment(id, 25.0, true);
         payment.complete(receipt);
-        when(economy.getWarpCost(player)).thenReturn(500.0);
+        service.updateConfig(paidConfig(500));
         service.cancelWarmupOnDamage(player);
         assertEquals(WarpResultStatus.WARMUP_CANCELLED_DAMAGE, result.join());
         verify(economy).settle(receipt, true);

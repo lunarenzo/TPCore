@@ -5,6 +5,8 @@ import com.lunatech.tpcore.module.warp.service.WarpService;
 import java.util.Objects;
 import java.util.function.Supplier;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.Projectile;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
@@ -83,13 +85,22 @@ public final class WarpEventListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onEntityDamage(EntityDamageEvent event) {
         WarpConfig config = configSupplier.get();
-        if (!config.enabled() || !config.cancelOnDamage()) {
+        if (!config.enabled() || event.getFinalDamage() <= 0) {
             return;
         }
 
         if (event.getEntity() instanceof Player player) {
             WarpService service = serviceSupplier.get();
             if (service != null) {
+                Player attacker = null;
+                if (event instanceof EntityDamageByEntityEvent hit) {
+                    if (hit.getDamager() instanceof Player direct) attacker = direct;
+                    else if (hit.getDamager() instanceof Projectile projectile && projectile.getShooter() instanceof Player shooter) attacker = shooter;
+                }
+                if (config.policies().combatEnabled() && (!config.policies().combatPvpOnly() || attacker != null)) {
+                    service.recordCombat(player.getUniqueId());
+                    if (attacker != null) service.recordCombat(attacker.getUniqueId());
+                }
                 service.cancelWarmupOnDamage(player);
             }
         }

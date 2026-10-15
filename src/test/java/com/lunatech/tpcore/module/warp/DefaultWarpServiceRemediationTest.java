@@ -41,6 +41,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.ArgumentMatchers.anyBoolean;
@@ -342,7 +343,7 @@ class DefaultWarpServiceRemediationTest {
         teleport(service, player, "spawn", null);
 
         org.mockito.ArgumentCaptor<net.kyori.adventure.text.Component> captor = org.mockito.ArgumentCaptor.forClass(net.kyori.adventure.text.Component.class);
-        verify(player).sendMessage(captor.capture());
+        verify(player, times(2)).sendMessage(captor.capture());
         net.kyori.adventure.text.Component sentComponent = captor.getValue();
         org.junit.jupiter.api.Assertions.assertNotNull(sentComponent);
 
@@ -365,13 +366,15 @@ class DefaultWarpServiceRemediationTest {
 
         WarpEconomyService mockEconomy = mock(WarpEconomyService.class);
         when(mockEconomy.isAvailable()).thenReturn(true);
-        when(mockEconomy.getWarpCost(player)).thenReturn(50.0);
         UUID paymentPlayerId = player.getUniqueId();
         when(mockEconomy.chargeExact(player.getUniqueId(), 50.0)).thenReturn(CompletableFuture.completedFuture(new Payment(paymentPlayerId, 50.0, true)));
         when(mockEconomy.settle(any(), anyBoolean())).thenReturn(CompletableFuture.completedFuture(true));
 
         DefaultWarpService ecoService = new DefaultWarpService(
-            mockPlugin, mockRepository, cache, mockEconomy, config, LoggerFactory.getLogger("Test-WarpService")
+            mockPlugin, mockRepository, cache, mockEconomy,
+            new WarpConfig(true, 3, 10, true, true, false, "general", 8, 100, true, 50, 0,
+                config.chargeTiming(), config.refundOnCancel(), config.safetyChecks(), config.storage(), config.messages()),
+            LoggerFactory.getLogger("Test-WarpService")
         );
         ecoService.initialize().join();
 

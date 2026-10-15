@@ -28,6 +28,43 @@ safety-checks:
   prevent-unsafe-teleport: true
   prevent-nether-roof: true
   max-nether-height: 128
+  # EXACT never adjusts coordinates. NEARBY tries integer offsets, closest first.
+  # The Euclidean radius includes vertical movement; no separate deep surface scan.
+  destination-policy: "NEARBY"
+  max-adjustment-distance: 3
+  max-candidates: 256
+  # DENY: no water. SURFACE: water below feet only. ALLOW: also permit immersion.
+  # Waterlogged solids remain rejected in every mode.
+  water-policy: "ALLOW"
+  # Uppercase Material name fragments; an empty list disables these hazard exclusions.
+  hazard-patterns: [LAVA, FIRE, MAGMA, CACTUS, BERRY_BUSH, WITHER_ROSE, POWDER_SNOW, WEB, BUBBLE, POINTED_DRIPSTONE, RESPAWN_ANCHOR, PORTAL, GATEWAY, VOID, PRESSURE_PLATE, TRIPWIRE, SCULK_SENSOR, SCULK_SHRIEKER]
+
+policies:
+  # Missing fields inherit individually: warp -> category -> global.
+  # Zero explicitly means free / no warmup / no cooldown. Economy must be enabled.
+  # Example: hub: {price: 0.0, warmup-seconds: 0, cooldown-seconds: 0}
+  # Keys are case-insensitive names. Rename config keys when renaming warps.
+  warps: {}
+  categories: {}
+  # Empty allowed = all worlds; denied always wins. Exact names, case-insensitive.
+  # These rules apply to staff-forced teleports too; there is no implicit admin bypass.
+  creation-worlds: {allowed: [], denied: []}
+  source-worlds: {allowed: [], denied: []}
+  destination-worlds: {allowed: [], denied: []}
+  combat-enabled: false
+  combat-seconds: 10
+  # PvP tags attacker and victim, including player-fired projectiles. False tags all damage.
+  combat-pvp-only: true
+  # Optional, public-API reflection; no extra dependencies are bundled.
+  # Queries supported only on Paper's main thread. Enabled on Folia, missing,
+  # disabled or incompatible providers DENY creation and travel. Reload after enabling a provider.
+  worldguard-enabled: false
+  griefprevention-enabled: false
+  messages:
+    quote: "<prefix><yellow>Warp <warp>: price <price>; warmup <warmup>s; cooldown <cooldown>s.</yellow>"
+    world-restricted: "<prefix><red>Warp creation or travel is not allowed by the world rules.</red>"
+    combat-tagged: "<prefix><red>You cannot warp while combat tagged. Wait until combat expires.</red>"
+    protection-denied: "<prefix><red>Protection denied this operation, or an enabled protection hook is unavailable or unsupported. Ask an administrator.</red>"
 
 storage:
   type: "SQLITE"
@@ -64,6 +101,7 @@ essentials-import:
       INVALID_FILE: "Invalid YAML or fields"
       INVALID_NAME: "Invalid name (use 1-32 letters, digits, _ or -)"
       INVALID_WORLD: "World is not loaded or cannot be resolved"
+      RESTRICTED: "Creation world is disallowed, or protection requires individual creation checks"
       INVALID_LOCATION: "Invalid coordinates or rotation"
       DUPLICATE: "Duplicate source name; skipped"
       BUSY: "Warp storage or another import is busy"

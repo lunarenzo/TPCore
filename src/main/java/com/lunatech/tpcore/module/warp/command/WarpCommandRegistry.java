@@ -553,7 +553,11 @@ public final class WarpCommandRegistry {
     private int relocateWarp(CommandSender sender, String name) {
         if (!(sender instanceof Player player)) { sendOnlyPlayersMessage(sender); return Command.SINGLE_SUCCESS; }
         if (!staffPermission(sender, Permissions.WARP_EDIT_RELOCATE)) { sendMessage(sender, configSupplier.get().messages().noPermission(), Placeholder.unparsed("warp", name)); return Command.SINGLE_SUCCESS; }
+        WarpService service = warpServiceSupplier.get();
+        if (service == null) { sendMessage(sender, configSupplier.get().messages().storageNotReady()); return Command.SINGLE_SUCCESS; }
         Location location = player.getLocation();
+        WarpResultStatus allowed = service.checkCreation(player);
+        if (allowed != WarpResultStatus.SUCCESS) { sendMessage(sender, controlResult(configSupplier.get(), allowed)); return Command.SINGLE_SUCCESS; }
         return editWarp(sender, name, new WarpEdit.Relocate(location.getWorld().getUID(), location.getWorld().getName(),
             location.getX(), location.getY(), location.getZ(), location.getYaw(), location.getPitch()), Permissions.WARP_EDIT_RELOCATE);
     }
@@ -577,6 +581,8 @@ public final class WarpCommandRegistry {
                 case INVALID_VALUE -> settings.editMessages().invalidValue();
                 case BUSY -> settings.messages().operationBusy();
                 case NOT_READY -> settings.messages().storageNotReady();
+                case WORLD_RESTRICTED -> settings.policies().messages().worldRestricted();
+                case PROTECTION_DENIED -> settings.policies().messages().protectionDenied();
                 default -> settings.messages().operationFailed();
             };
             sendReply(replyId, console, message, Placeholder.unparsed("warp", status == WarpResultStatus.WARP_NOT_FOUND ? name : updatedName), Placeholder.unparsed("old-name", name),
@@ -618,6 +624,9 @@ public final class WarpCommandRegistry {
                 case NO_PERMISSION -> config.messages().noPermission();
                 case WORLD_NOT_LOADED -> config.messages().worldNotLoaded();
                 case UNSAFE_LOCATION -> config.messages().unsafeLocation();
+                case WORLD_RESTRICTED -> config.policies().messages().worldRestricted();
+                case COMBAT_TAGGED -> config.policies().messages().combatTagged();
+                case PROTECTION_DENIED -> config.policies().messages().protectionDenied();
                 case COOLDOWN_ACTIVE -> config.messages().cooldownActive();
                 case WARMUP_ALREADY_ACTIVE -> config.messages().warmupAlreadyActive();
                 case BUSY -> config.messages().operationBusy();
@@ -678,6 +687,10 @@ public final class WarpCommandRegistry {
                 rawMsg = config.messages().storageNotReady();
             } else if (status == WarpResultStatus.ECONOMY_UNAVAILABLE) {
                 rawMsg = config.messages().economyUnavailable();
+            } else if (status == WarpResultStatus.WORLD_RESTRICTED) {
+                rawMsg = config.policies().messages().worldRestricted();
+            } else if (status == WarpResultStatus.PROTECTION_DENIED) {
+                rawMsg = config.policies().messages().protectionDenied();
             } else {
                 rawMsg = config.messages().operationFailed();
             }
@@ -714,6 +727,9 @@ public final class WarpCommandRegistry {
             case LIMIT_REACHED -> settings.messages().limitReached();
             case BUSY -> settings.messages().operationBusy();
             case NOT_READY -> settings.messages().storageNotReady();
+            case WORLD_RESTRICTED -> settings.policies().messages().worldRestricted();
+            case COMBAT_TAGGED -> settings.policies().messages().combatTagged();
+            case PROTECTION_DENIED -> settings.policies().messages().protectionDenied();
             default -> settings.messages().operationFailed();
         };
     }

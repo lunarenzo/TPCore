@@ -81,6 +81,8 @@ public final class EssentialsWarpImport {
                 if (world == null) world = worlds.get("name:" + worldValue.toLowerCase(Locale.ROOT));
                 if (world == null && !worldValue.isBlank()) world = worlds.get("name:" + node.node("world-name").getString("").toLowerCase(Locale.ROOT));
                 if (world == null) throw failure("INVALID_WORLD");
+                if (!settings.policies().creationWorlds().allows(world.name())
+                    || settings.policies().worldguardEnabled() || settings.policies().griefpreventionEnabled()) throw failure("RESTRICTED");
                 double x = number(node, "x", false), y = number(node, "y", false), z = number(node, "z", false);
                 double yaw = number(node, "yaw", true), pitch = number(node, "pitch", true);
                 if (x < Integer.MIN_VALUE || x >= Integer.MAX_VALUE || z < Integer.MIN_VALUE || z >= Integer.MAX_VALUE
@@ -100,7 +102,7 @@ public final class EssentialsWarpImport {
                     : new Warp(target, world.id(), world.name(), x, y, z, (float) yaw, (float) pitch, owner, settings.essentialsImport().category(), null, settings.essentialsImport().permissionRequired(), created);
                 selected.add(warp); entries.add(new Entry(file, name, target, reason));
             } catch (Exception failure) {
-                String reason = failure instanceof IllegalStateException && Set.of("INVALID_NAME", "INVALID_WORLD", "INVALID_LOCATION").contains(failure.getMessage()) ? failure.getMessage() : "INVALID_FILE";
+                String reason = failure instanceof IllegalStateException && Set.of("INVALID_NAME", "INVALID_WORLD", "INVALID_LOCATION", "RESTRICTED").contains(failure.getMessage()) ? failure.getMessage() : "INVALID_FILE";
                 entries.add(new Entry(file, name.substring(0, Math.min(name.length(), 32)), target, reason)); invalid++;
             }
         }
