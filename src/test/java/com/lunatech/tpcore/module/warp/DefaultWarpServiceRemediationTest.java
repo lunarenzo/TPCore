@@ -38,6 +38,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -367,7 +369,7 @@ class DefaultWarpServiceRemediationTest {
         WarpEconomyService mockEconomy = mock(WarpEconomyService.class);
         when(mockEconomy.isAvailable()).thenReturn(true);
         UUID paymentPlayerId = player.getUniqueId();
-        when(mockEconomy.chargeExact(player.getUniqueId(), 50.0)).thenReturn(CompletableFuture.completedFuture(new Payment(paymentPlayerId, 50.0, true)));
+        when(mockEconomy.chargeExact(eq(player.getUniqueId()), eq(50.0), anyString(), anyString())).thenReturn(CompletableFuture.completedFuture(new Payment(paymentPlayerId, 50.0, true)));
         when(mockEconomy.settle(any(), anyBoolean())).thenReturn(CompletableFuture.completedFuture(true));
 
         DefaultWarpService ecoService = new DefaultWarpService(
@@ -388,7 +390,7 @@ class DefaultWarpServiceRemediationTest {
 
         // Initiate warp teleport - should charge 50.0
         teleport(ecoService, player, "shop", null);
-        verify(mockEconomy).chargeExact(player.getUniqueId(), 50.0);
+        verify(mockEconomy).chargeExact(eq(player.getUniqueId()), eq(50.0), anyString(), anyString());
 
         // Cancel warmup on move - should refund 50.0
         ecoService.cancelWarmupOnMove(player);
@@ -409,7 +411,7 @@ class DefaultWarpServiceRemediationTest {
         when(mockEconomy.isAvailable()).thenReturn(true);
         when(mockEconomy.getSetWarpCost(player)).thenReturn(200.0);
         UUID paymentPlayerId = player.getUniqueId();
-        when(mockEconomy.chargeExact(player.getUniqueId(), 200.0)).thenReturn(CompletableFuture.completedFuture(new Payment(paymentPlayerId, 200.0, true)));
+        when(mockEconomy.chargeExact(eq(player.getUniqueId()), eq(200.0), anyString(), anyString())).thenReturn(CompletableFuture.completedFuture(new Payment(paymentPlayerId, 200.0, true)));
         when(mockEconomy.settle(any(), anyBoolean())).thenReturn(CompletableFuture.completedFuture(true));
 
         DefaultWarpService ecoService = new DefaultWarpService(
@@ -418,7 +420,7 @@ class DefaultWarpServiceRemediationTest {
         ecoService.initialize().join();
 
         assertEquals(WarpResultStatus.SUCCESS, ecoService.setWarp(player, "Hub", false, null, null).join());
-        verify(mockEconomy).chargeExact(player.getUniqueId(), 200.0);
+        verify(mockEconomy).chargeExact(eq(player.getUniqueId()), eq(200.0), anyString(), anyString());
     }
 
     @Test
@@ -432,7 +434,7 @@ class DefaultWarpServiceRemediationTest {
         when(mockEconomy.isAvailable()).thenReturn(true);
         when(mockEconomy.getSetWarpCost(player)).thenReturn(100.0);
         UUID paymentPlayerId = player.getUniqueId();
-        when(mockEconomy.chargeExact(player.getUniqueId(), 100.0)).thenReturn(CompletableFuture.completedFuture(new Payment(paymentPlayerId, 100.0, true)));
+        when(mockEconomy.chargeExact(eq(player.getUniqueId()), eq(100.0), anyString(), anyString())).thenReturn(CompletableFuture.completedFuture(new Payment(paymentPlayerId, 100.0, true)));
         when(mockEconomy.settle(any(), anyBoolean())).thenReturn(CompletableFuture.completedFuture(true));
 
         WarpRepository failingRepo = mock(WarpRepository.class);

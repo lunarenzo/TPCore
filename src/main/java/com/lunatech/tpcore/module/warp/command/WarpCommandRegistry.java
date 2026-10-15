@@ -467,6 +467,12 @@ public final class WarpCommandRegistry {
             .then(Commands.literal("payments")
                 .requires(source -> staffPermission(source.getSender(), Permissions.WARP_PAYMENTS))
                 .executes(context -> warpStatus(context.getSource().getSender(), true, 1))
+                .then(Commands.literal("acknowledge").requires(source -> staffPermission(source.getSender(), Permissions.WARP_PAYMENTS_ACKNOWLEDGE))
+                    .then(Commands.argument("ticket", StringArgumentType.word())
+                        .then(Commands.argument("evidence-note", StringArgumentType.greedyString()).executes(context ->
+                            paymentAcknowledgement(context.getSource().getSender(), StringArgumentType.getString(context, "ticket"), StringArgumentType.getString(context, "evidence-note"))))))
+                .then(Commands.literal("resume").requires(source -> staffPermission(source.getSender(), Permissions.WARP_PAYMENTS_ACKNOWLEDGE))
+                    .executes(context -> paymentAcknowledgement(context.getSource().getSender(), null, null)))
                 .then(Commands.argument("page", IntegerArgumentType.integer(1))
                     .executes(context -> warpStatus(context.getSource().getSender(), true, IntegerArgumentType.getInteger(context, "page")))))
             .build());
@@ -866,6 +872,31 @@ public final class WarpCommandRegistry {
         String searchCommand = "/warps" + (result.query().category().isEmpty() ? "" : " category " + StringArgumentType.escapeIfRequired(result.query().category())) + " search ";
         sender.sendMessage(browseText(messages.searchButton(), config).clickEvent(ClickEvent.suggestCommand(searchCommand)));
 
+        return Command.SINGLE_SUCCESS;
+    }
+
+    private int paymentAcknowledgement(CommandSender sender, String ticket, String note) {
+        WarpConfig settings = configSupplier.get();
+        if (!staffPermission(sender, Permissions.WARP_STATUS) || !staffPermission(sender, Permissions.WARP_PAYMENTS)
+            || !staffPermission(sender, Permissions.WARP_PAYMENTS_ACKNOWLEDGE)) { sendMessage(sender, settings.messages().noPermission()); return Command.SINGLE_SUCCESS; }
+        WarpService service = warpServiceSupplier.get();
+        if (service == null || !settings.enabled()) { sendMessage(sender, settings.messages().storageNotReady()); return Command.SINGLE_SUCCESS; }
+        UUID id = sender instanceof Player player ? player.getUniqueId() : null;
+        CommandSender console = id == null ? sender : null;
+        UUID actor = id == null ? new UUID(0, 0) : id;
+        var operation = ticket == null ? service.resumePayments() : service.acknowledgePayment(ticket, actor, note);
+        operation.whenComplete((done, failure) -> {
+            if (failure == null) {
+                plugin.getSLF4JLogger().info("Warp payment administration: actor {}, ticket {}, note {}", actor, ticket, note);
+                sendRestrictedReply(id, console, Permissions.WARP_PAYMENTS_ACKNOWLEDGE, settings.payments().messages().get(ticket == null ? "resumed" : "acknowledged"), Placeholder.unparsed("ticket", ticket == null ? "" : ticket));
+            } else {
+                Throwable cause = failure;
+                while (cause instanceof CompletionException && cause.getCause() != null) cause = cause.getCause();
+                String reason = settings.payments().messages().getOrDefault("reason-" + String.valueOf(cause.getMessage()).toLowerCase(Locale.ROOT), settings.payments().messages().get("reason-storage"));
+                plugin.getSLF4JLogger().warn("Warp payment acknowledgement refused for {}", ticket, failure);
+                sendRestrictedReply(id, console, Permissions.WARP_PAYMENTS_ACKNOWLEDGE, settings.payments().messages().get("failed"), Placeholder.unparsed("reason", reason));
+            }
+        });
         return Command.SINGLE_SUCCESS;
     }
 

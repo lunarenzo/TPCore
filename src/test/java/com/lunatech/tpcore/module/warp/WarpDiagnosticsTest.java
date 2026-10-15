@@ -34,6 +34,8 @@ import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import com.lunatech.tpcore.module.warp.model.WarpPaymentEvidence;
+import java.math.BigDecimal;
 import org.slf4j.LoggerFactory;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -42,14 +44,16 @@ import static org.mockito.Mockito.*;
 class WarpDiagnosticsTest {
     @TempDir Path directory;
 
+    private WarpPaymentEvidence evidence(double amount) { return new WarpPaymentEvidence(UUID.randomUUID(), "TELEPORT", "hub", "test", "default", BigDecimal.valueOf(amount), null, null, "UNKNOWN", 0, 0, ""); }
+
     @Test void journalPagesAreOrderedClampedImmutableAndReadOnly() throws Exception {
         Path file = directory.resolve("refunds.properties");
-        WarpRefundJournal journal = new WarpRefundJournal(file, 3, 2);
+        WarpRefundJournal journal = new WarpRefundJournal(file, 3, 2, 100);
         try {
             journal.ready().join();
-            journal.record(UUID.randomUUID(), 12.5).join();
-            journal.record(UUID.randomUUID(), 7).join();
-            journal.record(UUID.randomUUID(), 3).join();
+            journal.record(evidence(12.5)).join();
+            journal.record(evidence(7)).join();
+            journal.record(evidence(3)).join();
             byte[] before = Files.readAllBytes(file);
             PaymentPage all = journal.snapshot(-1, Integer.MAX_VALUE).join();
             assertEquals(1, all.page()); assertEquals(3, all.total());
@@ -64,20 +68,20 @@ class WarpDiagnosticsTest {
     @Test void malformedLegacyEvidenceIsPreservedAndFailedJournalIsNotEmpty() throws Exception {
         Path file = directory.resolve("legacy.properties");
         Files.writeString(file, "legacy-ticket=unexpected-record\n");
-        WarpRefundJournal journal = new WarpRefundJournal(file, 2, 1);
+        WarpRefundJournal journal = new WarpRefundJournal(file, 2, 1, 100);
         try {
             journal.ready().join();
             assertEquals(new PaymentIntent("legacy-ticket", "unexpected-record"), journal.snapshot(1, 1).join().entries().getFirst());
         } finally { journal.close().join(); }
         Files.writeString(file, "x".repeat(513));
-        WarpRefundJournal broken = new WarpRefundJournal(file, 2, 1);
+        WarpRefundJournal broken = new WarpRefundJournal(file, 2, 1, 100);
         try {
             assertThrows(RuntimeException.class, () -> broken.ready().join());
             assertFalse(broken.isReady());
             assertThrows(RuntimeException.class, () -> broken.snapshot(1, 1).join());
         } finally { broken.close().join(); }
         Files.writeString(file, "ticket=" + "x".repeat(257));
-        WarpRefundJournal oversized = new WarpRefundJournal(file, 10, 1);
+        WarpRefundJournal oversized = new WarpRefundJournal(file, 10, 1, 100);
         try {
             assertThrows(RuntimeException.class, () -> oversized.ready().join());
             assertThrows(RuntimeException.class, () -> oversized.snapshot(1, 1).join());
@@ -167,6 +171,30 @@ class WarpDiagnosticsTest {
             status(registry, sender, true);
             assertTrue(replies.stream().anyMatch(reply -> reply.toString().contains("<red>literal</red>|12")));
             verify(service).paymentIntents(1, WarpConfig.createDefault().warpsPerPage());
+            verifyNoMoreInteractions(service);
+        }
+    }
+
+    @Test void acknowledgementCommandRequiresSeparatePermissionAndCallsNoTransferOperation() throws Exception {
+        WarpService service = mock(WarpService.class); CommandSender sender = mock(CommandSender.class);
+        when(sender.hasPermission(Permissions.WARP_STATUS)).thenReturn(true); when(sender.hasPermission(Permissions.WARP_PAYMENTS)).thenReturn(true);
+        CommandSourceStack source = mock(CommandSourceStack.class); when(source.getSender()).thenReturn(sender);
+        CommandDispatcher<CommandSourceStack> dispatcher = new CommandDispatcher<>(); Commands registrar = mock(Commands.class);
+        doAnswer(call -> { dispatcher.getRoot().addChild(call.getArgument(0, LiteralCommandNode.class)); return Set.of(); }).when(registrar).register(any(LiteralCommandNode.class));
+        JavaPlugin plugin = mock(JavaPlugin.class); when(plugin.getSLF4JLogger()).thenReturn(LoggerFactory.getLogger("PaymentCommand"));
+        WarpCommandRegistry registry = new WarpCommandRegistry(plugin, () -> service, WarpConfig::createDefault, null);
+        Method register = WarpCommandRegistry.class.getDeclaredMethod("registerStaffCommands", Commands.class); register.setAccessible(true); register.invoke(registry, registrar);
+        assertThrows(Exception.class, () -> dispatcher.execute("warpstatus payments acknowledge ticket bank verified", source));
+        verify(service, never()).acknowledgePayment(anyString(), any(), anyString());
+        when(sender.hasPermission(Permissions.WARP_PAYMENTS_ACKNOWLEDGE)).thenReturn(true);
+        when(service.acknowledgePayment(anyString(), any(), anyString())).thenReturn(CompletableFuture.completedFuture(null));
+        when(service.resumePayments()).thenReturn(CompletableFuture.completedFuture(null));
+        try (var bukkit = mockStatic(Bukkit.class)) {
+            GlobalRegionScheduler scheduler = mock(GlobalRegionScheduler.class); bukkit.when(Bukkit::getGlobalRegionScheduler).thenReturn(scheduler);
+            doAnswer(call -> { call.getArgument(1, Runnable.class).run(); return null; }).when(scheduler).execute(any(), any());
+            dispatcher.execute("warpstatus payments acknowledge ticket bank verified", source);
+            verify(service).acknowledgePayment("ticket", new UUID(0, 0), "bank verified");
+            dispatcher.execute("warpstatus payments resume", source); verify(service).resumePayments();
             verifyNoMoreInteractions(service);
         }
     }

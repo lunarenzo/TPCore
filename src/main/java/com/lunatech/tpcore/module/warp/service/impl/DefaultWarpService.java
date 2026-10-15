@@ -31,6 +31,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.math.BigDecimal;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -182,6 +183,9 @@ public final class DefaultWarpService implements WarpService {
         return economyService.paymentIntents(page, pageSize);
     }
 
+    @Override public CompletableFuture<Void> acknowledgePayment(String ticket, UUID actor, String note) { return economyService.acknowledge(ticket, actor, note); }
+    @Override public CompletableFuture<Void> resumePayments() { return economyService.resume(); }
+
     private static WarpResultStatus failureStatus(Throwable failure, WarpResultStatus fallback) {
         while (failure instanceof CompletionException && failure.getCause() != null) failure = failure.getCause();
         if (failure instanceof FundingFailure funding) return failureStatus(funding.getCause(), WarpResultStatus.ECONOMY_UNAVAILABLE);
@@ -192,9 +196,9 @@ public final class DefaultWarpService implements WarpService {
         FundingFailure(Throwable cause) { super(cause); }
     }
 
-    private CompletableFuture<Payment> charge(UUID playerId, double amount) {
+    private CompletableFuture<Payment> charge(UUID playerId, double amount, String operation, String warp) {
         try {
-            return economyService.chargeExact(playerId, amount).handle((payment, failure) -> {
+            return economyService.chargeExact(playerId, amount, operation, warp).handle((payment, failure) -> {
                 if (failure != null) throw new FundingFailure(failure);
                 return payment;
             });
@@ -306,9 +310,9 @@ public final class DefaultWarpService implements WarpService {
                     if (!valid) finish(session, WarpResultStatus.INSUFFICIENT_FUNDS);
                     else schedulePlayer(session, current -> beginWarmup(session, current, bypass));
                 })
-                : charge(id, cost).thenCompose(payment -> {
+                : charge(id, cost, "TELEPORT", warp.name()).thenCompose(payment -> {
                     session.payment = payment;
-                    if (payment.successful()) notifyPayment(session.id, payment.amount(), false, session.config);
+                    if (payment.successful()) notifyPayment(session.id, payment.exactAmount(), false, session.config);
                     if (!payment.successful()) { finish(session, WarpResultStatus.INSUFFICIENT_FUNDS); return CompletableFuture.completedFuture(false); }
                     if (session.result.isDone() || closed.get()) return settle(session, true);
                     schedulePlayer(session, current -> beginWarmup(session, current, bypass));
@@ -356,7 +360,7 @@ public final class DefaultWarpService implements WarpService {
             if (session.result.isDone() || closed.get()) return settle(session, true);
             Destination destination = Destination.snapshot(location);
             if (session.chargeOnSuccess && session.payment == null) {
-                return charge(session.id, session.quotedCost).thenCompose(payment -> {
+                return charge(session.id, session.quotedCost, "TELEPORT", session.warp.name()).thenCompose(payment -> {
                     session.payment = payment;
                     if (!payment.successful()) { finish(session, WarpResultStatus.INSUFFICIENT_FUNDS); return CompletableFuture.completedFuture(false); }
                     if (session.result.isDone() || closed.get()) return settle(session, true);
@@ -404,7 +408,7 @@ public final class DefaultWarpService implements WarpService {
                 WarpResultStatus status = Boolean.TRUE.equals(success) ? WarpResultStatus.SUCCESS : WarpResultStatus.ERROR;
                 if (status == WarpResultStatus.SUCCESS && !closed.get()) {
                     if (session.applyCooldown) recordCooldown(session);
-                    if (session.chargeOnSuccess && session.payment != null) notifyPayment(session.id, session.payment.amount(), false, session.config);
+                    if (session.chargeOnSuccess && session.payment != null) notifyPayment(session.id, session.payment.exactAmount(), false, session.config);
                 }
                 return settle(session, status != WarpResultStatus.SUCCESS && (session.chargeOnSuccess || session.config.refundOnCancel() || closed.get()))
                     .thenAccept(settled -> finishWithoutSettlement(session, settled ? status : WarpResultStatus.ERROR));
@@ -437,7 +441,7 @@ public final class DefaultWarpService implements WarpService {
         track(session, result);
         try { economyService.settle(payment, refund).whenComplete((settled, failure) -> {
             if (failure == null) {
-                if (refund && Boolean.TRUE.equals(settled)) notifyPayment(session.id, payment.amount(), true, session.config);
+                if (refund && Boolean.TRUE.equals(settled)) notifyPayment(session.id, payment.exactAmount(), true, session.config);
                 result.complete(settled);
             } else result.completeExceptionally(failure);
         }); } catch (RuntimeException failure) { result.completeExceptionally(failure); }
@@ -552,9 +556,15 @@ public final class DefaultWarpService implements WarpService {
             if (creating) reservedCreates.decrementAndGet();
             return releaseMutation(name, stamp, WarpResultStatus.ECONOMY_UNAVAILABLE);
         }
-        CompletableFuture<WarpResultStatus> work = charge(warp.creatorUuid(), cost).thenCompose(payment -> {
+        try {
+            sendPlayerMessage(creator, settings.payments().messages().get("creation-quote"), Placeholder.unparsed("warp", warp.name()), Placeholder.unparsed("cost", String.valueOf(economyService.format(cost))));
+        } catch (RuntimeException failure) {
+            if (creating) reservedCreates.decrementAndGet();
+            return releaseMutation(name, stamp, WarpResultStatus.ERROR);
+        }
+        CompletableFuture<WarpResultStatus> work = charge(warp.creatorUuid(), cost, creating ? "CREATE" : "OVERWRITE", warp.name()).thenCompose(payment -> {
             if (!payment.successful()) return completed(WarpResultStatus.INSUFFICIENT_FUNDS);
-            notifyPayment(warp.creatorUuid(), payment.amount(), false, settings);
+            notifyPayment(warp.creatorUuid(), payment.exactAmount(), false, settings);
             if (closed.get()) return economyService.settle(payment, true).thenApply(done -> WarpResultStatus.ERROR);
             return repository.save(warp).handle((ignored, failure) -> failure).thenCompose(failure -> {
                 if (failure == null && !closed.get()) {
@@ -562,7 +572,7 @@ public final class DefaultWarpService implements WarpService {
                     cache.putWarp(warp);
                 }
                 return economyService.settle(payment, failure != null).thenApply(done -> {
-                    if (failure != null && done) notifyPayment(warp.creatorUuid(), payment.amount(), true, settings);
+                    if (failure != null && done) notifyPayment(warp.creatorUuid(), payment.exactAmount(), true, settings);
                     if (!done) return WarpResultStatus.ERROR;
                     return failure == null ? WarpResultStatus.SUCCESS : failureStatus(failure, WarpResultStatus.ERROR);
                 });
@@ -1028,8 +1038,8 @@ public final class DefaultWarpService implements WarpService {
         }
     }
 
-    private void notifyPayment(UUID id, double amount, boolean refund, WarpConfig settings) {
-        if (amount <= 0 || closed.get() || !plugin.isEnabled()) return;
+    private void notifyPayment(UUID id, BigDecimal amount, boolean refund, WarpConfig settings) {
+        if (amount.signum() <= 0 || closed.get() || !plugin.isEnabled()) return;
         Player handle = Bukkit.getPlayer(id);
         if (handle == null) return;
         handle.getScheduler().run(plugin, ignored -> {

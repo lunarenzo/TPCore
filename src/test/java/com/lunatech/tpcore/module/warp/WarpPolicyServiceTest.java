@@ -42,7 +42,7 @@ class WarpPolicyServiceTest {
         for (boolean busy : new boolean[] {true, false}) {
             try (var f = new Fixture(policy(12, 3, 5, WorldRule.unrestricted(), false, false))) {
                 RuntimeException failure = busy ? new RejectedExecutionException("queue full") : new IllegalStateException("provider unavailable");
-                when(f.economy.chargeExact(eq(f.id), anyDouble())).thenReturn(CompletableFuture.failedFuture(failure));
+                when(f.economy.chargeExact(eq(f.id), anyDouble(), anyString(), anyString())).thenReturn(CompletableFuture.failedFuture(failure));
                 assertEquals(busy ? WarpResultStatus.BUSY : WarpResultStatus.ECONOMY_UNAVAILABLE,
                     f.service.teleportToWarp(f.player, "hub", null).get(2, TimeUnit.SECONDS));
                 assertEquals(0, f.service.diagnostics().pendingOperations());
@@ -102,7 +102,7 @@ class WarpPolicyServiceTest {
             when(repository.loadAll()).thenReturn(CompletableFuture.completedFuture(Map.of()));
             when(repository.close()).thenReturn(CompletableFuture.completedFuture(null));
             when(economy.isAvailable()).thenReturn(true); when(economy.format(anyDouble())).thenAnswer(call -> "quoted:" + call.getArgument(0));
-            when(economy.chargeExact(eq(id), anyDouble())).thenAnswer(call -> CompletableFuture.completedFuture(new Payment(id, call.getArgument(1), true)));
+            when(economy.chargeExact(eq(id), anyDouble(), anyString(), anyString())).thenAnswer(call -> CompletableFuture.completedFuture(new Payment(id, call.getArgument(1), true)));
             when(economy.settle(any(), anyBoolean())).thenReturn(CompletableFuture.completedFuture(true));
             when(economy.close()).thenReturn(CompletableFuture.completedFuture(null));
             service = new DefaultWarpService(mock(Plugin.class), repository, cache, economy, settings(policies), LoggerFactory.getLogger("WarpPolicyTest"));
@@ -115,21 +115,21 @@ class WarpPolicyServiceTest {
         try (var f = new Fixture(policy(12, 0, 25, WorldRule.unrestricted(), false, false))) {
             assertEquals(WarpResultStatus.SUCCESS, f.service.teleportToWarp(f.player, "hub", null).get(2, TimeUnit.SECONDS));
             var order = inOrder(f.player, f.economy);
-            order.verify(f.player).sendMessage(any(Component.class)); order.verify(f.economy).chargeExact(f.id, 12.0);
+            order.verify(f.player).sendMessage(any(Component.class)); order.verify(f.economy).chargeExact(eq(f.id), eq(12.0), anyString(), anyString());
             assertTrue(f.service.getRemainingCooldownSeconds(f.id) > 0 && f.service.getRemainingCooldownSeconds(f.id) <= 25);
         }
     }
 
     @Test void reloadDoesNotChangeAcceptedWarmupCooldownOrReceipt() throws Exception {
         try (var f = new Fixture(policy(12, 3, 5, WorldRule.unrestricted(), false, false))) {
-            CompletableFuture<Payment> pending = new CompletableFuture<>(); when(f.economy.chargeExact(f.id, 12.0)).thenReturn(pending);
+            CompletableFuture<Payment> pending = new CompletableFuture<>(); when(f.economy.chargeExact(eq(f.id), eq(12.0), anyString(), anyString())).thenReturn(pending);
             var result = f.service.teleportToWarp(f.player, "hub", null);
             f.service.updateConfig(settings(policy(999, 7, 70, WorldRule.unrestricted(), false, false)));
             Payment receipt = new Payment(f.id, 5, true); pending.complete(receipt);
             verify(f.scheduler).runDelayed(any(), any(), any(), eq(60L));
             f.delayed.accept(mock(ScheduledTask.class));
             assertEquals(WarpResultStatus.SUCCESS, result.get(2, TimeUnit.SECONDS));
-            verify(f.economy).settle(receipt, false); verify(f.economy, never()).chargeExact(f.id, 999);
+            verify(f.economy).settle(receipt, false); verify(f.economy, never()).chargeExact(eq(f.id), eq(999), anyString(), anyString());
             assertTrue(f.service.getRemainingCooldownSeconds(f.id) <= 5);
         }
     }
@@ -148,7 +148,7 @@ class WarpPolicyServiceTest {
         try (var f = new Fixture(policy(12, 0, 0, new WorldRule(Set.of("event"), Set.of()), false, false))) {
             assertEquals(WarpResultStatus.WORLD_RESTRICTED, f.service.teleportToWarp(f.player, "hub", null).join());
             assertEquals(WarpResultStatus.WORLD_RESTRICTED, f.service.setWarp(f.player, "new", false, null, null).join());
-            verify(f.economy, never()).chargeExact(any(), anyDouble());
+            verify(f.economy, never()).chargeExact(any(), anyDouble(), anyString(), anyString());
         }
     }
 
@@ -156,7 +156,7 @@ class WarpPolicyServiceTest {
         try (var f = new Fixture(policy(12, 3, 5, WorldRule.unrestricted(), true, false))) {
             f.service.recordCombat(f.id);
             assertEquals(WarpResultStatus.COMBAT_TAGGED, f.service.teleportToWarp(f.player, "hub", null).join());
-            verify(f.economy, never()).chargeExact(any(), anyDouble());
+            verify(f.economy, never()).chargeExact(any(), anyDouble(), anyString(), anyString());
         }
     }
 
@@ -171,7 +171,7 @@ class WarpPolicyServiceTest {
     @Test void enabledMissingProtectionFailsClosedBeforePayment() throws Exception {
         try (var f = new Fixture(policy(12, 0, 0, WorldRule.unrestricted(), false, true))) {
             assertEquals(WarpResultStatus.PROTECTION_DENIED, f.service.teleportToWarp(f.player, "hub", null).join());
-            verify(f.economy, never()).chargeExact(any(), anyDouble());
+            verify(f.economy, never()).chargeExact(any(), anyDouble(), anyString(), anyString());
         }
     }
 

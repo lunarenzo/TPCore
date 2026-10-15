@@ -156,6 +156,37 @@ browsing:
 # AsyncEconomy support. Ordinary Vault alone is not enough. If a positive fee
 # cannot be processed safely, TPCore refuses that operation.
 economy-enabled: false
+# Payment reliability and currency display. This uses the provider's DEFAULT currency;
+# currency is an audit label, not a selector for another account/currency.
+payments:
+  # Maximum wait for a payment operation. Expiry opens the paid-warp circuit;
+  # free warps remain usable. An uncertain bank transfer is NEVER automatically retried.
+  timeout-seconds: 10
+  # Reject prices with extra decimal places while economy-enabled is true.
+  # For a currency that supports thousandths, set 3 before configuring 0.001 prices.
+  decimal-places: 2
+  currency: "default"
+  # Plain display text; <amount> always contains the exact configured decimal amount.
+  format: "$<amount>"
+  # Keep this many staff resolutions; one latest pre-ack backup is retained separately.
+  resolution-history-limit: 100
+  messages:
+    creation-quote: "<prefix><yellow>Creating/overwriting warp <warp> costs <cost>.</yellow>"
+    acknowledged: "<prefix><green>Payment <ticket> acknowledged with an audit record and backup. No money was transferred.</green>"
+    resumed: "<prefix><green>Payment circuit reset. No money was transferred.</green>"
+    failed: "<prefix><red>Payment acknowledgement refused: <reason>. Check the evidence and server log.</red>"
+    reason-invalid_input: "Provide a ticket and an evidence note containing 1 to 256 characters"
+    reason-not_found: "That payment ticket does not exist"
+    reason-live_transfer: "A bank transfer or active warp still owns this payment; wait for it to finish"
+    reason-unresolved: "Live operations or unresolved payment evidence still exist"
+    reason-storage: "Payment evidence could not be safely updated; try later and check the server log"
+    usage: "<prefix><yellow>/warpstatus payments acknowledge <ticket> <evidence-note>. Independently verify the provider history first. This never transfers money.</yellow>"
+# Reconciliation: /warpstatus payments lists retained evidence. Compare bank history
+# BEFORE using /warpstatus payments acknowledge <ticket> <evidence-note>.
+# Acknowledgement refuses live transfers, backs up the journal, audits your note,
+# then removes only that resolved intent. It does NOT debit/refund any account.
+# /warpstatus payments resume resets a circuit only when no live transfer or
+# unresolved evidence remains (for example after a balance lookup timed out).
 # Default teleport price in your economy currency; 0.0 = free.
 warp-cost: 0.0
 # Price for /setwarp creation/overwrite. Dedicated /editwarp edits are free.
@@ -519,7 +550,7 @@ messages:
       - "<gray>Authorized staff: /warpstatus payments [page] shows evidence only. No transfers are retried.</gray>"
     payment-header:
       - "<prefix><gold>Payment evidence</gold> <gray>Page <page>/<pages> | <total> retained intents</gray>"
-      - "<yellow>warps/refunds.properties records player UUID | amount. These records do not prove a debit or refund completed. Compare provider debit/credit history before changing anything; never retry an ambiguous refund blindly.</yellow>"
+      - "<yellow>warps/refunds.properties preserves operation, provider, decimal amounts, timestamps and phase. Legacy UUID | amount records remain readable. These observations do not authorize retrying a transfer. Compare provider debit/credit history before changing anything; never retry an ambiguous refund blindly.</yellow>"
     payment-entry: "<gray>Ticket <white><ticket></white> | Record: <white><record></white></gray>"
     no-payments: "<prefix><gray>No retained payment intents.</gray>"
     failure: "<prefix><red>Payment evidence is unavailable. Check the server log and preserve warps/refunds.properties.</red>"

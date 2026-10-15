@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.UUID;
+import java.math.BigDecimal;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
 
@@ -13,6 +14,10 @@ import org.bukkit.entity.Player;
  * Null-object fallback implementation of WarpEconomyService used when Vault is absent or economy is disabled.
  */
 public final class NoOpWarpEconomyService implements WarpEconomyService {
+    @Override public CompletableFuture<Payment> chargeExact(UUID id, double amount, String operation, String warp) { return chargeExact(id, amount); }
+    @Override public CompletableFuture<Void> acknowledge(String ticket, UUID actor, String note) { return CompletableFuture.failedFuture(new IllegalStateException("Economy unavailable")); }
+    @Override public CompletableFuture<Void> resume() { return CompletableFuture.completedFuture(null); }
+    @Override public String format(BigDecimal amount) { return format(amount.doubleValue()); }
     @Override public WarpDiagnostics.Economy diagnostics() {
         return new WarpDiagnostics.Economy(false, false, false, 0, 0, 0);
     }

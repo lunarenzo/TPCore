@@ -2,6 +2,7 @@ package com.lunatech.tpcore.module.warp.economy;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.UUID;
+import java.math.BigDecimal;
 import com.lunatech.tpcore.module.warp.model.WarpDiagnostics;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
@@ -10,11 +11,16 @@ import org.bukkit.entity.Player;
  * Service boundary interface for Warp module economy operations (Vault / VaultUnlocked).
  */
 public interface WarpEconomyService {
-    record Payment(UUID playerId, double amount, boolean successful, UUID ticket) {
+    record Payment(UUID playerId, BigDecimal exactAmount, boolean successful, UUID ticket) {
+        public Payment(UUID playerId, double amount, boolean successful, UUID ticket) { this(playerId, BigDecimal.valueOf(amount), successful, ticket); }
         public Payment(UUID playerId, double amount, boolean successful) { this(playerId, amount, successful, null); }
+        public double amount() { return exactAmount.doubleValue(); }
     }
 
     CompletableFuture<Payment> chargeExact(UUID playerId, double amount);
+    CompletableFuture<Payment> chargeExact(UUID playerId, double amount, String operation, String warp);
+    CompletableFuture<Void> acknowledge(String ticket, UUID actor, String note);
+    CompletableFuture<Void> resume();
 
     CompletableFuture<Boolean> validateExact(UUID playerId, double amount);
 
@@ -28,6 +34,7 @@ public interface WarpEconomyService {
     CompletableFuture<WarpDiagnostics.PaymentPage> paymentIntents(int page, int pageSize);
 
     String format(double amount);
+    String format(BigDecimal amount);
 
     double getWarpCost(Player player);
 

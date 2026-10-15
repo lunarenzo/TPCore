@@ -70,7 +70,7 @@ class WarpConcurrencyRegressionTest {
         when(economy.isAvailable()).thenReturn(true);
         when(economy.getSetWarpCost(player)).thenReturn(50.0);
         payment = new CompletableFuture<>();
-        when(economy.chargeExact(id, 50.0)).thenReturn(payment);
+        when(economy.chargeExact(eq(id), eq(50.0), anyString(), anyString())).thenReturn(payment);
         when(economy.settle(any(), anyBoolean())).thenReturn(CompletableFuture.completedFuture(true));
         when(economy.close()).thenReturn(CompletableFuture.completedFuture(null));
         cache = new DefaultWarpCache();
@@ -148,7 +148,7 @@ class WarpConcurrencyRegressionTest {
         Payment receipt = new Payment(id, 25.0, true);
         payment.complete(receipt);
         verify(economy).settle(receipt, true);
-        verify(economy, times(1)).chargeExact(id, 50.0);
+        verify(economy, times(1)).chargeExact(eq(id), eq(50.0), anyString(), anyString());
         verify(scheduler, never()).runDelayed(any(), any(), any(), anyLong());
     }
 
@@ -214,7 +214,7 @@ class WarpConcurrencyRegressionTest {
         }
         CompletableFuture<WarpResultStatus> first = service.setWarp(player, "last", false, null, null);
         assertEquals(WarpResultStatus.LIMIT_REACHED, service.setWarp(player, "overflow", false, null, null).join());
-        verify(economy, times(1)).chargeExact(id, 50.0);
+        verify(economy, times(1)).chargeExact(eq(id), eq(50.0), anyString(), anyString());
         payment.complete(new Payment(id, 50.0, true));
         assertEquals(WarpResultStatus.SUCCESS, first.join());
         assertEquals(100, cache.getWarpCount());

@@ -7,6 +7,7 @@ import com.lunatech.tpcore.module.warp.cache.WarpCache;
 import com.lunatech.tpcore.module.warp.cache.impl.DefaultWarpCache;
 import com.lunatech.tpcore.module.warp.command.WarpCommandRegistry;
 import com.lunatech.tpcore.module.warp.economy.WarpEconomyService;
+import com.lunatech.tpcore.module.warp.economy.WarpTransferTracker;
 import com.lunatech.tpcore.module.warp.economy.impl.VaultWarpEconomyService;
 import com.lunatech.tpcore.module.warp.listener.WarpEventListener;
 import com.lunatech.tpcore.module.warp.listener.WarpBrowserListener;
@@ -17,6 +18,7 @@ import com.lunatech.tpcore.module.warp.repository.impl.YamlWarpRepository;
 import com.lunatech.tpcore.module.warp.service.WarpService;
 import com.lunatech.tpcore.module.warp.service.WarpSignService;
 import com.lunatech.tpcore.module.warp.listener.WarpSignListener;
+import com.lunatech.tpcore.module.warp.listener.WarpEconomyListener;
 import com.lunatech.tpcore.module.warp.command.WarpSignCommandRegistry;
 import com.lunatech.tpcore.module.warp.service.impl.DefaultWarpService;
 import java.util.Objects;
@@ -45,11 +47,13 @@ public final class WarpModule implements ReloadableModule {
     private WarpCommandRegistry commandRegistry;
     private WarpBrowser browser;
     private WarpSignService signs;
+    private final WarpTransferTracker transfers;
 
     public WarpModule(JavaPlugin plugin, ModularConfigManager configManager, WarpConfig config) {
         this.plugin = Objects.requireNonNull(plugin, "plugin cannot be null");
         this.configManager = Objects.requireNonNull(configManager, "configManager cannot be null");
         this.config = Objects.requireNonNull(config, "config cannot be null");
+        this.transfers = new WarpTransferTracker(config.maxPlayerStateEntries());
         this.configManager.registerModule(this);
     }
 
@@ -88,6 +92,7 @@ public final class WarpModule implements ReloadableModule {
                         || next.storageQueueCapacity() != config.storageQueueCapacity()
                         || next.maxConcurrentOperations() != config.maxConcurrentOperations()
                         || next.maxPlayerStateEntries() != config.maxPlayerStateEntries()
+                        || next.payments().resolutionHistoryLimit() != config.payments().resolutionHistoryLimit()
                         || !next.control().equals(config.control());
                     if (!next.enabled()) {
                         config = next; disable(); stopping.whenComplete((value, failure) -> applied.complete(failure == null));
@@ -126,6 +131,9 @@ public final class WarpModule implements ReloadableModule {
             plugin.getServer().getPluginManager().registerEvents(new WarpBrowserListener(browser), plugin);
             this.signs = new WarpSignService(plugin, () -> config, this::getService, (player, name) -> commandRegistry.teleportFromSign(player, name));
             plugin.getServer().getPluginManager().registerEvents(new WarpSignListener(signs, () -> config), plugin);
+            plugin.getServer().getPluginManager().registerEvents(new WarpEconomyListener(plugin, () -> {
+                if (economyService instanceof VaultWarpEconomyService vault) vault.refreshProvider(plugin.getClass().getClassLoader());
+            }), plugin);
             this.commandRegistry.registerAll(new WarpSignCommandRegistry(signs));
             this.commandsRegistered = true;
         }
@@ -156,7 +164,7 @@ public final class WarpModule implements ReloadableModule {
 
     private void instantiateAndInitializeStorage(WarpConfig targetConfig) {
         if (this.economyService == null) {
-            this.economyService = new VaultWarpEconomyService(this.plugin, () -> this.config, this.plugin.getSLF4JLogger());
+            this.economyService = new VaultWarpEconomyService(this.plugin, () -> this.config, this.plugin.getSLF4JLogger(), transfers);
         }
 
         if (targetConfig.storage() != null && "YAML".equalsIgnoreCase(targetConfig.storage().type())) {

@@ -25,6 +25,8 @@ public interface WarpService {
     boolean isReady();
     WarpDiagnostics diagnostics();
     CompletableFuture<WarpDiagnostics.PaymentPage> paymentIntents(int page, int pageSize);
+    CompletableFuture<Void> acknowledgePayment(String ticket, UUID actor, String note);
+    CompletableFuture<Void> resumePayments();
 
     CompletableFuture<WarpResultStatus> teleportToWarp(Player player, String warpName, String rawPassword);
 

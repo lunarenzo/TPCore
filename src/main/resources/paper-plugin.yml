@@ -26,6 +26,9 @@ dependencies:
       join-classpath: true
 
 permissions:
+  tpcore.warp.payments.acknowledge:
+    description: Acknowledge independently reconciled warp payments and reset an idle payment circuit. Never transfers money.
+    default: op
   tpcore.warp.sign.use:
     description: Use a warp sign, subject to normal warp permissions and policies.
     default: true

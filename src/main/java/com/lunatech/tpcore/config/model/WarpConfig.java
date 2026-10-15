@@ -69,9 +69,11 @@ public record WarpConfig(
     WarpBrowseConfig browsing,
     WarpImportConfig essentialsImport,
     WarpPolicyConfig policies,
-    WarpSignConfig signs
+    WarpSignConfig signs,
+    WarpPaymentConfig payments
 ) {
     public WarpConfig {
+        if (payments == null) payments = WarpPaymentConfig.createDefault();
         if (signs == null) signs = WarpSignConfig.createDefault();
         if (policies == null) policies = WarpPolicyConfig.createDefault();
         if (essentialsImport == null) essentialsImport = WarpImportConfig.createDefault();
@@ -88,6 +90,24 @@ public record WarpConfig(
         if (!Double.isFinite(warpCost) || warpCost < 0 || !Double.isFinite(setWarpCost) || setWarpCost < 0) {
             throw new IllegalArgumentException("Warp costs must be finite and nonnegative");
         }
+        if (economyEnabled) {
+            payments.amount(warpCost); payments.amount(setWarpCost);
+            for (var override : policies.warps().values()) if (override.price() != null) payments.amount(override.price());
+            for (var override : policies.categories().values()) if (override.price() != null) payments.amount(override.price());
+        }
+    }
+
+    public WarpConfig(boolean enabled, int warmupSeconds, int cooldownSeconds, boolean cancelOnMove,
+        boolean cancelOnDamage, boolean defaultPermissionGated, String defaultCategory, int warpsPerPage,
+        int maxWarps, boolean economyEnabled, double warpCost, double setWarpCost, String chargeTiming,
+        boolean refundOnCancel, WarpSafetyConfig safetyChecks, WarpStorageConfig storage, WarpMessages messages,
+        int maxConcurrentOperations, int maxCachedWarps, int maxPlayerStateEntries, int storageQueueCapacity,
+        int operationTimeoutSeconds, long maxStorageBytes, WarpEditMessages editMessages, WarpControlConfig control,
+        WarpControlMessages controlMessages, WarpBrowseConfig browsing, WarpImportConfig essentialsImport, WarpPolicyConfig policies, WarpSignConfig signs) {
+        this(enabled, warmupSeconds, cooldownSeconds, cancelOnMove, cancelOnDamage, defaultPermissionGated, defaultCategory,
+            warpsPerPage, maxWarps, economyEnabled, warpCost, setWarpCost, chargeTiming, refundOnCancel, safetyChecks, storage,
+            messages, maxConcurrentOperations, maxCachedWarps, maxPlayerStateEntries, storageQueueCapacity, operationTimeoutSeconds,
+            maxStorageBytes, editMessages, control, controlMessages, browsing, essentialsImport, policies, signs, WarpPaymentConfig.createDefault());
     }
 
     public WarpConfig(boolean enabled, int warmupSeconds, int cooldownSeconds, boolean cancelOnMove,
