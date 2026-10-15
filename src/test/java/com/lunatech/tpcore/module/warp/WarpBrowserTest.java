@@ -19,6 +19,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
@@ -172,6 +173,11 @@ class WarpBrowserTest {
             ItemMeta meta = h.items.constructed().getFirst().getItemMeta();
             verify(meta).displayName(argThat((Component text) -> text.toString().contains("hub")));
             verify(meta).lore(argThat(lines -> lines.getFirst().toString().contains("<red>Arrival point</red>")));
+            for (ItemStack item : h.items.constructed()) {
+                ItemMeta itemMeta = item.getItemMeta();
+                verify(itemMeta).displayName(argThat((Component text) -> text.decoration(TextDecoration.ITALIC) == TextDecoration.State.FALSE));
+                verify(itemMeta).lore(argThat(lines -> lines.stream().allMatch(line -> line.decoration(TextDecoration.ITALIC) == TextDecoration.State.FALSE)));
+            }
             h.materials.verify(() -> Material.matchMaterial("UNKNOWN_ICON"));
         }
     }

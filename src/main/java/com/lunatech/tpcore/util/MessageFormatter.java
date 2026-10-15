@@ -1,6 +1,7 @@
 package com.lunatech.tpcore.util;
 
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
 import java.util.regex.Matcher;
@@ -14,6 +15,14 @@ public final class MessageFormatter {
     private static final Pattern LEGACY_CODE_PATTERN = Pattern.compile("[&§]([0-9a-fA-Fk-orK-OR])");
 
     private MessageFormatter() {}
+
+    /**
+     * Applies the default style for an inventory item name or lore line.
+     * Explicit italics on the component or its children remain intact.
+     */
+    public static Component inventoryText(Component component) {
+        return component.decorationIfAbsent(TextDecoration.ITALIC, TextDecoration.State.FALSE);
+    }
 
     public static String toMiniMessage(String input) {
         if (input == null || input.isEmpty()) {

@@ -1,6 +1,7 @@
 package com.lunatech.tpcore.util;
 
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import org.junit.jupiter.api.DisplayName;
@@ -10,6 +11,32 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 class MessageFormatterTest {
+
+    @Test
+    void inventoryDefaultsDoNotChangeChatOrLiteralPlaceholders() {
+        Component parsed = MessageFormatter.parse(MiniMessage.miniMessage(), "<name>",
+            Placeholder.unparsed("name", "<italic>Hub</italic>"));
+        Component inventory = MessageFormatter.inventoryText(parsed);
+        assertEquals(TextDecoration.State.FALSE, inventory.decoration(TextDecoration.ITALIC));
+        assertEquals(TextDecoration.State.NOT_SET, parsed.decoration(TextDecoration.ITALIC));
+        assertEquals(parsed.children(), inventory.children());
+        assertEquals(inventory, MessageFormatter.inventoryText(inventory));
+    }
+
+    @Test
+    void inventoryDefaultsPreserveExplicitItalicsAndResetFormatting() {
+        MiniMessage mm = MiniMessage.miniMessage();
+        for (String template : new String[] {"<italic>Hub</italic>", "&oHub", "<!italic>Hub", "<gray>Plain <italic>Italic</italic> plain</gray>", "&oItalic&rPlain"}) {
+            Component parsed = MessageFormatter.parse(mm, template);
+            Component inventory = MessageFormatter.inventoryText(parsed);
+            assertEquals(parsed.children(), inventory.children());
+            TextDecoration.State explicit = parsed.decoration(TextDecoration.ITALIC);
+            assertEquals(explicit == TextDecoration.State.NOT_SET ? TextDecoration.State.FALSE : explicit,
+                inventory.decoration(TextDecoration.ITALIC));
+        }
+        assertEquals(TextDecoration.State.FALSE,
+            MessageFormatter.inventoryText(MessageFormatter.parse(mm, "")).decoration(TextDecoration.ITALIC));
+    }
 
     @Test
     @DisplayName("Should return empty string when input is null or empty")

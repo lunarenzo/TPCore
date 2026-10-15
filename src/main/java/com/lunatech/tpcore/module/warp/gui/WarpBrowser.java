@@ -219,7 +219,11 @@ public final class WarpBrowser {
         Material material = icon == null ? null : Material.matchMaterial(icon);
         if (material == null || !material.isItem() || material.isAir()) material = Material.BOOK;
         ItemStack item = new ItemStack(material); ItemMeta meta = item.getItemMeta();
-        if (meta != null) { meta.displayName(text(name, settings, values)); meta.lore(lore.stream().map(line -> text(line, settings, values)).toList()); item.setItemMeta(meta); }
+        if (meta != null) {
+            meta.displayName(MessageFormatter.inventoryText(text(name, settings, values)));
+            meta.lore(lore.stream().map(line -> MessageFormatter.inventoryText(text(line, settings, values))).toList());
+            item.setItemMeta(meta);
+        }
         return item;
     }
 
