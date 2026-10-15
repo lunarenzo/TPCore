@@ -9,6 +9,7 @@ import com.lunatech.tpcore.module.warp.repository.WarpRepository;
 import com.lunatech.tpcore.module.warp.repository.impl.WarpRefundJournal;
 import com.lunatech.tpcore.module.warp.service.WarpResultStatus;
 import com.lunatech.tpcore.module.warp.service.impl.DefaultWarpService;
+import com.lunatech.tpcore.module.warp.service.WarpTeleportTracker;
 import java.math.BigDecimal;
 import java.lang.ref.Reference;
 import java.nio.file.Files;
@@ -151,6 +152,18 @@ class WarpPaymentRemediationTest {
             assertEquals(1, bank.withdrawals); assertEquals(1, bank.deposits);
         } finally { service.close().join(); Reference.reachabilityFence(service); }
     }
+    @Test void uncertainTeleportRetainsPaymentEvidenceWithoutAutomaticRefund() throws Exception {
+        Provider bank = new Provider(); bank.debit.complete(new Response("10", "90", true, "")); var service = service(bank);
+        try {
+            Payment payment = service.chargeExact(UUID.randomUUID(), 10, "TELEPORT", "hub").join();
+            service.retainUncertain(payment, "Teleport ticket example outcome unknown");
+            var page = service.paymentIntents(1, 10).join();
+            assertEquals(1, page.total()); assertTrue(page.entries().getFirst().evidence().contains("UNKNOWN"));
+            assertTrue(page.entries().getFirst().evidence().contains("outcome unknown"));
+            assertFalse(service.isAvailable()); assertThrows(Exception.class, () -> service.settle(payment, true).join());
+            assertEquals(0, bank.deposits);
+        } finally { service.close().join(); Reference.reachabilityFence(service); }
+    }
     @Test void replacementProviderCannotRefundAnOriginalProvidersReceipt() throws Exception {
         Provider original = new Provider(), replacement = new Provider(); original.debit.complete(new Response("10", "90", true, "")); var service = service(original);
         try {
@@ -184,7 +197,7 @@ class WarpPaymentRemediationTest {
         var economy = new VaultWarpEconomyService(plugin, config::get, LoggerFactory.getLogger("Capacity"), adapter(bank), new WarpTransferTracker(2048));
         WarpRepository repository = mock(WarpRepository.class); when(repository.initialize()).thenReturn(CompletableFuture.completedFuture(null));
         when(repository.loadAll()).thenReturn(CompletableFuture.completedFuture(Map.of())); when(repository.save(any())).thenReturn(CompletableFuture.completedFuture(null)); when(repository.close()).thenReturn(CompletableFuture.completedFuture(null));
-        var service = new DefaultWarpService(plugin, repository, new DefaultWarpCache(), economy, paid, LoggerFactory.getLogger("Capacity"));
+        var service = new DefaultWarpService(plugin, repository, new DefaultWarpCache(), economy, paid, LoggerFactory.getLogger("Capacity"), new WarpTeleportTracker(paid.maxPlayerStateEntries()));
         Player creator = mock(Player.class); World world = mock(World.class); when(world.getUID()).thenReturn(UUID.randomUUID()); when(world.getName()).thenReturn("world");
         when(creator.getUniqueId()).thenReturn(UUID.randomUUID()); when(creator.getLocation()).thenReturn(new Location(world, 0, 64, 0));
         when(creator.isOnline()).thenReturn(true);

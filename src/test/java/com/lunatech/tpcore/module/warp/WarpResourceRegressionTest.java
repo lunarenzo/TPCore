@@ -96,7 +96,7 @@ class WarpResourceRegressionTest {
             CompletableFuture.completedFuture(Map.of("existing", existing)),
             CompletableFuture.completedFuture(Map.of("existing", existing, "incoming", incoming)));
         CompletableFuture<Void> writing = new CompletableFuture<>();
-        when(target.saveAll(any())).thenReturn(writing);
+        when(target.mergeSnapshot(any(), any())).thenReturn(writing);
         when(target.close()).thenReturn(CompletableFuture.completedFuture(null));
         Plugin plugin = mock(Plugin.class);
         when(plugin.getDataFolder()).thenReturn(directory.toFile());

@@ -2,6 +2,8 @@ package com.lunatech.tpcore.module.warp.service;
 
 public enum WarpResultStatus {
     SUCCESS,
+    TELEPORT_PENDING,
+    WARMUP_CANCELLED_TELEPORT,
     NOT_READY,
     BUSY,
     ECONOMY_UNAVAILABLE,

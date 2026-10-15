@@ -5,7 +5,13 @@ import java.util.List;
 /** Immutable observations; concurrent activity can change immediately after a snapshot. */
 public record WarpDiagnostics(String storage, boolean ready, int warps, int warpLimit, int cacheCapacity,
     int pendingOperations, int operationCapacity, int activeTeleports, int pendingMutations,
-    boolean migrating, Economy economy) {
+    boolean migrating, Economy economy, int unresolvedTeleports) {
+    public WarpDiagnostics(String storage, boolean ready, int warps, int warpLimit, int cacheCapacity,
+        int pendingOperations, int operationCapacity, int activeTeleports, int pendingMutations, boolean migrating, Economy economy) {
+        this(storage, ready, warps, warpLimit, cacheCapacity, pendingOperations, operationCapacity, activeTeleports, pendingMutations,
+            migrating, economy, 0);
+    }
+
 
     public record Economy(boolean available, boolean journalReady, boolean reconciliationRequired,
         int activeOperations, int retainedIntents, int intentCapacity) {}

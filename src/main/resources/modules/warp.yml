@@ -544,7 +544,7 @@ messages:
       - "<prefix><gold>Warp status</gold> <gray>(live observations)</gray>"
       - "<gray>Storage: <white><storage></white> | Ready: <white><ready></white> | Module enabled: <white><enabled></white></gray>"
       - "<gray>Warps: <white><warps></white> | Configured limit (0 = unlimited): <white><warp-limit></white> | Cache capacity: <white><cache-capacity></white></gray>"
-      - "<gray>Operations: <white><pending>/<operation-capacity></white> | Teleports: <white><teleports></white> | Mutations: <white><mutations></white> | Migration: <white><migrating></white></gray>"
+      - "<gray>Operations: <white><pending>/<operation-capacity></white> | Teleports: <white><teleports></white> | Awaiting server outcome: <white><unresolved-teleports></white> | Mutations: <white><mutations></white> | Migration: <white><migrating></white></gray>"
       - "<gray>Economy usable: <white><economy></white> | Journal ready: <white><journal-ready></white> | Reconciliation required: <white><reconciliation></white></gray>"
       - "<gray>Payment operations: <white><payment-operations></white> | Retained intents: <white><intents>/<intent-capacity></white> (may include active payments)</gray>"
       - "<gray>Authorized staff: /warpstatus payments [page] shows evidence only. No transfers are retried.</gray>"
@@ -554,3 +554,24 @@ messages:
     payment-entry: "<gray>Ticket <white><ticket></white> | Record: <white><record></white></gray>"
     no-payments: "<prefix><gray>No retained payment intents.</gray>"
     failure: "<prefix><red>Payment evidence is unavailable. Check the server log and preserve warps/refunds.properties.</red>"
+
+# Runtime safeguards. Saved world UUIDs are authoritative: a replacement world
+# with the same name is never selected automatically. Relocate the warp to rebind.
+runtime:
+  # Only records with NO world UUID may use their saved world name.
+  allow-legacy-world-names: true
+  # Maximum age of the final region safety inspection at dispatch (50-5000 ms).
+  # Paid-on-success warps are inspected again after withdrawal, without adjustment.
+  safety-freshness-millis: 250
+  teleport-pending: "<prefix><yellow>Your teleport outcome is still unknown. Do not retry; ask an administrator to check the server log and payment evidence.</yellow>"
+  teleport-interrupted: "<prefix><yellow>Warp cancelled because another teleport moved you.</yellow>"
+# An unknown dispatched teleport releases ordinary capacity but blocks another
+# TPCore warp for that UUID until the server reports its outcome. The bounded
+# UUID-only tracker survives module reloads; its capacity is fixed at startup by
+# max-player-state-entries. It does not cancel server-owned futures or retry money.
+# A failed migration into the active storage makes the module NOT READY until
+# /tpcore reload warp reloads authoritative persisted state. Gameplay never uses
+# the pre-migration cache after an uncertain persistence/publication failure.
+# Reload queue deadlines reject tasks that have not started; once application
+# starts, the reload worker waits for its real completion instead of reporting a
+# false failure while configuration is still changing.

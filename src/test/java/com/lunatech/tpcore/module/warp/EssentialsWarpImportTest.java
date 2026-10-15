@@ -11,6 +11,7 @@ import com.lunatech.tpcore.module.warp.repository.WarpRepository;
 import com.lunatech.tpcore.module.warp.repository.impl.SqliteWarpRepository;
 import com.lunatech.tpcore.module.warp.repository.impl.YamlWarpRepository;
 import com.lunatech.tpcore.module.warp.service.impl.DefaultWarpService;
+import com.lunatech.tpcore.module.warp.service.WarpTeleportTracker;
 import com.lunatech.tpcore.module.warp.service.impl.EssentialsWarpImport;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -56,7 +57,7 @@ class EssentialsWarpImportTest {
         Plugin plugin = mock(Plugin.class); when(plugin.getDataFolder()).thenReturn(folder.toFile());
         WarpEconomyService economy = mock(WarpEconomyService.class); when(economy.close()).thenReturn(CompletableFuture.completedFuture(null));
         var cache = new DefaultWarpCache();
-        var service = new DefaultWarpService(plugin, repo, cache, economy, config, mock(Logger.class)); service.initialize().join();
+        var service = new DefaultWarpService(plugin, repo, cache, economy, config, mock(Logger.class), new WarpTeleportTracker(config.maxPlayerStateEntries())); service.initialize().join();
         if (initial != null) { repo.save(initial).join(); cache.putWarp(initial); }
         return service;
     }
@@ -110,7 +111,7 @@ class EssentialsWarpImportTest {
             Path folder = folder(); source(folder, "hub.yml", yaml("hub")); WarpRepository repo = repository(folder, sql); Warp original = original();
             var service = service(folder, repo, WarpConfig.createDefault(), original); UUID actor = UUID.randomUUID();
             try {
-                var deleted = new DeletedWarp(UUID.randomUUID(), original, System.currentTimeMillis(), actor); repo.saveDeleted(List.of(deleted)).join();
+                var deleted = new DeletedWarp(UUID.randomUUID(), original, System.currentTimeMillis(), actor); repo.mergeSnapshot(List.of(), List.of(deleted)).join();
                 var preview = service.previewEssentialsImport(actor, "replace", worlds()).join(); assertEquals(original, repo.loadAll().join().get("hub"));
                 var result = service.confirmEssentialsImport(actor, preview.token(), worlds()).join(); assertEquals(1, result.count());
                 assertEquals(-5.5, repo.loadAll().join().get("hub").x()); assertEquals(repo.loadAll().join().get("hub"), service.getWarp("hub").orElseThrow());

@@ -29,7 +29,7 @@ public record WarpDiagnosticMessages(List<String> status, List<String> paymentHe
             "<prefix><gold>Warp status</gold> <gray>(live observations)</gray>",
             "<gray>Storage: <white><storage></white> | Ready: <white><ready></white> | Module enabled: <white><enabled></white></gray>",
             "<gray>Warps: <white><warps></white> | Configured limit (0 = unlimited): <white><warp-limit></white> | Cache capacity: <white><cache-capacity></white></gray>",
-            "<gray>Operations: <white><pending>/<operation-capacity></white> | Teleports: <white><teleports></white> | Mutations: <white><mutations></white> | Migration: <white><migrating></white></gray>",
+            "<gray>Operations: <white><pending>/<operation-capacity></white> | Teleports: <white><teleports></white> | Awaiting server outcome: <white><unresolved-teleports></white> | Mutations: <white><mutations></white> | Migration: <white><migrating></white></gray>",
             "<gray>Economy usable: <white><economy></white> | Journal ready: <white><journal-ready></white> | Reconciliation required: <white><reconciliation></white></gray>",
             "<gray>Payment operations: <white><payment-operations></white> | Retained intents: <white><intents>/<intent-capacity></white> (may include active payments)</gray>",
             "<gray>Authorized staff: /warpstatus payments [page] shows evidence only. No transfers are retried.</gray>"),

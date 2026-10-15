@@ -70,9 +70,11 @@ public record WarpConfig(
     WarpImportConfig essentialsImport,
     WarpPolicyConfig policies,
     WarpSignConfig signs,
-    WarpPaymentConfig payments
+    WarpPaymentConfig payments,
+    WarpRuntimeConfig runtime
 ) {
     public WarpConfig {
+        if (runtime == null) runtime = WarpRuntimeConfig.createDefault();
         if (payments == null) payments = WarpPaymentConfig.createDefault();
         if (signs == null) signs = WarpSignConfig.createDefault();
         if (policies == null) policies = WarpPolicyConfig.createDefault();
@@ -95,6 +97,21 @@ public record WarpConfig(
             for (var override : policies.warps().values()) if (override.price() != null) payments.amount(override.price());
             for (var override : policies.categories().values()) if (override.price() != null) payments.amount(override.price());
         }
+    }
+
+    public WarpConfig(boolean enabled, int warmupSeconds, int cooldownSeconds, boolean cancelOnMove,
+        boolean cancelOnDamage, boolean defaultPermissionGated, String defaultCategory, int warpsPerPage,
+        int maxWarps, boolean economyEnabled, double warpCost, double setWarpCost, String chargeTiming,
+        boolean refundOnCancel, WarpSafetyConfig safetyChecks, WarpStorageConfig storage, WarpMessages messages,
+        int maxConcurrentOperations, int maxCachedWarps, int maxPlayerStateEntries, int storageQueueCapacity,
+        int operationTimeoutSeconds, long maxStorageBytes, WarpEditMessages editMessages, WarpControlConfig control,
+        WarpControlMessages controlMessages, WarpBrowseConfig browsing, WarpImportConfig essentialsImport,
+        WarpPolicyConfig policies, WarpSignConfig signs, WarpPaymentConfig payments) {
+        this(enabled, warmupSeconds, cooldownSeconds, cancelOnMove, cancelOnDamage, defaultPermissionGated,
+            defaultCategory, warpsPerPage, maxWarps, economyEnabled, warpCost, setWarpCost, chargeTiming,
+            refundOnCancel, safetyChecks, storage, messages, maxConcurrentOperations, maxCachedWarps,
+            maxPlayerStateEntries, storageQueueCapacity, operationTimeoutSeconds, maxStorageBytes, editMessages,
+            control, controlMessages, browsing, essentialsImport, policies, signs, payments, WarpRuntimeConfig.createDefault());
     }
 
     public WarpConfig(boolean enabled, int warmupSeconds, int cooldownSeconds, boolean cancelOnMove,

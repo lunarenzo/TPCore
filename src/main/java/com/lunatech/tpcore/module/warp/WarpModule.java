@@ -21,6 +21,9 @@ import com.lunatech.tpcore.module.warp.listener.WarpSignListener;
 import com.lunatech.tpcore.module.warp.listener.WarpEconomyListener;
 import com.lunatech.tpcore.module.warp.command.WarpSignCommandRegistry;
 import com.lunatech.tpcore.module.warp.service.impl.DefaultWarpService;
+import com.lunatech.tpcore.module.warp.service.WarpTeleportTracker;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.TimeoutException;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -48,12 +51,14 @@ public final class WarpModule implements ReloadableModule {
     private WarpBrowser browser;
     private WarpSignService signs;
     private final WarpTransferTracker transfers;
+    private final WarpTeleportTracker teleports;
 
     public WarpModule(JavaPlugin plugin, ModularConfigManager configManager, WarpConfig config) {
         this.plugin = Objects.requireNonNull(plugin, "plugin cannot be null");
         this.configManager = Objects.requireNonNull(configManager, "configManager cannot be null");
         this.config = Objects.requireNonNull(config, "config cannot be null");
         this.transfers = new WarpTransferTracker(config.maxPlayerStateEntries());
+        this.teleports = new WarpTeleportTracker(config.maxPlayerStateEntries());
         this.configManager.registerModule(this);
     }
 
@@ -81,7 +86,10 @@ public final class WarpModule implements ReloadableModule {
         try {
             WarpConfig next = configManager.tryLoadModuleConfig("warp", WarpConfig.class, WarpConfig.createDefault());
             CompletableFuture<Boolean> applied = new CompletableFuture<>();
+            AtomicBoolean claimed = new AtomicBoolean();
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(next.operationTimeoutSeconds());
             Bukkit.getGlobalRegionScheduler().execute(plugin, () -> {
+                if (System.nanoTime() >= deadline || !claimed.compareAndSet(false, true) || !plugin.isEnabled()) { applied.complete(false); return; }
                 try {
                     String oldStorage = config.storage() == null ? "SQLITE" : config.storage().type();
                     String nextStorage = next.storage() == null ? "SQLITE" : next.storage().type();
@@ -115,7 +123,19 @@ public final class WarpModule implements ReloadableModule {
                     }
                 } catch (RuntimeException failure) { applied.completeExceptionally(failure); }
             });
-            return applied.get(next.operationTimeoutSeconds(), TimeUnit.SECONDS);
+            try { return applied.get(next.operationTimeoutSeconds(), TimeUnit.SECONDS); }
+            catch (TimeoutException expired) {
+                if (claimed.compareAndSet(false, true)) { applied.complete(false); return false; }
+                // Application has already started on the global context. Report its actual result.
+                // Do not invalidate a restart halfway through and strand the module disabled.
+                return applied.join();
+            } catch (InterruptedException interrupted) {
+                if (claimed.compareAndSet(false, true)) {
+                    applied.complete(false); Thread.currentThread().interrupt(); return false;
+                }
+                Thread.currentThread().interrupt();
+                return applied.join(); // A started application owns its real outcome, even if its waiter was interrupted.
+            }
         } catch (Exception failure) {
             lifecycle.incrementAndGet();
             plugin.getSLF4JLogger().error("Failed to reload Warp module configuration", failure);
@@ -174,7 +194,7 @@ public final class WarpModule implements ReloadableModule {
         }
 
         this.cache = new DefaultWarpCache();
-        this.service = new DefaultWarpService(this.plugin, this.repository, this.cache, this.economyService, targetConfig, this.plugin.getSLF4JLogger());
+        this.service = new DefaultWarpService(this.plugin, this.repository, this.cache, this.economyService, targetConfig, this.plugin.getSLF4JLogger(), teleports);
         this.service.initialize().exceptionally(ex -> {
             this.plugin.getSLF4JLogger().error("Failed to asynchronously initialize Warp storage repository", ex);
             return null;

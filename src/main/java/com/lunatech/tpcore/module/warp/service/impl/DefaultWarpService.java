@@ -27,6 +27,10 @@ import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.lang.ref.WeakReference;
+import java.util.concurrent.TimeoutException;
+import com.lunatech.tpcore.module.warp.service.WarpTeleportTracker;
+import com.lunatech.tpcore.constant.Permissions;
 import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
@@ -89,6 +93,7 @@ public final class DefaultWarpService implements WarpService {
     private record PolicyState(WarpConfig config, WarpSafetyInspector.Policy safety, WarpProtection protection) {}
     private volatile PolicyState policies;
     private volatile boolean ready;
+    private final WarpTeleportTracker teleports;
     private final Semaphore admission;
     private final int operationCapacity;
     private final AtomicInteger reservedCreates = new AtomicInteger();
@@ -116,6 +121,10 @@ public final class DefaultWarpService implements WarpService {
         final AtomicInteger workCount = new AtomicInteger(2);
         volatile ScheduledTask task;
         volatile Payment payment;
+        volatile CompletableFuture<Location> safetyObservation;
+        volatile CompletableFuture<Boolean> teleportObservation;
+        volatile long safetyCheckedAt;
+        volatile WarpTeleportTracker.Evidence dispatch;
         WarmupSession(UUID id, Warp warp, PolicyState state, boolean chargeOnSuccess, double quotedCost) {
             this(id, warp, state, chargeOnSuccess, quotedCost, true);
         }
@@ -133,6 +142,12 @@ public final class DefaultWarpService implements WarpService {
     }
 
     public DefaultWarpService(Plugin plugin, WarpRepository repository, WarpCache cache, WarpEconomyService economyService, WarpConfig config, Logger logger) {
+        this(plugin, repository, cache, economyService, config, logger, new WarpTeleportTracker(config.maxPlayerStateEntries()));
+    }
+
+    public DefaultWarpService(Plugin plugin, WarpRepository repository, WarpCache cache, WarpEconomyService economyService,
+        WarpConfig config, Logger logger, WarpTeleportTracker teleports) {
+        this.teleports = teleports;
         this.plugin = Objects.requireNonNull(plugin, "plugin cannot be null");
         this.repository = Objects.requireNonNull(repository, "repository cannot be null");
         this.cache = Objects.requireNonNull(cache, "cache cannot be null");
@@ -176,7 +191,7 @@ public final class DefaultWarpService implements WarpService {
         WarpConfig settings = config;
         return new WarpDiagnostics(storageType, isReady(), cache.getWarpCount(), settings.maxWarps(),
             settings.maxCachedWarps(), operationCapacity - admission.availablePermits(), operationCapacity,
-            activeWarmups.size(), inFlightMutations.size(), activeMigration.get() != null, economyService.diagnostics());
+            activeWarmups.size(), inFlightMutations.size(), activeMigration.get() != null, economyService.diagnostics(), teleports.size());
     }
 
     @Override public CompletableFuture<WarpDiagnostics.PaymentPage> paymentIntents(int page, int pageSize) {
@@ -269,6 +284,7 @@ public final class DefaultWarpService implements WarpService {
         if (warp.closed()) return completed(WarpResultStatus.WARP_CLOSED);
         if (inFlightMutations.contains(warp.name().toLowerCase(Locale.ROOT))) return completed(WarpResultStatus.BUSY);
         UUID id = player.getUniqueId();
+        if (teleports.contains(id)) return completed(WarpResultStatus.TELEPORT_PENDING);
         if (activeWarmups.containsKey(id)) return completed(WarpResultStatus.WARMUP_ALREADY_ACTIVE);
         if (warp.permissionGated() && !player.hasPermission("tpcore.warp." + warp.name().toLowerCase(Locale.ROOT))
             && !player.hasPermission("tpcore.warp.admin")) return completed(WarpResultStatus.NO_PERMISSION);
@@ -324,7 +340,7 @@ public final class DefaultWarpService implements WarpService {
         }
         track(session, funding).exceptionally(failure -> { logger.error("Warp payment failed for {}", id, failure); finish(session, failureStatus(failure, WarpResultStatus.ECONOMY_UNAVAILABLE)); return null; });
         releaseSessionWork(session);
-        armTimeout(session, Math.max(0L, session.effective.warmupSeconds()) + settings.operationTimeoutSeconds());
+        armTimeout(session, (bypass ? 0L : Math.max(0L, session.effective.warmupSeconds())) + settings.operationTimeoutSeconds());
         return session.result;
     }
 
@@ -353,9 +369,13 @@ public final class DefaultWarpService implements WarpService {
         if (world == null) { finish(session, WarpResultStatus.WORLD_NOT_LOADED); return; }
         Location target = new Location(world, session.warp.x(), session.warp.y(), session.warp.z(), session.warp.yaw(), session.warp.pitch());
         CompletableFuture<Location> safe = session.config.safetyChecks().preventUnsafeTeleport()
-            ? WarpSafetyInspector.findSafeLocationAsync(plugin, target, session.safety, () -> !closed.get() && !session.result.isDone())
+            ? WarpSafetyInspector.findSafeLocationAsync(plugin, target, session.safety, () -> !closed.get() && !session.result.isDone(), timestamp -> session.safetyCheckedAt = timestamp)
             : CompletableFuture.completedFuture(target);
+        session.safetyObservation = safe;
+        if (session.result.isDone()) safe.complete(null);
         track(session, safe.thenCompose(location -> {
+            session.safetyObservation = null;
+            if (session.phase.get() == Phase.FINISHED) return CompletableFuture.completedFuture(false);
             if (location == null) { finish(session, WarpResultStatus.UNSAFE_LOCATION); return CompletableFuture.completedFuture(false); }
             if (session.result.isDone() || closed.get()) return settle(session, true);
             Destination destination = Destination.snapshot(location);
@@ -364,13 +384,33 @@ public final class DefaultWarpService implements WarpService {
                     session.payment = payment;
                     if (!payment.successful()) { finish(session, WarpResultStatus.INSUFFICIENT_FUNDS); return CompletableFuture.completedFuture(false); }
                     if (session.result.isDone() || closed.get()) return settle(session, true);
-                    dispatchTeleport(session, destination);
+                    revalidateDestination(session, destination);
                     return CompletableFuture.completedFuture(true);
                 });
             }
             dispatchTeleport(session, destination);
             return CompletableFuture.completedFuture(true);
         })).exceptionally(failure -> { logger.error("Warp preparation failed for {}", session.id, failure); finish(session, failureStatus(failure, WarpResultStatus.ERROR)); return null; });
+    }
+
+    private void revalidateDestination(WarmupSession session, Destination destination) {
+        if (!session.config.safetyChecks().preventUnsafeTeleport()) { dispatchTeleport(session, destination); return; }
+        schedulePlayer(session, ignored -> {
+            World world = Bukkit.getWorld(destination.worldId());
+            if (world == null) { finish(session, WarpResultStatus.WORLD_NOT_LOADED); return; }
+            var exact = new WarpSafetyInspector.Policy(session.safety.config(), session.safety.hazards(), List.of(new WarpSafetyInspector.Offset(0, 0, 0)));
+            CompletableFuture<Location> check = WarpSafetyInspector.findSafeLocationAsync(plugin,
+                new Location(world, destination.x(), destination.y(), destination.z(), destination.yaw(), destination.pitch()), exact,
+                () -> !closed.get() && !session.result.isDone(), timestamp -> session.safetyCheckedAt = timestamp);
+            session.safetyObservation = check;
+            if (session.result.isDone()) check.complete(null);
+            track(session, check).whenComplete((safe, failure) -> {
+                session.safetyObservation = null;
+                if (session.result.isDone()) return;
+                if (failure != null || safe == null) { finish(session, WarpResultStatus.UNSAFE_LOCATION); return; }
+                dispatchTeleport(session, destination);
+            });
+        });
     }
 
     private boolean currentDestination(WarmupSession session) {
@@ -396,15 +436,35 @@ public final class DefaultWarpService implements WarpService {
             if (restriction != null) { finish(session, restriction); return; }
             // Protection permission events may re-enter the service and close/edit this warp.
             if (!currentDestination(session)) return;
+            if (session.applyCooldown && !player.hasPermission(Permissions.WARP_USE)) { finish(session, WarpResultStatus.NO_PERMISSION); return; }
+            if (session.config.safetyChecks().preventUnsafeTeleport()
+                && System.nanoTime() - session.safetyCheckedAt > TimeUnit.MILLISECONDS.toNanos(session.config.runtime().safetyFreshnessMillis())) {
+                finish(session, WarpResultStatus.UNSAFE_LOCATION); return;
+            }
             if (session.applyCooldown && session.warp.permissionGated()
                 && !player.hasPermission("tpcore.warp." + session.warp.name().toLowerCase(Locale.ROOT))
                 && !player.hasPermission("tpcore.warp.admin")) { finish(session, WarpResultStatus.NO_PERMISSION); return; }
-            if (!session.phase.compareAndSet(Phase.PREPARING, Phase.TELEPORTING)) return;
-            if (player.isInsideVehicle()) player.leaveVehicle();
-            if (player.isSleeping()) player.wakeup(false);
-            if (player.isGliding()) player.setGliding(false);
-            player.setFallDistance(0.0f);
-            track(session, player.teleportAsync(new Location(world, target.x(), target.y(), target.z(), target.yaw(), target.pitch())).thenCompose(success -> {
+            WarpTeleportTracker.Evidence evidence = new WarpTeleportTracker.Evidence(UUID.randomUUID(), session.id, session.warp.name(),
+                target.worldId(), target.x(), target.y(), target.z(), session.payment == null ? null : session.payment.ticket(), System.currentTimeMillis());
+            if (!teleports.reserve(evidence)) { finish(session, WarpResultStatus.BUSY); return; }
+            CompletableFuture<Boolean> observed = new CompletableFuture<>();
+            session.teleportObservation = observed;
+            session.dispatch = evidence;
+            if (!session.phase.compareAndSet(Phase.PREPARING, Phase.TELEPORTING)) { teleports.complete(evidence); return; }
+            logger.info("Warp teleport dispatched: {}", evidence);
+            WeakReference<CompletableFuture<Boolean>> observer = new WeakReference<>(observed);
+            WarpTeleportTracker tracker = teleports;
+            Logger log = logger;
+            try {
+                if (player.isInsideVehicle()) player.leaveVehicle();
+                if (player.isSleeping()) player.wakeup(false);
+                if (player.isGliding()) player.setGliding(false);
+                player.setFallDistance(0.0f);
+                player.teleportAsync(new Location(world, target.x(), target.y(), target.z(), target.yaw(), target.pitch()))
+                    .whenComplete((success, failure) -> observeTeleport(observer, tracker, evidence, log, success, failure));
+            } catch (RuntimeException failure) { teleports.complete(evidence); observed.completeExceptionally(failure); }
+            track(session, observed.thenCompose(success -> {
+                if (!session.phase.compareAndSet(Phase.TELEPORTING, Phase.FINISHED)) return CompletableFuture.completedFuture(null);
                 WarpResultStatus status = Boolean.TRUE.equals(success) ? WarpResultStatus.SUCCESS : WarpResultStatus.ERROR;
                 if (status == WarpResultStatus.SUCCESS && !closed.get()) {
                     if (session.applyCooldown) recordCooldown(session);
@@ -412,8 +472,27 @@ public final class DefaultWarpService implements WarpService {
                 }
                 return settle(session, status != WarpResultStatus.SUCCESS && (session.chargeOnSuccess || session.config.refundOnCancel() || closed.get()))
                     .thenAccept(settled -> finishWithoutSettlement(session, settled ? status : WarpResultStatus.ERROR));
-            })).exceptionally(failure -> { logger.error("Warp teleport failed for {}", session.id, failure); finish(session, WarpResultStatus.ERROR); return null; });
+            })).exceptionally(failure -> { logger.error("Warp teleport failed for {}", session.id, failure); if (!session.result.isDone()) finish(session, WarpResultStatus.ERROR); return null; });
         });
+    }
+
+    private static void observeTeleport(WeakReference<CompletableFuture<Boolean>> observer, WarpTeleportTracker tracker,
+        WarpTeleportTracker.Evidence evidence, Logger logger, Boolean success, Throwable failure) {
+        tracker.complete(evidence);
+        logger.info("Warp teleport observation: ticket {}, player {}, payment {}, success {}, failure {}",
+            evidence.ticket(), evidence.player(), evidence.paymentTicket(), success, failure == null ? "" : failure.toString());
+        CompletableFuture<Boolean> target = observer.get();
+        if (target != null) { if (failure == null) target.complete(success); else target.completeExceptionally(failure); }
+    }
+
+    private void uncertainTeleport(WarmupSession session) {
+        if (!session.phase.compareAndSet(Phase.TELEPORTING, Phase.FINISHED)) return;
+        String evidence = "Teleport deadline expired; outcome unknown: " + session.dispatch;
+        logger.error(evidence);
+        economyService.retainUncertain(session.payment, evidence);
+        session.result.complete(WarpResultStatus.TELEPORT_PENDING);
+        CompletableFuture<Boolean> observation = session.teleportObservation;
+        if (observation != null) observation.completeExceptionally(new TimeoutException(evidence));
     }
 
     private void schedulePlayer(WarmupSession session, Consumer<Player> action) {
@@ -450,7 +529,10 @@ public final class DefaultWarpService implements WarpService {
 
     private void finish(WarmupSession session, WarpResultStatus status) {
         session.phase.set(Phase.FINISHED);
-        settle(session, status == WarpResultStatus.WARP_CLOSED || status == WarpResultStatus.WARP_CHANGED
+        CompletableFuture<Location> inspection = session.safetyObservation;
+        session.safetyObservation = null;
+        if (inspection != null) inspection.complete(null);
+        settle(session, status == WarpResultStatus.BUSY || status == WarpResultStatus.WARP_CLOSED || status == WarpResultStatus.WARP_CHANGED
             || status == WarpResultStatus.WORLD_RESTRICTED || status == WarpResultStatus.COMBAT_TAGGED || status == WarpResultStatus.PROTECTION_DENIED
             || status == WarpResultStatus.NO_PERMISSION
             || session.chargeOnSuccess || session.config.refundOnCancel() || closed.get()).whenComplete((settled, failure) ->
@@ -489,7 +571,8 @@ public final class DefaultWarpService implements WarpService {
         CompletableFuture<Void> deadline = new CompletableFuture<>();
         deadline.orTimeout(seconds, TimeUnit.SECONDS).whenComplete((ignored, failure) -> {
             if (failure != null) {
-                if (session.phase.get() == Phase.TELEPORTING || session.phase.get() == Phase.FINISHED) session.result.complete(WarpResultStatus.ERROR);
+                if (session.phase.get() == Phase.TELEPORTING) uncertainTeleport(session);
+                else if (session.phase.get() == Phase.FINISHED) session.result.complete(WarpResultStatus.ERROR);
                 else cancel(session, WarpResultStatus.ERROR);
             }
         });
@@ -504,6 +587,7 @@ public final class DefaultWarpService implements WarpService {
         if (warp.get().closed()) return completed(WarpResultStatus.WARP_CLOSED);
         if (inFlightMutations.contains(warpName.toLowerCase(Locale.ROOT))) return completed(WarpResultStatus.BUSY);
         UUID id = target.getUniqueId();
+        if (teleports.contains(id)) return completed(WarpResultStatus.TELEPORT_PENDING);
         if (!admission.tryAcquire()) return completed(WarpResultStatus.BUSY);
         WarmupSession session = new WarmupSession(id, warp.get(), policies, false, 0.0, false);
         if (activeWarmups.putIfAbsent(id, session) != null) { admission.release(); return completed(WarpResultStatus.WARMUP_ALREADY_ACTIVE); }
@@ -779,9 +863,14 @@ public final class DefaultWarpService implements WarpService {
             .whenComplete((value, failure) -> { admission.release(); storageAccess.unlockRead(stamp); }));
     }
 
+    @Override public void cancelWarmupOnTeleport(Player player) {
+        WarmupSession session = activeWarmups.get(player.getUniqueId());
+        if (session != null) cancel(session, WarpResultStatus.WARMUP_CANCELLED_TELEPORT);
+    }
+
     @Override public void cancelWarmupOnMove(Player player) {
         WarmupSession session = activeWarmups.get(player.getUniqueId());
-        if (session != null && session.phase.get() != Phase.TELEPORTING) {
+        if (session != null && session.phase.get() != Phase.TELEPORTING && session.phase.get() != Phase.FINISHED) {
             cancel(session, WarpResultStatus.WARMUP_CANCELLED_MOVE);
             sendPlayerMessage(player, session.config.messages().warmupCancelledMove());
         }
@@ -789,7 +878,7 @@ public final class DefaultWarpService implements WarpService {
     @Override public void cancelWarmupOnDamage(Player player) {
         if (!config.cancelOnDamage()) return;
         WarmupSession session = activeWarmups.get(player.getUniqueId());
-        if (session != null && session.phase.get() != Phase.TELEPORTING) {
+        if (session != null && session.phase.get() != Phase.TELEPORTING && session.phase.get() != Phase.FINISHED) {
             cancel(session, WarpResultStatus.WARMUP_CANCELLED_DAMAGE);
             sendPlayerMessage(player, session.config.messages().warmupCancelledDamage());
         }
@@ -860,8 +949,7 @@ public final class DefaultWarpService implements WarpService {
             .thenCompose(warps -> target.loadAll().thenCompose(destination -> {
                 Set<String> merged = ConcurrentHashMap.newKeySet(); merged.addAll(destination.keySet()); merged.addAll(warps.keySet());
                 if (merged.size() > config.maxCachedWarps()) return CompletableFuture.failedFuture(new IllegalStateException("Migration exceeds warp cache capacity"));
-                return source.loadDeleted().thenCompose(history -> target.saveAll(warps.values())
-                    .thenCompose(done -> history.isEmpty() ? CompletableFuture.completedFuture(null) : target.saveDeleted(history)))
+                return source.loadDeleted().thenCompose(history -> target.mergeSnapshot(warps.values(), history))
                     .thenCompose(done -> target.loadAll()).thenApply(saved -> {
                     if (target == repository && !closed.get()) cache.populate(saved);
                     return warps.size();
@@ -876,6 +964,10 @@ public final class DefaultWarpService implements WarpService {
                 return count;
             });
         }).thenCompose(value -> value).whenComplete((value, failure) -> {
+            if (failure != null && target == repository) {
+                ready = false; cache.clear();
+                logger.error("Active warp migration failed; storage requires reload before gameplay can resume", failure);
+            }
             activeMigration.set(null); storageAccess.unlockWrite(stamp);
         });
         return track(result);
@@ -964,7 +1056,10 @@ public final class DefaultWarpService implements WarpService {
         if (!closing.compareAndSet(null, result)) return closing.get();
         closed.set(true); ready = false; deletionConfirmations.set(Map.of());
         importPreview.set(null); importActor.set(null); importGeneration.incrementAndGet();
-        activeWarmups.values().forEach(session -> cancel(session, WarpResultStatus.ERROR));
+        activeWarmups.values().forEach(session -> {
+            if (session.phase.get() == Phase.TELEPORTING) uncertainTeleport(session);
+            else cancel(session, WarpResultStatus.ERROR);
+        });
         cache.clear(); cooldowns.clear(); failedPasswordAttempts.clear(); combatTags.clear(); combatOverflowUntil.set(0L);
         CompletableFuture.allOf(acceptedWork.toArray(CompletableFuture[]::new))
             .orTimeout(config.operationTimeoutSeconds(), TimeUnit.SECONDS)
@@ -989,9 +1084,9 @@ public final class DefaultWarpService implements WarpService {
         }
         if (warp.worldId() != null) {
             World w = Bukkit.getWorld(warp.worldId());
-            if (w != null) return w;
+            return w;
         }
-        return Bukkit.getWorld(warp.worldName());
+        return config.runtime().allowLegacyWorldNames() ? Bukkit.getWorld(warp.worldName()) : null;
     }
 
     private boolean isValidWarpName(String name) {

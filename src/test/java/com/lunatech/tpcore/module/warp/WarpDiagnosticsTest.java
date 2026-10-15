@@ -12,6 +12,7 @@ import com.lunatech.tpcore.module.warp.repository.WarpRepository;
 import com.lunatech.tpcore.module.warp.repository.impl.WarpRefundJournal;
 import com.lunatech.tpcore.module.warp.service.WarpResultStatus;
 import com.lunatech.tpcore.module.warp.service.WarpService;
+import com.lunatech.tpcore.module.warp.service.WarpTeleportTracker;
 import com.lunatech.tpcore.module.warp.service.impl.DefaultWarpService;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.tree.LiteralCommandNode;
@@ -98,7 +99,7 @@ class WarpDiagnosticsTest {
         when(economy.diagnostics()).thenReturn(new WarpDiagnostics.Economy(false, false, false, 0, 0, 0));
         when(economy.close()).thenReturn(CompletableFuture.completedFuture(null));
         DefaultWarpService service = new DefaultWarpService(mock(Plugin.class), repository, new DefaultWarpCache(),
-            economy, settings, LoggerFactory.getLogger("WarpDiagnosticsTest"));
+            economy, settings, LoggerFactory.getLogger("WarpDiagnosticsTest"), new WarpTeleportTracker(2048));
         try {
             assertFalse(service.diagnostics().ready());
             service.initialize().join(); clearInvocations(repository);

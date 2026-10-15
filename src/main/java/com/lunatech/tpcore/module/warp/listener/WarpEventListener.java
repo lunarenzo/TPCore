@@ -69,17 +69,8 @@ public final class WarpEventListener implements Listener {
             return;
         }
 
-        PlayerTeleportEvent.TeleportCause cause = event.getCause();
-        if (cause == PlayerTeleportEvent.TeleportCause.NETHER_PORTAL
-            || cause == PlayerTeleportEvent.TeleportCause.END_PORTAL
-            || cause == PlayerTeleportEvent.TeleportCause.END_GATEWAY
-            || cause == PlayerTeleportEvent.TeleportCause.CHORUS_FRUIT
-            || cause == PlayerTeleportEvent.TeleportCause.ENDER_PEARL) {
-            WarpService service = serviceSupplier.get();
-            if (service != null) {
-                service.cancelWarmupOnMove(event.getPlayer());
-            }
-        }
+        WarpService service = serviceSupplier.get();
+        if (service != null) service.cancelWarmupOnTeleport(event.getPlayer());
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)

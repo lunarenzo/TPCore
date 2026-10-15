@@ -240,6 +240,12 @@ public final class VaultWarpEconomyService implements WarpEconomyService {
     @Override public CompletableFuture<Boolean> settle(Payment payment, boolean refund) {
         return settle(payment, refund, new Operation());
     }
+    @Override public void retainUncertain(Payment payment, String reason) {
+        if (payment != null && payment.ticket() != null) {
+            receipts.remove(payment.ticket());
+            unknown(payment.ticket(), reason);
+        }
+    }
     private CompletableFuture<Boolean> settle(Payment payment, boolean refund, Operation operation) {
         if (payment == null || !payment.successful()) return CompletableFuture.completedFuture(true);
         if (payment.ticket() == null) return CompletableFuture.completedFuture(payment.exactAmount().signum() == 0);

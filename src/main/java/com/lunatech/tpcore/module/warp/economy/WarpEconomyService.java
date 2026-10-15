@@ -26,6 +26,8 @@ public interface WarpEconomyService {
 
     CompletableFuture<Boolean> refundExact(UUID playerId, double amount);
     CompletableFuture<Boolean> settle(Payment payment, boolean refund);
+    /** Retains evidence without committing or refunding an ambiguous dispatched teleport. */
+    void retainUncertain(Payment payment, String reason);
 
     CompletableFuture<Void> close();
 

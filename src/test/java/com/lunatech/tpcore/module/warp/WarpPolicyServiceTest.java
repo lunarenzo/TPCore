@@ -12,6 +12,7 @@ import com.lunatech.tpcore.module.warp.model.Warp;
 import com.lunatech.tpcore.module.warp.repository.WarpRepository;
 import com.lunatech.tpcore.module.warp.service.WarpResultStatus;
 import com.lunatech.tpcore.module.warp.service.WarpService;
+import com.lunatech.tpcore.module.warp.service.WarpTeleportTracker;
 import com.lunatech.tpcore.module.warp.service.impl.DefaultWarpService;
 import io.papermc.paper.threadedregions.scheduler.EntityScheduler;
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
@@ -96,6 +97,7 @@ class WarpPolicyServiceTest {
             when(player.getUniqueId()).thenReturn(id); when(player.getLocation()).thenReturn(new Location(world, .5, 64, .5));
             when(player.isOnline()).thenReturn(true);
             when(player.getScheduler()).thenReturn(scheduler); when(player.teleportAsync(any())).thenReturn(CompletableFuture.completedFuture(true));
+        when(player.hasPermission("tpcore.warp.use")).thenReturn(true);
             doAnswer(call -> { Consumer<ScheduledTask> action = call.getArgument(1); action.accept(mock(ScheduledTask.class)); return mock(ScheduledTask.class); }).when(scheduler).run(any(), any(), any());
             doAnswer(call -> { delayed = call.getArgument(1); return mock(ScheduledTask.class); }).when(scheduler).runDelayed(any(), any(), any(), anyLong());
             when(repository.initialize()).thenReturn(CompletableFuture.completedFuture(null));
@@ -105,7 +107,7 @@ class WarpPolicyServiceTest {
             when(economy.chargeExact(eq(id), anyDouble(), anyString(), anyString())).thenAnswer(call -> CompletableFuture.completedFuture(new Payment(id, call.getArgument(1), true)));
             when(economy.settle(any(), anyBoolean())).thenReturn(CompletableFuture.completedFuture(true));
             when(economy.close()).thenReturn(CompletableFuture.completedFuture(null));
-            service = new DefaultWarpService(mock(Plugin.class), repository, cache, economy, settings(policies), LoggerFactory.getLogger("WarpPolicyTest"));
+            service = new DefaultWarpService(mock(Plugin.class), repository, cache, economy, settings(policies), LoggerFactory.getLogger("WarpPolicyTest"), new WarpTeleportTracker(settings(policies).maxPlayerStateEntries()));
             service.initialize().join(); cache.putWarp(new Warp("hub", worldId, "world", .5, 64, .5, 0, 0, id, "general", null, false, 0));
         }
         @Override public void close() throws Exception { try { service.close().get(2, TimeUnit.SECONDS); } finally { bukkit.close(); } }

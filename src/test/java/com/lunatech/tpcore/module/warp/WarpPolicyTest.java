@@ -110,15 +110,15 @@ class WarpPolicyTest {
         try (var bukkit = mockStatic(Bukkit.class)) {
             bukkit.when(Bukkit::getRegionScheduler).thenReturn(scheduler);
             Location target = new Location(world, .5, 64, .5, 50, 10);
-            Location result = WarpSafetyInspector.findSafeLocationAsync(plugin, target, safety("NEARBY", 1, "ALLOW", Set.of()), () -> true).join();
+            Location result = WarpSafetyInspector.findSafeLocationAsync(plugin, target, safety("NEARBY", 1, "ALLOW", Set.of()), () -> true, ignored -> {}).join();
             assertNotNull(result); assertEquals(-.5, result.getX()); assertEquals(64, result.getY()); assertEquals(50, result.getYaw());
-            assertNull(WarpSafetyInspector.findSafeLocationAsync(plugin, target, safety("EXACT", 3, "ALLOW", Set.of()), () -> true).join());
+            assertNull(WarpSafetyInspector.findSafeLocationAsync(plugin, target, safety("EXACT", 3, "ALLOW", Set.of()), () -> true, ignored -> {}).join());
         }
     }
 
     @Test void cancelledSearchDoesNotLoadChunks() {
         World world = world();
-        assertNull(WarpSafetyInspector.findSafeLocationAsync(mock(Plugin.class), new Location(world, 0, 64, 0), safety("NEARBY", 3, "ALLOW", Set.of()), () -> false).join());
+        assertNull(WarpSafetyInspector.findSafeLocationAsync(mock(Plugin.class), new Location(world, 0, 64, 0), safety("NEARBY", 3, "ALLOW", Set.of()), () -> false, ignored -> {}).join());
         verify(world, never()).getChunkAtAsync(anyInt(), anyInt());
     }
 

@@ -22,6 +22,8 @@ public interface WarpRepository {
     CompletableFuture<Void> replace(String oldName, Warp updated);
 
     CompletableFuture<Void> saveAll(Collection<Warp> warps);
+    /** Merge active warps and recovery history in one atomic persistence operation. */
+    CompletableFuture<Void> mergeSnapshot(Collection<Warp> warps, Collection<DeletedWarp> history);
 
     CompletableFuture<Void> delete(String warpName);
     CompletableFuture<Void> archiveAndDelete(DeletedWarp entry);

@@ -639,6 +639,8 @@ public final class WarpCommandRegistry {
             if (status == WarpResultStatus.WARMUP_CANCELLED_MOVE || status == WarpResultStatus.WARMUP_CANCELLED_DAMAGE) return;
             String rawMsg = switch (status) {
                 case SUCCESS -> config.messages().teleportSuccess();
+                case TELEPORT_PENDING -> config.runtime().teleportPending();
+                case WARMUP_CANCELLED_TELEPORT -> config.runtime().teleportInterrupted();
                 case WARP_NOT_FOUND -> config.messages().warpNotFound();
                 case WARP_CLOSED -> config.controlMessages().closed();
                 case WARP_CHANGED -> config.controlMessages().changed();
@@ -748,6 +750,8 @@ public final class WarpCommandRegistry {
     private String controlResult(WarpConfig settings, WarpResultStatus status) {
         return switch (status) {
             case SUCCESS -> settings.messages().delWarpSuccess();
+            case TELEPORT_PENDING -> settings.runtime().teleportPending();
+            case WARMUP_CANCELLED_TELEPORT -> settings.runtime().teleportInterrupted();
             case CONFIRMATION_REQUIRED -> settings.controlMessages().deleteConfirmation();
             case CONFIRMATION_EXPIRED -> settings.controlMessages().confirmationExpired();
             case RECOVERY_NOT_FOUND -> settings.controlMessages().recoveryNotFound();
@@ -934,7 +938,8 @@ public final class WarpCommandRegistry {
                 Placeholder.unparsed("warps", Integer.toString(state.warps())), Placeholder.unparsed("warp-limit", Integer.toString(state.warpLimit())),
                 Placeholder.unparsed("cache-capacity", Integer.toString(state.cacheCapacity())),
                 Placeholder.unparsed("pending", Integer.toString(state.pendingOperations())), Placeholder.unparsed("operation-capacity", Integer.toString(state.operationCapacity())),
-                Placeholder.unparsed("teleports", Integer.toString(state.activeTeleports())), Placeholder.unparsed("mutations", Integer.toString(state.pendingMutations())),
+                Placeholder.unparsed("teleports", Integer.toString(state.activeTeleports())),
+                Placeholder.unparsed("unresolved-teleports", Integer.toString(state.unresolvedTeleports())), Placeholder.unparsed("mutations", Integer.toString(state.pendingMutations())),
                 Placeholder.unparsed("migrating", state.migrating() ? messages.yes() : messages.no()),
                 Placeholder.unparsed("economy", settings.economyEnabled() && economy.available() ? messages.yes() : messages.no()),
                 Placeholder.unparsed("journal-ready", economy.journalReady() ? messages.yes() : messages.no()),

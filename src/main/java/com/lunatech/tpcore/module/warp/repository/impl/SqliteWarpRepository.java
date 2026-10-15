@@ -231,12 +231,7 @@ public final class SqliteWarpRepository implements WarpRepository {
         });
     }
 
-    @Override
-    public CompletableFuture<Void> saveAll(Collection<Warp> warps) {
-        return virtualExecutor.run(() -> {
-            if (warps == null || warps.isEmpty()) {
-                return;
-            }
+    private void upsertAll(Connection conn, Collection<Warp> warps) throws SQLException {
             String sql = """
                 INSERT INTO tpcore_warps (warp_name, world_id, world_name, x, y, z, yaw, pitch, creator_uuid, category, password_hash, permission_gated, created_at, closed, closure_reason, unlisted)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -256,25 +251,40 @@ public final class SqliteWarpRepository implements WarpRepository {
                     permission_gated = excluded.permission_gated,
                     closed = excluded.closed, closure_reason = excluded.closure_reason, unlisted = excluded.unlisted;
             """;
-            try (Connection conn = dataSource.getConnection()) {
-                conn.setAutoCommit(false);
-                try (PreparedStatement ps = conn.prepareStatement(sql)) {
-                    for (Warp warp : warps) {
-                        bindWarp(ps, warp, 0);
-                        ps.addBatch();
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            for (Warp warp : warps) { bindWarp(ps, warp, 0); ps.addBatch(); }
+            ps.executeBatch();
+        }
+    }
+
+    @Override public CompletableFuture<Void> saveAll(Collection<Warp> warps) {
+        if (warps == null || warps.isEmpty()) return CompletableFuture.completedFuture(null);
+        return virtualExecutor.run(() -> {
+            try (Connection connection = dataSource.getConnection()) {
+                connection.setAutoCommit(false);
+                try { upsertAll(connection, warps); connection.commit(); }
+                catch (Exception failure) { connection.rollback(); throw failure; }
+                finally { connection.setAutoCommit(true); }
+            } catch (SQLException failure) { throw new IllegalStateException("Cannot save warps", failure); }
+        });
+    }
+
+    @Override public CompletableFuture<Void> mergeSnapshot(Collection<Warp> warps, Collection<DeletedWarp> history) {
+        return virtualExecutor.run(() -> {
+            try (Connection connection = dataSource.getConnection()) {
+                connection.setAutoCommit(false);
+                try {
+                    upsertAll(connection, warps);
+                    try (Statement statement = connection.createStatement(); ResultSet count = statement.executeQuery("SELECT COUNT(*) FROM tpcore_warps")) {
+                        if (count.next() && count.getInt(1) > rowLimit) throw new IllegalStateException("Warp snapshot exceeds capacity");
                     }
-                    ps.executeBatch();
-                    conn.commit();
-                } catch (SQLException e) {
-                    conn.rollback();
-                    throw e;
-                } finally {
-                    conn.setAutoCommit(true);
-                }
-            } catch (SQLException e) {
-                logger.error("Failed to batch save {} warps to SQLite database", warps.size(), e);
-                throw new RuntimeException("Database batch save failure", e);
-            }
+                    long cutoff = recoveryCutoff();
+                    for (DeletedWarp entry : history) if (entry.deletedAt() > cutoff) insertDeleted(connection, entry);
+                    pruneDeleted(connection);
+                    connection.commit();
+                } catch (Exception failure) { connection.rollback(); throw failure; }
+                finally { connection.setAutoCommit(true); }
+            } catch (SQLException failure) { throw new IllegalStateException("Cannot merge warp snapshot", failure); }
         });
     }
 

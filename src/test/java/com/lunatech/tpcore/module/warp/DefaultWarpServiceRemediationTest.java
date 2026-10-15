@@ -135,6 +135,7 @@ class DefaultWarpServiceRemediationTest {
         EntityScheduler scheduler = mock(EntityScheduler.class);
         when(player.getScheduler()).thenReturn(scheduler);
         when(player.teleportAsync(any())).thenReturn(CompletableFuture.completedFuture(true));
+        when(player.hasPermission("tpcore.warp.use")).thenReturn(true);
 
         org.mockito.Mockito.doAnswer(inv -> {
             Consumer<ScheduledTask> consumer = inv.getArgument(1);
@@ -516,7 +517,9 @@ class DefaultWarpServiceRemediationTest {
         when(player1.getScheduler()).thenReturn(scheduler);
         when(player2.getScheduler()).thenReturn(scheduler);
         when(player1.teleportAsync(any())).thenReturn(CompletableFuture.completedFuture(true));
+        when(player1.hasPermission("tpcore.warp.use")).thenReturn(true);
         when(player2.teleportAsync(any())).thenReturn(CompletableFuture.completedFuture(true));
+        when(player2.hasPermission("tpcore.warp.use")).thenReturn(true);
         org.mockito.Mockito.doAnswer(inv -> {
             Consumer<ScheduledTask> consumer = inv.getArgument(1);
             consumer.accept(mock(ScheduledTask.class));

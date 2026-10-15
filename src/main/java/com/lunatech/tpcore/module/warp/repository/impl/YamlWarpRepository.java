@@ -9,6 +9,12 @@ import com.lunatech.tpcore.module.warp.util.WarpIoExecutor;
 import java.util.Locale;
 import com.lunatech.tpcore.module.warp.repository.WarpRepository;
 import java.io.File;
+import java.io.IOException;
+import java.nio.channels.FileChannel;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -136,7 +142,7 @@ public final class YamlWarpRepository implements WarpRepository {
                 }
 
                 writeWarpToNode(warpsNode.node(warp.name()), warp);
-                loader.save(root);
+                saveBounded(root);
             } catch (ConfigurateException e) {
                 logger.error("Failed to save warp {} to YAML file", warp.name(), e);
                 throw new IllegalStateException("Failed to save warp storage", e);
@@ -169,13 +175,37 @@ public final class YamlWarpRepository implements WarpRepository {
                     writeWarpToNode(warpsNode.node(warp.name()), warp);
                 }
 
-                loader.save(root);
+                saveBounded(root);
             } catch (ConfigurateException e) {
                 logger.error("Failed to batch save {} warps to YAML file", warps.size(), e);
                 throw new IllegalStateException("Failed to batch save warp storage", e);
             } finally {
                 fileLock.unlock();
             }
+        });
+    }
+
+    @Override public CompletableFuture<Void> mergeSnapshot(Collection<Warp> warps, Collection<DeletedWarp> history) {
+        return virtualExecutor.run(() -> {
+            fileLock.lock();
+            try {
+                CommentedConfigurationNode root = createLoader(warpFile).load();
+                CommentedConfigurationNode active = root.node("warps");
+                for (Warp warp : warps) {
+                    for (Object key : new ArrayList<>(active.childrenMap().keySet())) {
+                        if (key.toString().equalsIgnoreCase(warp.name())) active.node(key).set(null);
+                    }
+                    writeWarpToNode(active.node(warp.name()), warp);
+                }
+                if (active.childrenMap().size() > rowLimit) throw new IllegalStateException("Warp snapshot exceeds capacity");
+                long cutoff = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(control.recoveryRetentionDays());
+                for (DeletedWarp entry : history) {
+                    if (entry.deletedAt() > cutoff && !root.node("deleted-warps").childrenMap().containsKey(entry.id().toString())) writeDeleted(root, entry);
+                }
+                pruneDeleted(root);
+                saveBounded(root);
+            } catch (ConfigurateException failure) { throw new IllegalStateException("Cannot merge warp snapshot", failure); }
+            finally { fileLock.unlock(); }
         });
     }
 
@@ -197,7 +227,7 @@ public final class YamlWarpRepository implements WarpRepository {
                         }
                     }
                 }
-                loader.save(root);
+                saveBounded(root);
             } catch (ConfigurateException e) {
                 logger.error("Failed to delete warp {} from YAML file", warpName, e);
                 throw new IllegalStateException("Failed to delete warp storage", e);
@@ -224,7 +254,7 @@ public final class YamlWarpRepository implements WarpRepository {
                 if (sourceKeys.isEmpty()) throw new IllegalStateException("Warp disappeared during edit");
                 for (Object sourceKey : sourceKeys) warps.node(sourceKey).set(null);
                 writeWarpToNode(warps.node(updated.name()), updated);
-                loader.save(root);
+                saveBounded(root);
             } catch (ConfigurateException failure) { throw new IllegalStateException("Warp edit failed", failure); }
             finally { fileLock.unlock(); }
         });
@@ -252,6 +282,22 @@ public final class YamlWarpRepository implements WarpRepository {
         warpNode.node("closed").set(warp.closed());
         warpNode.node("closure-reason").set(warp.closureReason());
         warpNode.node("unlisted").set(warp.unlisted());
+    }
+
+    private void saveBounded(CommentedConfigurationNode root) {
+        Path target = warpFile.toPath();
+        Path temporary = target.resolveSibling(target.getFileName() + ".pending");
+        try {
+            Files.createDirectories(target.getParent());
+            YamlConfigurationLoader.builder().file(temporary.toFile()).nodeStyle(NodeStyle.BLOCK).build().save(root);
+            if (Files.size(temporary) > maxStorageBytes) throw new IllegalStateException("Proposed warp YAML exceeds configured storage byte limit");
+            try (FileChannel channel = FileChannel.open(temporary, StandardOpenOption.WRITE)) { channel.force(true); }
+            Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException failure) { throw new IllegalStateException("Cannot persist bounded warp YAML", failure); }
+        finally {
+            try { Files.deleteIfExists(temporary); }
+            catch (IOException failure) { logger.warn("Cannot remove pending warp YAML {}", temporary, failure); }
+        }
     }
 
     private YamlConfigurationLoader createLoader(File file) {
@@ -319,7 +365,7 @@ public final class YamlWarpRepository implements WarpRepository {
             fileLock.lock();
             try {
                 YamlConfigurationLoader loader = createLoader(warpFile); CommentedConfigurationNode root = loader.load();
-                if (pruneDeleted(root)) loader.save(root);
+                if (pruneDeleted(root)) saveBounded(root);
                 List<DeletedWarp> entries = new ArrayList<>();
                 for (var entry : root.node("deleted-warps").childrenMap().entrySet()) entries.add(readDeleted(entry.getKey().toString(), entry.getValue()));
                 entries.sort((left, right) -> {
@@ -345,7 +391,7 @@ public final class YamlWarpRepository implements WarpRepository {
                 for (Object existing : new ArrayList<>(root.node("warps").childrenMap().keySet())) {
                     if (existing.toString().equalsIgnoreCase(entry.warp().name())) root.node("warps", existing).set(null);
                 }
-                pruneDeleted(root); loader.save(root);
+                pruneDeleted(root); saveBounded(root);
             } catch (ConfigurateException failure) { throw new IllegalStateException("Cannot archive and delete warp", failure); }
             finally { fileLock.unlock(); }
         });
@@ -361,7 +407,7 @@ public final class YamlWarpRepository implements WarpRepository {
                     || !entry.equals(readDeleted(entry.id().toString(), root.node("deleted-warps", entry.id().toString())))) throw new IllegalStateException("Recovery entry missing or changed");
                 if (activeKey(root, entry.warp().name()) != null) throw new IllegalStateException("Recovery name collision");
                 writeWarpToNode(root.node("warps", entry.warp().name()), entry.warp());
-                root.node("deleted-warps", entry.id().toString()).set(null); loader.save(root);
+                root.node("deleted-warps", entry.id().toString()).set(null); saveBounded(root);
             } catch (ConfigurateException failure) { throw new IllegalStateException("Cannot restore warp", failure); }
             finally { fileLock.unlock(); }
         });
@@ -376,7 +422,7 @@ public final class YamlWarpRepository implements WarpRepository {
                 for (DeletedWarp entry : entries) {
                     if (entry.deletedAt() > cutoff && !root.node("deleted-warps").childrenMap().containsKey(entry.id().toString())) writeDeleted(root, entry);
                 }
-                pruneDeleted(root); loader.save(root);
+                pruneDeleted(root); saveBounded(root);
             } catch (ConfigurateException failure) { throw new IllegalStateException("Cannot migrate deleted warps", failure); }
             finally { fileLock.unlock(); }
         });

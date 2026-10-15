@@ -14,6 +14,7 @@ import org.bukkit.entity.Player;
  * Null-object fallback implementation of WarpEconomyService used when Vault is absent or economy is disabled.
  */
 public final class NoOpWarpEconomyService implements WarpEconomyService {
+    @Override public void retainUncertain(Payment payment, String reason) { /* No bank transfer exists. */ }
     @Override public CompletableFuture<Payment> chargeExact(UUID id, double amount, String operation, String warp) { return chargeExact(id, amount); }
     @Override public CompletableFuture<Void> acknowledge(String ticket, UUID actor, String note) { return CompletableFuture.failedFuture(new IllegalStateException("Economy unavailable")); }
     @Override public CompletableFuture<Void> resume() { return CompletableFuture.completedFuture(null); }

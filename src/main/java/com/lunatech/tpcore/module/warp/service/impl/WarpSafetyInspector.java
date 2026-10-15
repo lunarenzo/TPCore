@@ -1,6 +1,8 @@
 package com.lunatech.tpcore.module.warp.service.impl;
 
 import com.lunatech.tpcore.config.model.WarpConfig.WarpSafetyConfig;
+import java.lang.ref.WeakReference;
+import java.lang.ref.Reference;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumSet;
@@ -8,6 +10,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.BooleanSupplier;
+import java.util.function.LongConsumer;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -49,33 +52,62 @@ public final class WarpSafetyInspector {
         }
     }
 
+    private record Search(Plugin plugin, Location target, Policy policy, BooleanSupplier active, LongConsumer inspectedAt, CompletableFuture<Location> result) {}
+
     public static CompletableFuture<Location> findSafeLocationAsync(Plugin plugin, Location target, Policy policy, BooleanSupplier active) {
+        return findSafeLocationAsync(plugin, target, policy, active, ignored -> {});
+    }
+
+    public static CompletableFuture<Location> findSafeLocationAsync(Plugin plugin, Location target, Policy policy, BooleanSupplier active, LongConsumer inspectedAt) {
         CompletableFuture<Location> result = new CompletableFuture<>();
         if (target == null || target.getWorld() == null) result.complete(null);
-        else probe(plugin, target, policy, active, 0, result);
+        else {
+            Search search = new Search(plugin, target, policy, active, inspectedAt, result);
+            result.whenComplete((value, failure) -> Reference.reachabilityFence(search));
+            probe(search, 0);
+        }
         return result;
     }
 
-    private static void probe(Plugin plugin, Location target, Policy policy, BooleanSupplier active, int index, CompletableFuture<Location> result) {
-        if (result.isDone()) return;
-        if (!active.getAsBoolean() || index >= policy.offsets().size()) { result.complete(null); return; }
-        Offset offset = policy.offsets().get(index);
+    private static void probe(Search search, int index) {
+        if (search.result().isDone()) return;
+        if (!search.active().getAsBoolean() || index >= search.policy().offsets().size()) { search.result().complete(null); return; }
+        Offset offset = search.policy().offsets().get(index);
+        Location target = search.target();
         Location candidate = new Location(target.getWorld(), target.getX() + offset.x(), target.getY() + offset.y(), target.getZ() + offset.z(), target.getYaw(), target.getPitch());
-        World world = candidate.getWorld();
+        WeakReference<Search> observer = new WeakReference<>(search);
         try {
-            world.getChunkAtAsync(candidate.getBlockX() >> 4, candidate.getBlockZ() >> 4).whenComplete((chunk, failure) -> {
-                if (failure != null || chunk == null || !active.getAsBoolean()) { result.complete(null); return; }
+            candidate.getWorld().getChunkAtAsync(candidate.getBlockX() >> 4, candidate.getBlockZ() >> 4).whenComplete((chunk, failure) -> {
+                Search current = observer.get();
+                if (current == null || current.result().isDone()) return;
+                if (failure != null || chunk == null || !current.active().getAsBoolean()) { current.result().complete(null); return; }
+                scheduleProbe(current, index);
+            });
+        } catch (RuntimeException invalid) { search.result().completeExceptionally(invalid); }
+    }
+
+    private static void scheduleProbe(Search search, int index) {
+        Offset offset = search.policy().offsets().get(index);
+        Location target = search.target();
+        Location candidate = new Location(target.getWorld(), target.getX() + offset.x(), target.getY() + offset.y(), target.getZ() + offset.z(), target.getYaw(), target.getPitch());
+        WeakReference<Search> observer = new WeakReference<>(search);
+        try {
+            Bukkit.getRegionScheduler().execute(search.plugin(), candidate, () -> {
+                Search current = observer.get();
+                if (current == null || current.result().isDone()) return;
                 try {
-                    Bukkit.getRegionScheduler().execute(plugin, candidate, () -> {
-                        try {
-                            if (!active.getAsBoolean()) { result.complete(null); return; }
-                            if (isLocationSafe(candidate, policy)) result.complete(candidate);
-                            else probe(plugin, target, policy, active, index + 1, result);
-                        } catch (RuntimeException invalid) { result.completeExceptionally(invalid); }
-                    });
-                } catch (RuntimeException invalid) { result.completeExceptionally(invalid); }
-            }).exceptionally(failure -> { result.completeExceptionally(failure); return null; });
-        } catch (RuntimeException invalid) { result.completeExceptionally(invalid); }
+                    if (!current.active().getAsBoolean()) { current.result().complete(null); return; }
+                    Offset currentOffset = current.policy().offsets().get(index);
+                    Location saved = current.target();
+                    Location position = new Location(saved.getWorld(), saved.getX() + currentOffset.x(), saved.getY() + currentOffset.y(), saved.getZ() + currentOffset.z(), saved.getYaw(), saved.getPitch());
+                    if (isLocationSafe(position, current.policy())) {
+                        current.inspectedAt().accept(System.nanoTime());
+                        current.result().complete(position);
+                    }
+                    else probe(current, index + 1);
+                } catch (RuntimeException invalid) { current.result().completeExceptionally(invalid); }
+            });
+        } catch (RuntimeException invalid) { search.result().completeExceptionally(invalid); }
     }
 
     public static CompletableFuture<Location> findSafeLocationAsync(Plugin plugin, Location target, boolean autoAdjust, int radius, boolean roof, int height) {

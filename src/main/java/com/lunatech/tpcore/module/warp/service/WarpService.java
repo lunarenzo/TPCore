@@ -50,6 +50,7 @@ public interface WarpService {
     Set<String> getCategories();
 
     void cancelWarmupOnMove(Player player);
+    void cancelWarmupOnTeleport(Player player);
 
     void cancelWarmupOnDamage(Player player);
 
