@@ -1,6 +1,7 @@
 package com.lunatech.tpcore.module.home.repository.impl;
 
 import com.lunatech.tpcore.module.home.model.Home;
+import com.lunatech.tpcore.module.home.model.HomePage;
 import com.lunatech.tpcore.module.home.repository.HomeRepository;
 import com.lunatech.tpcore.module.home.service.HomeResultStatus;
 import com.zaxxer.hikari.HikariConfig;
@@ -112,6 +113,56 @@ public final class SqliteHomeRepository implements HomeRepository {
         });
     }
 
+    @Override public CompletableFuture<HomePage> page(UUID owner, long requestedPage) {
+        return submit(() -> {
+            try (Connection connection = pool.getConnection()) {
+                return transaction(connection, () -> {
+                    long total;
+                    try (var count = connection.prepareStatement("SELECT COUNT(*) FROM tpcore_homes WHERE owner_uuid=?")) {
+                        count.setString(1, owner.toString());
+                        try (var rows = count.executeQuery()) {
+                            if (!rows.next()) throw new SQLException("Home count query returned no row");
+                            total = rows.getLong(1);
+                        }
+                    }
+                    long page = Math.clamp(requestedPage, 1, HomePage.pageCount(total));
+                    List<HomePage.Entry> entries = new ArrayList<>();
+                    try (var query = connection.prepareStatement("SELECT id, " + COLUMNS
+                        + " FROM tpcore_homes WHERE owner_uuid=? ORDER BY home_name LIMIT ? OFFSET ?")) {
+                        query.setString(1, owner.toString());
+                        query.setInt(2, HomePage.SIZE);
+                        query.setLong(3, (page - 1) * HomePage.SIZE);
+                        try (var rows = query.executeQuery()) {
+                            while (rows.next()) entries.add(new HomePage.Entry(rows.getLong("id"), read(rows, owner)));
+                        }
+                    }
+                    return new HomePage(total, page, entries);
+                });
+            }
+        });
+    }
+
+    @Override public CompletableFuture<Optional<Home>> findMatching(HomePage.Entry expected) {
+        return submit(() -> {
+            try (Connection connection = pool.getConnection()) {
+                return matching(connection, expected);
+            }
+        });
+    }
+
+    private static Optional<Home> matching(Connection connection, HomePage.Entry expected) throws SQLException {
+        Home snapshot = expected.home();
+        try (var query = connection.prepareStatement("SELECT " + COLUMNS + " FROM tpcore_homes WHERE id=? AND owner_uuid=?")) {
+            query.setLong(1, expected.rowId());
+            query.setString(2, snapshot.ownerUuid().toString());
+            try (var rows = query.executeQuery()) {
+                if (!rows.next()) return Optional.empty();
+                Home current = read(rows, snapshot.ownerUuid());
+                return current.equals(snapshot) ? Optional.of(current) : Optional.empty();
+            }
+        }
+    }
+
     @Override public CompletableFuture<HomeResultStatus> save(Home home, boolean overwrite, int limit) {
         return submit(() -> {
             try (Connection connection = pool.getConnection()) {
@@ -139,9 +190,18 @@ public final class SqliteHomeRepository implements HomeRepository {
     }
 
     @Override public CompletableFuture<HomeResultStatus> archive(UUID owner, String name, int capacity, long retentionMillis) {
+        return archive(owner, name, null, capacity, retentionMillis);
+    }
+
+    @Override public CompletableFuture<HomeResultStatus> archiveMatching(HomePage.Entry expected, int capacity, long retentionMillis) {
+        return archive(expected.home().ownerUuid(), expected.home().name(), expected, capacity, retentionMillis);
+    }
+
+    private CompletableFuture<HomeResultStatus> archive(UUID owner, String name, HomePage.Entry expected, int capacity, long retentionMillis) {
         return submit(() -> {
             try (Connection connection = pool.getConnection()) {
                 return transaction(connection, () -> {
+                    if (expected != null && matching(connection, expected).isEmpty()) return HomeResultStatus.HOME_CHANGED;
                     long now = System.currentTimeMillis();
                     try (var copy = connection.prepareStatement("INSERT OR REPLACE INTO tpcore_home_recovery (" + COLUMNS
                         + ", deleted_at) SELECT " + COLUMNS + ", ? FROM tpcore_homes WHERE owner_uuid=? AND home_name=?")) {

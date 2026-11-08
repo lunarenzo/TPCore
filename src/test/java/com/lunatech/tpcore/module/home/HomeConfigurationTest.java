@@ -26,6 +26,9 @@ class HomeConfigurationTest {
         assertTrue(Files.readString(path).contains("generate-chunks: false"));
         assertFalse(fresh.runtime().generateChunks());
         assertEquals(64, fresh.runtime().storageQueueCapacity());
+        assertTrue(fresh.gui().enabled());
+        assertEquals(60, fresh.gui().promptTimeoutSeconds());
+        assertEquals("RED_BED", fresh.gui().icons().get("set").material());
         var legacy = "enabled: false\nwarmup-seconds: 9\nruntime:\n  recovery-capacity: 7\n";
         Files.writeString(path, legacy);
         var existing = configManager.loadModuleConfig("home", HomeConfig.class, HomeConfig.createDefault(), false);
@@ -34,5 +37,12 @@ class HomeConfigurationTest {
         assertEquals(9, existing.warmupSeconds());
         assertEquals(7, existing.runtime().recoveryCapacity());
         assertEquals(64, existing.runtime().storageQueueCapacity());
+        assertTrue(existing.gui().enabled());
+        Files.writeString(path, legacy + "gui:\n  enabled: false\n  icons:\n    home:\n      name: My custom home\n");
+        var customized = configManager.loadModuleConfig("home", HomeConfig.class, HomeConfig.createDefault(), false);
+        assertFalse(customized.gui().enabled());
+        assertEquals("My custom home", customized.gui().icons().get("home").name());
+        assertEquals("CYAN_BED", customized.gui().icons().get("home").material());
+        assertEquals(60, customized.gui().promptTimeoutSeconds());
     }
 }

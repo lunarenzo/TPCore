@@ -4,6 +4,7 @@ import com.lunatech.tpcore.config.model.HomeConfig;
 import com.lunatech.tpcore.constant.Permissions;
 import com.lunatech.tpcore.module.home.engine.ConcurrentTeleportPipelineEngine;
 import com.lunatech.tpcore.module.home.model.Home;
+import com.lunatech.tpcore.module.home.model.HomePage;
 import com.lunatech.tpcore.module.home.repository.HomeRepository;
 import com.lunatech.tpcore.module.home.service.HomeResultStatus;
 import com.lunatech.tpcore.module.home.service.HomeService;
@@ -76,6 +77,15 @@ public final class DefaultHomeService implements HomeService {
     }
 
     @Override public CompletableFuture<HomeResultStatus> setHome(Player player, String name, boolean force) {
+        return saveHome(player, name, force || !settings.get().requireOverwriteConfirmation());
+    }
+
+    public CompletableFuture<HomeResultStatus> createHome(Player player, String name) {
+        if (!player.hasPermission(Permissions.HOME_SET)) return done(HomeResultStatus.NO_PERMISSION);
+        return saveHome(player, name, false);
+    }
+
+    private CompletableFuture<HomeResultStatus> saveHome(Player player, String name, boolean overwrite) {
         if (!valid(name) || name.length() > 32) return done(HomeResultStatus.INVALID_NAME);
         HomeConfig config = settings.get();
         var location = player.getLocation();
@@ -85,7 +95,7 @@ public final class DefaultHomeService implements HomeService {
         Home home = new Home(owner, name, world.getName(), world.getUID(), location.getX(), location.getY(), location.getZ(),
             location.getYaw(), location.getPitch(), System.currentTimeMillis());
         int limit = homeLimit(player, config);
-        return mutate(owner, name, () -> repository.save(home, force || !config.requireOverwriteConfirmation(), limit));
+        return mutate(owner, name, () -> repository.save(home, overwrite, limit));
     }
 
     @Override public CompletableFuture<HomeResultStatus> deleteHome(Player player, String name) {
@@ -93,6 +103,15 @@ public final class DefaultHomeService implements HomeService {
         UUID owner = player.getUniqueId();
         var runtime = settings.get().runtime();
         return mutate(owner, name, () -> repository.archive(owner, name, runtime.recoveryCapacity(), TimeUnit.DAYS.toMillis(runtime.recoveryDays())));
+    }
+
+    public CompletableFuture<HomeResultStatus> deleteHome(Player player, HomePage.Entry expected) {
+        Home home = expected.home();
+        UUID owner = player.getUniqueId();
+        if (!owner.equals(home.ownerUuid()) || !player.hasPermission(Permissions.HOME_DEL)) return done(HomeResultStatus.NO_PERMISSION);
+        var runtime = settings.get().runtime();
+        return mutate(owner, home.name(), () -> repository.archiveMatching(expected, runtime.recoveryCapacity(),
+            TimeUnit.DAYS.toMillis(runtime.recoveryDays())));
     }
 
     @Override public CompletableFuture<HomeResultStatus> restoreHome(Player player, String name) {
@@ -129,7 +148,26 @@ public final class DefaultHomeService implements HomeService {
         }
     }
 
+    public CompletableFuture<HomePage> page(UUID owner, long page) {
+        synchronized (admission) {
+            HomeResultStatus available = availability();
+            if (available != HomeResultStatus.SUCCESS) return CompletableFuture.failedFuture(new HomeUnavailable(available));
+            return repository.page(owner, page);
+        }
+    }
+
+    public CompletableFuture<HomeResultStatus> teleport(Player player, HomePage.Entry expected) {
+        UUID owner = player.getUniqueId();
+        if (!owner.equals(expected.home().ownerUuid())) return done(HomeResultStatus.NO_PERMISSION);
+        return teleport(player, owner, expected.home().name(), Permissions.HOME_USE, false, expected);
+    }
+
     @Override public CompletableFuture<HomeResultStatus> teleport(Player player, UUID owner, String name, String permission, boolean respawn) {
+        return teleport(player, owner, name, permission, respawn, null);
+    }
+
+    private CompletableFuture<HomeResultStatus> teleport(Player player, UUID owner, String name, String permission, boolean respawn,
+        HomePage.Entry expected) {
         if (!valid(name)) return done(HomeResultStatus.INVALID_NAME);
         HomeConfig config = settings.get();
         UUID actor = player.getUniqueId();
@@ -152,7 +190,7 @@ public final class DefaultHomeService implements HomeService {
                 && cooldowns.size() + requests.size() >= config.runtime().maxCooldowns()) return done(HomeResultStatus.BUSY);
             request = new Request(actor, owner, name, permission, config, !respawn);
             requests.put(actor, request);
-            lookup = repository.findByName(owner, name);
+            lookup = expected == null ? repository.findByName(owner, name) : repository.findMatching(expected);
         }
         var deadline = new CompletableFuture<Void>();
         deadline.orTimeout((long) warmup + config.runtime().timeoutSeconds(), TimeUnit.SECONDS).whenComplete((ignored, error) -> {
@@ -173,7 +211,10 @@ public final class DefaultHomeService implements HomeService {
             Request current = requestHandle.get();
             if (current == null || !preparing(current)) return;
             if (error != null) { cancel(current, storageFailure("lookup", error)); return; }
-            if (home.isEmpty()) { cancel(current, HomeResultStatus.HOME_NOT_FOUND); return; }
+            if (home.isEmpty()) {
+                cancel(current, expected == null ? HomeResultStatus.HOME_NOT_FOUND : HomeResultStatus.HOME_CHANGED);
+                return;
+            }
             Player online = playerHandle.get();
             if (online == null) { cancel(current, HomeResultStatus.CANCELLED); return; }
             onOwner(current, online, () -> warmup(current, online, home.get(), warmup), respawn ? 1 : 0);

@@ -5,6 +5,8 @@ import com.lunatech.tpcore.config.ReloadableModule;
 import com.lunatech.tpcore.config.model.HomeConfig;
 import com.lunatech.tpcore.module.home.command.HomeCommandRegistry;
 import com.lunatech.tpcore.module.home.engine.ConcurrentTeleportPipelineEngine;
+import com.lunatech.tpcore.module.home.gui.HomeMenus;
+import com.lunatech.tpcore.module.home.listener.HomeMenuListener;
 import com.lunatech.tpcore.module.home.listener.HomeTravelListener;
 import com.lunatech.tpcore.module.home.repository.impl.SqliteHomeRepository;
 import com.lunatech.tpcore.module.home.service.impl.DefaultHomeService;
@@ -20,6 +22,7 @@ public final class HomeModule implements ReloadableModule {
     private final JavaPlugin plugin;
     private final ModularConfigManager configManager;
     private final ConcurrentTeleportPipelineEngine engine;
+    private final HomeMenus menus;
     private volatile HomeConfig config;
     private volatile DefaultHomeService service;
     private HomeTravelListener listener;
@@ -30,6 +33,7 @@ public final class HomeModule implements ReloadableModule {
     public HomeModule(JavaPlugin plugin, ModularConfigManager configManager, HomeConfig config) {
         this.plugin = plugin; this.configManager = configManager; this.config = config;
         engine = new ConcurrentTeleportPipelineEngine(plugin, config.runtime().maxRequests());
+        menus = new HomeMenus(plugin, () -> service, () -> this.config);
         configManager.registerModule(this);
     }
 
@@ -48,6 +52,7 @@ public final class HomeModule implements ReloadableModule {
                     boolean restart = !next.enabled() || service == null || !service.ready()
                         || next.runtime().storageQueueCapacity() != config.runtime().storageQueueCapacity();
                     config = next;
+                    menus.invalidate();
                     if (restart) {
                         stop();
                         startWhenStopped();
@@ -70,7 +75,8 @@ public final class HomeModule implements ReloadableModule {
     public void enable() {
         active = true;
         if (!commandsRegistered) {
-            new HomeCommandRegistry(plugin, () -> service, () -> config).registerAll();
+            new HomeCommandRegistry(plugin, () -> service, () -> config, menus).registerAll();
+            plugin.getServer().getPluginManager().registerEvents(new HomeMenuListener(menus), plugin);
             commandsRegistered = true;
         }
         if (config.enabled() && service == null) start();
@@ -108,6 +114,7 @@ public final class HomeModule implements ReloadableModule {
 
     public void disable() {
         active = false;
+        menus.invalidate();
         stop();
     }
 }

@@ -21,6 +21,37 @@ class SqliteHomeRepositoryTest {
     private static final long RETENTION = TimeUnit.DAYS.toMillis(7);
 
     @Test
+    void menuPagesClampAndStaleRowsCannotBeUsedOrArchived() {
+        var repo = repository();
+        try {
+            var empty = repo.page(owner, 50).join();
+            assertEquals(0, empty.total());
+            assertEquals(1, empty.page());
+            for (int index = 28; index >= 0; index--) {
+                assertEquals(HomeResultStatus.SUCCESS, repo.save(home("base%02d".formatted(index), index), false, 29).join());
+            }
+            var first = repo.page(owner, 1).join();
+            assertEquals(29, first.total());
+            assertEquals(28, first.entries().size());
+            assertEquals("base00", first.entries().getFirst().home().name());
+            var last = repo.page(owner, 2).join();
+            var entry = last.entries().getFirst();
+            assertEquals("base28", entry.home().name());
+            assertEquals(entry.home(), repo.findMatching(entry).join().orElseThrow());
+            assertEquals(HomeResultStatus.SUCCESS, repo.save(home("base28", 300), true, 29).join());
+            assertTrue(repo.findMatching(entry).join().isEmpty());
+            assertEquals(HomeResultStatus.HOME_CHANGED, repo.archiveMatching(entry, 10, RETENTION).join());
+            var updated = repo.page(owner, 2).join().entries().getFirst();
+            assertEquals(entry.rowId(), updated.rowId());
+            assertEquals(HomeResultStatus.SUCCESS, repo.archiveMatching(updated, 10, RETENTION).join());
+            assertEquals(1, repo.page(owner, 2).join().page());
+            assertEquals(HomeResultStatus.SUCCESS, repo.restore(owner, "base28", 29, RETENTION).join());
+            assertTrue(repo.findMatching(updated).join().isEmpty());
+            assertEquals(HomeResultStatus.HOME_CHANGED, repo.archiveMatching(updated, 10, RETENTION).join());
+        } finally { repo.close().join(); }
+    }
+
+    @Test
     void concurrentSavesEnforceLimitAndExplicitOverwrite() {
         var repo = repository();
         try {

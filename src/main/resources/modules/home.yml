@@ -27,6 +27,67 @@ home-limits:
   vip: 5
   mvp: 10
   staff: 50
+# Inventory menus. When disabled, /home and /homes use their original chat behavior.
+gui:
+  enabled: true
+  prompt-timeout-seconds: 60
+  titles:
+    menu: "SetHome GUI – Menu"
+    homes: "My Homes (<page>/<pages>)"
+    confirm: "Delete home?"
+  icons:
+    frame:
+      material: GRAY_STAINED_GLASS_PANE
+      name: " "
+      lore: []
+    set:
+      material: RED_BED
+      name: "<gold>Set Home"
+      lore: ["<gray>Create a new home here.", "", "<gold>• Current homes: <white><count>/<limit>", "", "<yellow>▶ Click to enter a name."]
+    homes:
+      material: BOOK
+      name: "<gold>My Homes"
+      lore: ["<gray>View and teleport to your homes.", "", "<yellow>▶ Click to open the list."]
+    home:
+      material: CYAN_BED
+      name: "<gold>Home: <name>"
+      lore: ["<gray>Destination information:", "<gray>• World: <white><world>", "<gray>• X: <white><x> <gray>Y: <white><y> <gray>Z: <white><z>", ""]
+    previous:
+      material: PLAYER_HEAD
+      name: "<gold>◀ Previous Page"
+      lore: []
+    next:
+      material: PLAYER_HEAD
+      name: "<gold>Next Page ▶"
+      lore: []
+    back:
+      material: BARRIER
+      name: "<red>✖ Go Back"
+      lore: []
+    confirm:
+      material: LIME_DYE
+      name: "<green>Confirm deletion"
+      lore: ["<gray>Archive <yellow><name><gray>. You can recover it with /homerestore."]
+    cancel:
+      material: RED_DYE
+      name: "<red>Cancel"
+      lore: []
+    empty:
+      material: PAPER
+      name: "<yellow>No homes yet"
+      lore: ["<gray>Go back to create a home."]
+  messages:
+    unlimited: "Unlimited"
+    left-click: "<gold>▶ Left-click to teleport."
+    right-click: "<red>◀ Right-click to delete."
+    prompt: "<yellow>Choose a name for your new home."
+    enter-name: "<green>[Enter a name]"
+    use-default: "<gold>[Use default: <name>]"
+    cancel-prompt: "<red>[Cancel]"
+    prompt-cancelled: "<gray>Home naming cancelled."
+    prompt-expired: "<yellow>This naming prompt expired. Open Set Home again."
+    disabled: "<yellow>The Home GUI is disabled."
+    home-changed: "<yellow>That home was changed or removed. Open the list again to see the latest destination."
 runtime:
   storage-queue-capacity: 64
   # Also caps unresolved native teleports, with that cap set at server startup.

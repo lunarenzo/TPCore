@@ -48,10 +48,12 @@ public record HomeConfig(
 
     @Comment("Module message strings (Alphabetically ordered)")
     HomeMessages messages,
-    HomeRuntimeConfig runtime
+    HomeRuntimeConfig runtime,
+    HomeGuiConfig gui
 ) {
     public HomeConfig {
         if (runtime == null) runtime = HomeRuntimeConfig.createDefault();
+        if (gui == null) gui = HomeGuiConfig.createDefault();
         if (benchmark == null) benchmark = HomeBenchmarkConfig.createDefault();
         if (safetyChecks == null) safetyChecks = HomeSafetyConfig.createDefault();
         if (homeLimits == null) homeLimits = Map.of("default", 3);
@@ -83,7 +85,8 @@ public record HomeConfig(
                 "staff", 50
             ),
             HomeMessages.createDefault(),
-            HomeRuntimeConfig.createDefault()
+            HomeRuntimeConfig.createDefault(),
+            HomeGuiConfig.createDefault()
         );
     }
 
