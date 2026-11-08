@@ -2,6 +2,7 @@ package com.lunatech.tpcore.module.home.gui;
 
 import com.lunatech.tpcore.config.model.HomeConfig;
 import com.lunatech.tpcore.constant.Permissions;
+import com.lunatech.tpcore.module.home.hook.HomeNameForm;
 import com.lunatech.tpcore.module.home.model.HomePage;
 import com.lunatech.tpcore.module.home.service.HomeResultStatus;
 import com.lunatech.tpcore.module.home.service.impl.DefaultHomeService;
@@ -10,7 +11,9 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
@@ -33,6 +36,8 @@ public final class HomeMenus {
     private final Supplier<DefaultHomeService> services;
     private final Supplier<HomeConfig> settings;
     private final LongSupplier nanoTime;
+    private final HomeNameForm forms;
+    private final AtomicBoolean formFailureLogged = new AtomicBoolean();
     private final ConcurrentHashMap<UUID, Session> sessions = new ConcurrentHashMap<>();
 
     // Accessed on the player's owner, apart from immutable identity and the published prompt deadline.
@@ -42,9 +47,12 @@ public final class HomeMenus {
         final DefaultHomeService service;
         UUID view;
         UUID prompt;
+        Consumer<HomeNameForm.Reply> formReply;
         volatile long promptDeadline;
         boolean pending;
         boolean closing;
+        boolean formSaving;
+        boolean viewReplaced;
 
         Session(UUID player, HomeConfig config, DefaultHomeService service) {
             this.player = player;
@@ -53,15 +61,17 @@ public final class HomeMenus {
         }
     }
 
-    public HomeMenus(Plugin plugin, Supplier<DefaultHomeService> services, Supplier<HomeConfig> settings) {
-        this(plugin, services, settings, System::nanoTime);
+    public HomeMenus(Plugin plugin, Supplier<DefaultHomeService> services, Supplier<HomeConfig> settings, HomeNameForm forms) {
+        this(plugin, services, settings, System::nanoTime, forms);
     }
 
-    HomeMenus(Plugin plugin, Supplier<DefaultHomeService> services, Supplier<HomeConfig> settings, LongSupplier nanoTime) {
+    HomeMenus(Plugin plugin, Supplier<DefaultHomeService> services, Supplier<HomeConfig> settings, LongSupplier nanoTime,
+        HomeNameForm forms) {
         this.plugin = plugin;
         this.services = services;
         this.settings = settings;
         this.nanoTime = nanoTime;
+        this.forms = forms;
     }
 
     public void main(Player player) { start(player, false, false); }
@@ -208,23 +218,139 @@ public final class HomeMenus {
         close(player, session);
         session.prompt = UUID.randomUUID();
         session.promptDeadline = nanoTime.getAsLong() + TimeUnit.SECONDS.toNanos(session.config.gui().promptTimeoutSeconds());
+        if (session.config.gui().bedrock().enabled() && supportsForms(session.player)) {
+            UUID token = session.prompt;
+            if (player.getScheduler().run(plugin, task -> {
+                if (live(session) && token.equals(session.prompt)) {
+                    sendForm(player, session, defaultName(session.config), null);
+                }
+            }, () -> forget(session)) == null) forget(session);
+            return;
+        }
         String prefix = "/home gui set " + session.prompt + " ";
         var messages = session.config.gui().messages();
         send(player, session.config, messages.get("prompt") + " <click:suggest_command:'" + prefix + "'>"
             + messages.get("enter-name") + "</click>");
-        String defaultName = session.config.defaultHomeName();
-        if (DefaultHomeService.valid(defaultName) && defaultName.length() <= 32) {
+        String defaultName = defaultName(session.config);
+        if (!defaultName.isEmpty()) {
             send(player, session.config, "<click:run_command:'" + prefix + defaultName + "'>" + messages.get("use-default")
                 + "</click>", Placeholder.unparsed("name", defaultName));
         }
         send(player, session.config, "<click:run_command:'/home gui cancel " + session.prompt + "'>" + messages.get("cancel-prompt") + "</click>");
+        message(player, session.config, "manual-name");
+    }
+
+    private static String defaultName(HomeConfig config) {
+        String name = config.defaultHomeName();
+        return validNewName(name) ? name : "";
+    }
+
+    private static boolean validNewName(String name) {
+        return name != null && name.length() <= 32 && DefaultHomeService.valid(name);
+    }
+
+    private boolean supportsForms(UUID player) {
+        try {
+            return forms.supports(player);
+        } catch (RuntimeException | LinkageError unavailable) {
+            logFormFailure(unavailable);
+            return false;
+        }
+    }
+
+    private void sendForm(Player player, Session session, String value, String error) {
+        if (!live(session)) return;
+        if (nanoTime.getAsLong() - session.promptDeadline >= 0) {
+            forget(session);
+            message(player, session.config, "prompt-expired");
+            return;
+        }
+        if (!require(player, session, Permissions.HOME_SET)) { forget(session); return; }
+
+        UUID token = UUID.randomUUID();
+        session.prompt = token;
+        var config = session.config.gui().bedrock();
+        String description = config.message("description");
+        if (error != null) description = config.message(error) + "\n\n" + description;
+        var form = new HomeNameForm.Prompt(config.message("title"), description, config.message("name-label"),
+            config.message("placeholder"), value);
+        var handle = new WeakReference<>(player);
+        var scheduler = new WeakReference<>(player.getScheduler());
+        var received = new AtomicBoolean();
+        session.formReply = reply -> {
+            if (!received.compareAndSet(false, true) || !live(session)) return;
+            // Do not retain an oversized input in the entity task.
+            String name = reply.name();
+            var bounded = name != null && name.length() > 32
+                ? new HomeNameForm.Reply(HomeNameForm.Outcome.MALFORMED, null) : reply;
+            var owner = scheduler.get();
+            try {
+                if (owner == null || owner.run(plugin, task -> {
+                    Player online = handle.get();
+                    if (online != null && live(session) && token.equals(session.prompt)) {
+                        formResult(online, session, bounded);
+                    }
+                }, () -> forget(session)) == null) forget(session);
+            } catch (RuntimeException rejected) {
+                forget(session);
+                if (plugin.isEnabled()) logFormFailure(rejected);
+            }
+        };
+        try {
+            if (forms.send(session.player, form, session.formReply)) return;
+        } catch (RuntimeException | LinkageError unavailable) {
+            logFormFailure(unavailable);
+        }
+        forget(session);
+        send(player, session.config, config.message("unavailable"));
+        message(player, session.config, "manual-name");
+    }
+
+    private void formResult(Player player, Session session, HomeNameForm.Reply reply) {
+        long deadline = session.promptDeadline;
+        session.formReply = null;
+        session.prompt = null;
+        if (reply.outcome() == HomeNameForm.Outcome.CLOSED || nanoTime.getAsLong() - deadline >= 0) {
+            forget(session);
+            return;
+        }
+        if (!require(player, session, Permissions.HOME_SET)) { forget(session); return; }
+        String name = reply.name();
+        if (reply.outcome() == HomeNameForm.Outcome.MALFORMED || !validNewName(name)) {
+            String error = reply.outcome() == HomeNameForm.Outcome.SUBMITTED && (name == null || name.isBlank()) ? "blank" : "invalid";
+            sendForm(player, session, "", error);
+            return;
+        }
+        session.promptDeadline = 0;
+        session.formSaving = true;
+        complete(player, session, session.service.createHome(player, name), (online, result) -> {
+            session.formSaving = false;
+            if (result == HomeResultStatus.OVERWRITE_REQUIRED) {
+                if (session.viewReplaced) {
+                    send(online, session.config, session.config.gui().bedrock().message("duplicate"));
+                    forget(session);
+                    return;
+                }
+                session.promptDeadline = deadline;
+                sendForm(online, session, name, "duplicate");
+                return;
+            }
+            feedback(online, session, "set", name, result);
+            if (result == HomeResultStatus.SUCCESS && !session.viewReplaced && online.hasPermission(Permissions.HOME_LIST)) {
+                readList(online, session, 1);
+            } else forget(session);
+        });
+    }
+
+    private void logFormFailure(Throwable failure) {
+        if (formFailureLogged.compareAndSet(false, true)) plugin.getSLF4JLogger().warn("Home could not use Bedrock forms", failure);
     }
 
     public void submit(Player player, String token, String name) {
         UUID playerId = player.getUniqueId();
         Session session = sessions.get(playerId);
         boolean expired = session != null && session.prompt != null && nanoTime.getAsLong() - session.promptDeadline >= 0;
-        if (!live(session) || session.prompt == null || !session.prompt.toString().equals(token) || expired) {
+        if (!live(session) || session.formReply != null || session.prompt == null || !session.prompt.toString().equals(token) || expired) {
             if (expired) forget(session);
             message(player, settings.get(), "prompt-expired");
             return;
@@ -259,12 +385,15 @@ public final class HomeMenus {
 
     public void opened(UUID player, HomeMenuHolder holder) {
         Session session = sessions.get(player);
-        if (session != null && (holder == null || !holder.token().equals(session.view))) forget(session);
+        if (session != null && (holder == null || !holder.token().equals(session.view))) {
+            if (session.formSaving) session.viewReplaced = true;
+            else forget(session);
+        }
     }
 
     public void closed(UUID player, HomeMenuHolder holder) {
         Session session = sessions.get(player);
-        if (session == null || session.closing || session.prompt != null) return;
+        if (session == null || session.closing || session.prompt != null || session.formSaving) return;
         if (session.view == null ? session.pending : holder != null && holder.token().equals(session.view)) forget(session);
     }
 

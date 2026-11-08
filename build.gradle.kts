@@ -22,12 +22,20 @@ repositories {
     maven("https://oss.sonatype.org/content/groups/public/")
     maven("https://jitpack.io")
     maven("https://repo.extendedclip.com/content/repositories/placeholderapi/")
+    maven("https://repo.opencollab.dev/main/") {
+        content {
+            includeGroup("org.geysermc.floodgate")
+            includeGroup("org.geysermc.cumulus")
+        }
+    }
 }
 
 dependencies {
     compileOnly("io.papermc.paper:paper-api:1.20.6-R0.1-SNAPSHOT")
     compileOnly("com.github.MilkBowl:VaultAPI:1.7")
     compileOnly("me.clip:placeholderapi:2.11.6")
+    compileOnly("org.geysermc.floodgate:api:2.2.5-SNAPSHOT") { isTransitive = false }
+    compileOnly("org.geysermc.cumulus:cumulus:1.1.2") { isTransitive = false }
     implementation("org.spongepowered:configurate-yaml:4.1.2")
     implementation("com.zaxxer:HikariCP:5.1.0")
 

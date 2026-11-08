@@ -8,6 +8,10 @@ folia-supported: true
 
 dependencies:
   server:
+    floodgate:
+      load: BEFORE
+      required: false
+      join-classpath: true
     WorldGuard:
       load: BEFORE
       required: false

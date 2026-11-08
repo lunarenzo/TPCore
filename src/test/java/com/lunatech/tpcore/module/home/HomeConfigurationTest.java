@@ -28,6 +28,8 @@ class HomeConfigurationTest {
         assertEquals(64, fresh.runtime().storageQueueCapacity());
         assertTrue(fresh.gui().enabled());
         assertEquals(60, fresh.gui().promptTimeoutSeconds());
+        assertTrue(fresh.gui().bedrock().enabled());
+        assertEquals("Create Home", fresh.gui().bedrock().message("title"));
         assertEquals("RED_BED", fresh.gui().icons().get("set").material());
         var legacy = "enabled: false\nwarmup-seconds: 9\nruntime:\n  recovery-capacity: 7\n";
         Files.writeString(path, legacy);
@@ -38,6 +40,7 @@ class HomeConfigurationTest {
         assertEquals(7, existing.runtime().recoveryCapacity());
         assertEquals(64, existing.runtime().storageQueueCapacity());
         assertTrue(existing.gui().enabled());
+        assertTrue(existing.gui().bedrock().enabled());
         Files.writeString(path, legacy + "gui:\n  enabled: false\n  icons:\n    home:\n      name: My custom home\n");
         var customized = configManager.loadModuleConfig("home", HomeConfig.class, HomeConfig.createDefault(), false);
         assertFalse(customized.gui().enabled());

@@ -6,6 +6,8 @@ import com.lunatech.tpcore.config.model.HomeConfig;
 import com.lunatech.tpcore.module.home.command.HomeCommandRegistry;
 import com.lunatech.tpcore.module.home.engine.ConcurrentTeleportPipelineEngine;
 import com.lunatech.tpcore.module.home.gui.HomeMenus;
+import com.lunatech.tpcore.module.home.hook.HomeNameForm;
+import com.lunatech.tpcore.module.home.hook.impl.FloodgateHomeNameForm;
 import com.lunatech.tpcore.module.home.listener.HomeMenuListener;
 import com.lunatech.tpcore.module.home.listener.HomeTravelListener;
 import com.lunatech.tpcore.module.home.repository.impl.SqliteHomeRepository;
@@ -33,8 +35,19 @@ public final class HomeModule implements ReloadableModule {
     public HomeModule(JavaPlugin plugin, ModularConfigManager configManager, HomeConfig config) {
         this.plugin = plugin; this.configManager = configManager; this.config = config;
         engine = new ConcurrentTeleportPipelineEngine(plugin, config.runtime().maxRequests());
-        menus = new HomeMenus(plugin, () -> service, () -> this.config);
+        menus = new HomeMenus(plugin, () -> service, () -> this.config, bedrockForms());
         configManager.registerModule(this);
+    }
+
+    private HomeNameForm bedrockForms() {
+        if (plugin.getServer().getPluginManager().isPluginEnabled("floodgate")) {
+            try {
+                return new FloodgateHomeNameForm();
+            } catch (LinkageError unavailable) {
+                plugin.getSLF4JLogger().warn("Home cannot load the Floodgate form adapter", unavailable);
+            }
+        }
+        return HomeNameForm.UNAVAILABLE;
     }
 
     @Override public String getModuleName() { return "home"; }

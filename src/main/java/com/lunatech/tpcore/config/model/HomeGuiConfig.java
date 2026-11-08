@@ -7,7 +7,7 @@ import org.spongepowered.configurate.objectmapping.ConfigSerializable;
 
 @ConfigSerializable
 public record HomeGuiConfig(boolean enabled, int promptTimeoutSeconds, Map<String, String> titles,
-    Map<String, Icon> icons, Map<String, String> messages) {
+    Map<String, Icon> icons, Map<String, String> messages, Bedrock bedrock) {
 
     private static final Map<String, String> TITLES = Map.ofEntries(
         Map.entry("menu", "SetHome GUI – Menu"),
@@ -31,6 +31,7 @@ public record HomeGuiConfig(boolean enabled, int promptTimeoutSeconds, Map<Strin
         Map.entry("left-click", "<gold>▶ Left-click to teleport."),
         Map.entry("right-click", "<red>◀ Right-click to delete."),
         Map.entry("prompt", "<yellow>Choose a name for your new home."),
+        Map.entry("manual-name", "<gray>You can also type <yellow>/sethome <unused-name></yellow> using a name you haven't saved."),
         Map.entry("enter-name", "<green>[Enter a name]"),
         Map.entry("use-default", "<gold>[Use default: <name>]"),
         Map.entry("cancel-prompt", "<red>[Cancel]"),
@@ -44,6 +45,7 @@ public record HomeGuiConfig(boolean enabled, int promptTimeoutSeconds, Map<Strin
         promptTimeoutSeconds = Math.clamp(promptTimeoutSeconds, 1, 300);
         titles = merge(TITLES, titles);
         messages = merge(MESSAGES, messages);
+        if (bedrock == null) bedrock = Bedrock.createDefault();
         Map<String, Icon> resolved = new HashMap<>(ICONS);
         if (icons != null) {
             for (var entry : ICONS.entrySet()) {
@@ -66,11 +68,37 @@ public record HomeGuiConfig(boolean enabled, int promptTimeoutSeconds, Map<Strin
     }
 
     public static HomeGuiConfig createDefault() {
-        return new HomeGuiConfig(true, 60, TITLES, ICONS, MESSAGES);
+        return new HomeGuiConfig(true, 60, TITLES, ICONS, MESSAGES, Bedrock.createDefault());
     }
 
     public static String defaultMaterial(String icon) {
         return ICONS.get(icon).material();
+    }
+
+    @ConfigSerializable
+    public record Bedrock(boolean enabled, Map<String, String> messages) {
+        private static final Map<String, String> DEFAULTS = Map.of(
+            "title", "Create Home",
+            "description", "Your home will be saved at your location when you submit.",
+            "name-label", "Home name",
+            "placeholder", "Enter a home name",
+            "blank", "Enter a name for your home.",
+            "invalid", "Use 1–32 letters, numbers, dots, underscores, plus signs, or hyphens.",
+            "duplicate", "You already have a home with that name. Choose a different name.",
+            "unavailable", "<yellow>The Bedrock form is unavailable."
+        );
+
+        public Bedrock {
+            messages = merge(DEFAULTS, messages);
+        }
+
+        public static Bedrock createDefault() {
+            return new Bedrock(true, DEFAULTS);
+        }
+
+        public String message(String key) {
+            return messages.get(key);
+        }
     }
 
     @ConfigSerializable

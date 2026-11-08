@@ -2,6 +2,7 @@ package com.lunatech.tpcore.module.home.gui;
 
 import com.lunatech.tpcore.config.model.HomeConfig;
 import com.lunatech.tpcore.constant.Permissions;
+import com.lunatech.tpcore.module.home.hook.HomeNameForm;
 import com.lunatech.tpcore.module.home.listener.HomeMenuListener;
 import com.lunatech.tpcore.module.home.model.Home;
 import com.lunatech.tpcore.module.home.model.HomePage;
@@ -172,6 +173,7 @@ class HomeMenuTest {
             String token = command.trim().substring("/home gui set ".length());
             assertTrue(fixture.clicks.contains(ClickEvent.runCommand("/home gui set " + token + " home")));
             assertTrue(fixture.clicks.contains(ClickEvent.runCommand("/home gui cancel " + token)));
+            assertTrue(fixture.messages.stream().anyMatch(message -> message.toString().contains("/sethome <unused-name>")));
             when(fixture.service.createHome(fixture.player, "home"))
                 .thenReturn(CompletableFuture.completedFuture(HomeResultStatus.OVERWRITE_REQUIRED));
             fixture.menus.submit(fixture.player, "wrong", "home");
@@ -201,6 +203,110 @@ class HomeMenuTest {
         }
     }
 
+    @Test void bedrockDefaultSavesAfterOwnerHandoffAndOpensMyHomes() {
+        try (var fixture = new Fixture()) {
+            fixture.beginBedrock();
+            assertEquals("home", fixture.forms.prompts.getFirst().value());
+            assertTrue(fixture.clicks.isEmpty());
+            fixture.page(1, 1);
+            when(fixture.service.createHome(fixture.player, "home"))
+                .thenReturn(CompletableFuture.completedFuture(HomeResultStatus.SUCCESS));
+            fixture.forms.submit("home");
+            fixture.forms.submit("home");
+            assertEquals(1, fixture.tasks.size());
+            verify(fixture.service, never()).createHome(any(), anyString());
+            fixture.tick();
+            fixture.tick();
+            fixture.tick();
+            assertEquals(54, fixture.top.getSize());
+            verify(fixture.service).createHome(fixture.player, "home");
+        }
+    }
+
+    @Test void invalidAndDuplicateFormNamesRetryWithinTheOriginalDeadline() {
+        try (var fixture = new Fixture()) {
+            fixture.beginBedrock();
+            fixture.forms.submit(" ");
+            fixture.tick();
+            assertTrue(fixture.forms.prompts.getLast().description().startsWith("Enter a name"));
+            fixture.forms.submit("bad name");
+            fixture.tick();
+            assertTrue(fixture.forms.prompts.getLast().description().startsWith("Use 1–32"));
+            verify(fixture.service, never()).createHome(any(), anyString());
+            when(fixture.service.createHome(fixture.player, "base"))
+                .thenReturn(CompletableFuture.completedFuture(HomeResultStatus.OVERWRITE_REQUIRED));
+            fixture.forms.submit("base");
+            fixture.tick();
+            fixture.tick();
+            assertTrue(fixture.forms.prompts.getLast().description().startsWith("You already have"));
+            assertEquals("base", fixture.forms.prompts.getLast().value());
+            fixture.clock.addAndGet(TimeUnit.SECONDS.toNanos(60));
+            fixture.forms.submit("new-base");
+            fixture.tick();
+            verify(fixture.service, never()).createHome(any(), eq("new-base"));
+            assertEquals(4, fixture.forms.prompts.size());
+        }
+    }
+
+    @Test void closeRevocationAndReloadPreventFormWrites() {
+        for (int scenario = 0; scenario < 3; scenario++) {
+            try (var fixture = new Fixture()) {
+                fixture.beginBedrock();
+                if (scenario == 0) fixture.forms.reply.accept(new HomeNameForm.Reply(HomeNameForm.Outcome.CLOSED, null));
+                else if (scenario == 1) {
+                    fixture.permissions.remove(Permissions.HOME_SET);
+                    fixture.forms.submit("base");
+                } else {
+                    fixture.forms.submit("base");
+                    fixture.menus.invalidate();
+                }
+                fixture.tick();
+                assertNull(fixture.top);
+                verify(fixture.service, never()).createHome(any(), anyString());
+            }
+        }
+    }
+
+    @Test void successfulCustomNameDoesNotReplaceAnExternalInventory() {
+        try (var fixture = new Fixture()) {
+            fixture.beginBedrock();
+            var saved = new CompletableFuture<HomeResultStatus>();
+            when(fixture.service.createHome(fixture.player, "my-base")).thenReturn(saved);
+            fixture.forms.submit("my-base");
+            fixture.tick();
+            fixture.menus.opened(fixture.id, null);
+            saved.complete(HomeResultStatus.SUCCESS);
+            fixture.tick();
+            assertTrue(fixture.tasks.isEmpty());
+            verify(fixture.player, times(1)).openInventory(any(Inventory.class));
+            verify(fixture.service).createHome(fixture.player, "my-base");
+            assertTrue(fixture.messages.stream().anyMatch(message -> message.toString().contains("set to your current location")));
+        }
+    }
+
+    @Test void formDeliveryFailureShowsATypedFallback() {
+        try (var fixture = new Fixture()) {
+            fixture.forms.delivers = false;
+            fixture.beginBedrock();
+            assertTrue(fixture.clicks.isEmpty());
+            assertTrue(fixture.messages.stream().anyMatch(message -> message.toString().contains("/sethome <unused-name>")));
+        }
+    }
+
+    private static final class Forms implements HomeNameForm {
+        boolean supported;
+        boolean delivers = true;
+        final List<Prompt> prompts = new ArrayList<>();
+        Consumer<Reply> reply;
+        @Override public boolean supports(UUID player) { return supported; }
+        @Override public boolean send(UUID player, Prompt prompt, Consumer<Reply> response) {
+            prompts.add(prompt);
+            reply = response;
+            return delivers;
+        }
+        void submit(String name) { reply.accept(new Reply(Outcome.SUBMITTED, name)); }
+    }
+
     private static final class Fixture implements AutoCloseable {
         final UUID id = UUID.randomUUID();
         final Plugin plugin = mock(Plugin.class);
@@ -208,7 +314,8 @@ class HomeMenuTest {
         final DefaultHomeService service = mock(DefaultHomeService.class);
         final HomeConfig config = HomeConfig.createDefault();
         final AtomicLong clock = new AtomicLong(1);
-        final HomeMenus menus = new HomeMenus(plugin, () -> service, () -> config, clock::get);
+        final Forms forms = new Forms();
+        final HomeMenus menus = new HomeMenus(plugin, () -> service, () -> config, clock::get, forms);
         final HomeMenuListener listener = new HomeMenuListener(menus);
         final ArrayDeque<Runnable> tasks = new ArrayDeque<>();
         final Set<String> permissions = new HashSet<>(Set.of(Permissions.HOME_USE, Permissions.HOME_LIST,
@@ -286,6 +393,17 @@ class HomeMenuTest {
             when(service.page(id, page)).thenReturn(CompletableFuture.completedFuture(new HomePage(count, page, entries)));
         }
         void tick() { tasks.remove().run(); }
+        void beginBedrock() {
+            forms.supported = true;
+            page(0, 1);
+            menus.main(player);
+            tick();
+            click(11, ClickType.LEFT);
+            tick();
+            assertNull(top);
+            assertTrue(forms.prompts.isEmpty());
+            tick();
+        }
         InventoryClickEvent event(int slot, ClickType click) {
             var event = mock(InventoryClickEvent.class);
             when(event.getInventory()).thenReturn(top);

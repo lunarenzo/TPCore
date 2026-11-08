@@ -31,6 +31,18 @@ home-limits:
 gui:
   enabled: true
   prompt-timeout-seconds: 60
+  bedrock:
+    # Show a native form to players recognized by Floodgate on this server.
+    enabled: true
+    messages:
+      title: "Create Home"
+      description: "Your home will be saved at your location when you submit."
+      name-label: "Home name"
+      placeholder: "Enter a home name"
+      blank: "Enter a name for your home."
+      invalid: "Use 1–32 letters, numbers, dots, underscores, plus signs, or hyphens."
+      duplicate: "You already have a home with that name. Choose a different name."
+      unavailable: "<yellow>The Bedrock form is unavailable."
   titles:
     menu: "SetHome GUI – Menu"
     homes: "My Homes (<page>/<pages>)"
@@ -81,6 +93,7 @@ gui:
     left-click: "<gold>▶ Left-click to teleport."
     right-click: "<red>◀ Right-click to delete."
     prompt: "<yellow>Choose a name for your new home."
+    manual-name: "<gray>You can also type <yellow>/sethome <unused-name></yellow> using a name you haven't saved."
     enter-name: "<green>[Enter a name]"
     use-default: "<gold>[Use default: <name>]"
     cancel-prompt: "<red>[Cancel]"
