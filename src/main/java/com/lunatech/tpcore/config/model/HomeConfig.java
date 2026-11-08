@@ -28,7 +28,7 @@ public record HomeConfig(
     @Comment("Cancel teleport warmup if the player takes damage")
     boolean cancelOnDamage,
 
-    @Comment("Allow players to share specific homes with other players (/home share)")
+    @Comment("Reserved compatibility setting; sharing commands are not exposed")
     boolean enableHomeSharing,
 
     @Comment("Automatically respawn players at their primary home if no bed/anchor is set")
@@ -40,15 +40,28 @@ public record HomeConfig(
     @Comment("Safety checks before teleporting to a home")
     HomeSafetyConfig safetyChecks,
 
-    @Comment("World restrictions for setting homes")
+    @Comment("World restrictions for saving homes and travelling to their destinations")
     HomeWorldRestrictions worldRestrictions,
 
     @Comment("Dynamic home limits mapped to permissions (tpcore.homes.limit.<key>)")
     Map<String, Integer> homeLimits,
 
     @Comment("Module message strings (Alphabetically ordered)")
-    HomeMessages messages
+    HomeMessages messages,
+    HomeRuntimeConfig runtime
 ) {
+    public HomeConfig {
+        if (runtime == null) runtime = HomeRuntimeConfig.createDefault();
+        if (benchmark == null) benchmark = HomeBenchmarkConfig.createDefault();
+        if (safetyChecks == null) safetyChecks = HomeSafetyConfig.createDefault();
+        if (homeLimits == null) homeLimits = Map.of("default", 3);
+        else homeLimits = Map.copyOf(homeLimits);
+        if (messages == null) messages = HomeMessages.createDefault();
+        if (defaultHomeName == null) defaultHomeName = "home";
+        warmupSeconds = Math.clamp(warmupSeconds, 0, 300);
+        cooldownSeconds = Math.clamp(cooldownSeconds, 0, 86400);
+    }
+
     public static HomeConfig createDefault() {
         return new HomeConfig(
             true,
@@ -69,7 +82,8 @@ public record HomeConfig(
                 "mvp", 10,
                 "staff", 50
             ),
-            HomeMessages.createDefault()
+            HomeMessages.createDefault(),
+            HomeRuntimeConfig.createDefault()
         );
     }
 
@@ -147,7 +161,7 @@ public record HomeConfig(
                 "<prefix><red>Benchmark submodule feature is currently disabled in home.yml.</red>",
                 "<prefix><gradient:#00D2FF:#3A7BD5><bold>CTCPE Engine Full Benchmark Running...</bold></gradient> <gray>(Simulating <gold><count></gold> sethome/home/delhome operations across <yellow><worlds></yellow>...)</gray>",
                 "<prefix><gray>Diagnostic report file saved to: <gold><path></gold></gray>",
-                "<prefix><green><bold>CTCPE Full Benchmark Complete!</bold></green><br><gray>• Tasks: <gold><total></gold> across <yellow><worlds></yellow> | Dedup Ratio: <gold><dedup>%</gold> (<gold><unique></gold> unique chunk reads)</gray><br><gray>• DB Writes (sethome): <gold><dbwrite>ms</gold> | DB Deletes (delhome): <gold><dbdel>ms</gold></gray><br><gray>• Real Chunk Disk I/O: <gold><time>ms</gold> over <gold><batches></gold> tick batches (<gold><cap></gold> loads/tick)</gray><br><gray>• Processing Overhead: <gold><mspt> mspt</gold> (<green>20.0 TPS</green>)</gray><br><gray>• Safe Ground / Safe Landing: <green><success></green> safe | <red><fail></red> unsafe/rejected</gray>",
+                "<prefix><gray>Storage benchmark complete.</gray>",
                 "<prefix><red>You must wait <gold><seconds>s</gold> before using /home again!</red>",
                 "<prefix><green>Home <yellow><home></yellow> has been deleted.</green>",
                 "<prefix><green>Deleted home <yellow><home></yellow> for player <gold><target></gold>.</green>",
@@ -163,7 +177,7 @@ public record HomeConfig(
                 "<prefix><red>Home <yellow><home></yellow> is not shared with <green><target></green>!</red>",
                 "<prefix><red>Only players can execute this command!</red>",
                 "<gradient:#00D2FF:#3A7BD5><bold>TPCore</bold></gradient> <dark_gray>»</dark_gray> ",
-                "<prefix><yellow>Respawed at your primary home!</yellow>",
+                "<prefix><yellow>Teleported to your primary home after respawn!</yellow>",
                 "<prefix><yellow>Home <gold><home></gold> already exists! Run <gold>/sethome <home> -f</gold> to overwrite it.</yellow>",
                 "<prefix><green>Home <yellow><home></yellow> set to your current location!</green>",
                 "<prefix><green>Set home <yellow><home></yellow> for player <gold><target></gold>.</green>",

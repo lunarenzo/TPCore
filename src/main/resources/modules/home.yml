@@ -1,0 +1,102 @@
+# Home uses SQLite. Commands remain registered while storage starts.
+enabled: true
+default-home-name: home
+warmup-seconds: 3
+cooldown-seconds: 10
+cancel-on-move: true
+cancel-on-damage: true
+require-overwrite-confirmation: true
+# Kept for older configurations; sharing commands are not exposed.
+enable-home-sharing: true
+# After normal respawn, attempt a safe home teleport if there is no bed/anchor.
+respawn-at-primary-home: false
+benchmark:
+  # /homebenchmark [count] times one read of your own saved homes; it never writes.
+  enabled: false
+safety-checks:
+  prevent-unsafe-teleport: true
+  prevent-nether-roof: true
+  max-nether-height: 128
+  max-concurrent-chunk-loads: 8
+world-restrictions:
+  mode: BLACKLIST
+  worlds: [world_nether_resource, minigames]
+# Grant tpcore.homes.limit.<tier> or a numeric tpcore.homes.limit.<number>.
+home-limits:
+  default: 3
+  vip: 5
+  mvp: 10
+  staff: 50
+runtime:
+  storage-queue-capacity: 64
+  # Also caps unresolved native teleports, with that cap set at server startup.
+  max-requests: 32
+  max-cooldowns: 2048
+  # Applies in addition to the configured warmup.
+  timeout-seconds: 15
+  safety-freshness-millis: 500
+  list-page-size: 10
+  # Applies ONLY to homes saved before world UUIDs were stored.
+  # Use /sethome <name> -f in the intended world to bind a legacy home.
+  allow-legacy-world-names: true
+  # Leave false to avoid generating terrain while checking homes.
+  generate-chunks: false
+  # Latest deletion per owner/name; old entries expire and capacity is server-wide.
+  recovery-capacity: 2048
+  recovery-days: 7
+  hazards: [MAGMA_BLOCK, LAVA, FIRE, SOUL_FIRE, CACTUS, SWEET_BERRY_BUSH, POWDER_SNOW, WITHER_ROSE, CAMPFIRE, SOUL_CAMPFIRE, POINTED_DRIPSTONE]
+  messages:
+    not-ready: "<prefix><yellow>Home storage is starting. Try again shortly.</yellow>"
+    storage-error: "<prefix><red>Home storage is unavailable. Contact an administrator.</red>"
+    busy: "<prefix><yellow>Home is busy or you already have a request. Try again shortly.</yellow>"
+    invalid-name: "<prefix><red>Use 1–32 letters, numbers, dots, underscores, plus signs or hyphens for a home name.</red>"
+    cancelled: "<prefix><yellow>Your home teleport was cancelled.</yellow>"
+    timed-out: "<prefix><yellow>Your home request timed out before teleporting. Try again shortly.</yellow>"
+    outcome-unknown: "<prefix><yellow>The server has not confirmed your teleport. Wait before trying again.</yellow>"
+    teleport-failed: "<prefix><red>The server did not complete your home teleport.</red>"
+    world-unavailable: "<prefix><red>The saved world is unavailable. Check with staff or reset this home in the intended world.</red>"
+    travel-world-restricted: "<prefix><red>This home's destination world is restricted.</red>"
+    no-permission: "<prefix><red>You no longer have permission to use this home command.</red>"
+    unknown-owner: "<prefix><red>Player <target> is not online or known by the server.</red>"
+    archived: "<prefix><green>Home <home> deleted. Use /homerestore <home> while its archive is available.</green>"
+    restored: "<prefix><green>Home <home> restored.</green>"
+    restore-conflict: "<prefix><red>You already have a home called <home>. The archive was kept.</red>"
+    recovery-not-found: "<prefix><red>No recoverable archive for <home> was found.</red>"
+    list-page: "<prefix><gold>Your homes — page <page></gold>"
+    empty-page: "<prefix><yellow>There are no homes on this page.</yellow>"
+    list-next: "<prefix><gray>Next page: <click:run_command:'/homes <page>'><gold>[Next]</gold></click></gray>"
+    benchmark-read: "<prefix><gray>Home storage read: <count> rows in <millis> ms (including queue time).</gray>"
+messages:
+  already-shared: "<prefix><red>Home <yellow><home></yellow> is already shared with <green><target></green>!</red>"
+  benchmark-disabled: "<prefix><red>Benchmark submodule feature is currently disabled in home.yml.</red>"
+  benchmark-header: "<prefix><gradient:#00D2FF:#3A7BD5><bold>CTCPE Engine Full Benchmark Running...</bold></gradient> <gray>(Simulating <gold><count></gold> sethome/home/delhome operations across <yellow><worlds></yellow>...)</gray>"
+  benchmark-report-saved: "<prefix><gray>Diagnostic report file saved to: <gold><path></gold></gray>"
+  benchmark-results: "<prefix><gray>Storage benchmark complete.</gray>"
+  cooldown-active: "<prefix><red>You must wait <gold><seconds>s</gold> before using /home again!</red>"
+  del-home-success: "<prefix><green>Home <yellow><home></yellow> has been deleted.</green>"
+  del-home-success-other: "<prefix><green>Deleted home <yellow><home></yellow> for player <gold><target></gold>.</green>"
+  home-list-empty: "<prefix><yellow>You have no saved homes.</yellow>"
+  home-list-header: "<prefix><gray>Your Homes (<gold><used></gold>/<gold><max></gold>):</gray>"
+  home-list-item: "  <dark_gray>•</dark_gray> <green><name></green> <gray>(<hover:show_text:'<gray>World: <yellow><world></yellow><br>Coords: <yellow><x>, <y>, <z></yellow>'><yellow><world></yellow></hover>)</gray> <click:run_command:'/home <name>'><hover:show_text:'<green>Click to teleport</green>'><gold>[Teleport]</gold></hover></click>"
+  home-not-found: "<prefix><red>Home <yellow><home></yellow> was not found!</red>"
+  home-not-found-other: "<prefix><red>Home <yellow><home></yellow> was not found for player <gold><target></gold>!</red>"
+  home-overwritten: "<prefix><yellow>Home <gold><home></gold> has been updated with your current location.</yellow>"
+  limit-reached: "<prefix><red>You have reached your limit of <gold><max></gold> homes!</red>"
+  module-disabled: "<prefix><red>Home module is currently disabled.</red>"
+  no-home-set: "<prefix><red>You do not have a default home set! Use /sethome first.</red>"
+  not-shared: "<prefix><red>Home <yellow><home></yellow> is not shared with <green><target></green>!</red>"
+  only-players: "<prefix><red>Only players can execute this command!</red>"
+  prefix: "<gradient:#00D2FF:#3A7BD5><bold>TPCore</bold></gradient> <dark_gray>»</dark_gray> "
+  respawn-at-home: "<prefix><yellow>Teleported to your primary home after respawn!</yellow>"
+  set-home-confirm: "<prefix><yellow>Home <gold><home></gold> already exists! Run <gold>/sethome <home> -f</gold> to overwrite it.</yellow>"
+  set-home-success: "<prefix><green>Home <yellow><home></yellow> set to your current location!</green>"
+  set-home-success-other: "<prefix><green>Set home <yellow><home></yellow> for player <gold><target></gold>.</green>"
+  share-success: "<prefix><green>Shared home <yellow><home></yellow> with <gold><target></gold>!</green>"
+  shared-home-not-found: "<prefix><red>Shared home <yellow><home></yellow> from owner <gold><owner></gold> was not found!</red>"
+  teleport-success: "<prefix><green>Teleported to home <yellow><home></yellow>!</green>"
+  unshare-success: "<prefix><green>Revoked access to home <yellow><home></yellow> for <gold><target></gold>.</green>"
+  unsafe-location: "<prefix><red>Teleport target location is unsafe or obstructed!</red>"
+  warmup-cancelled-damage: "<prefix><red>Teleport cancelled because you took damage!</red>"
+  warmup-cancelled-move: "<prefix><red>Teleport cancelled because you moved!</red>"
+  warmup-start: "<prefix><gray>Teleporting to home <yellow><home></yellow> in <gold><seconds></gold> seconds. <red>Do not move or take damage!</red></gray>"
+  world-restricted: "<prefix><red>You cannot set homes in this world!</red>"

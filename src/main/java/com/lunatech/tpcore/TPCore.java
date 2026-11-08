@@ -50,7 +50,7 @@ public final class TPCore extends JavaPlugin {
         this.spawnModule = new SpawnModule(this, this.configManager, spawnConfig);
         this.spawnModule.enable();
 
-        HomeConfig homeConfig = this.configManager.loadModuleConfig("home", HomeConfig.class, HomeConfig.createDefault());
+        HomeConfig homeConfig = this.configManager.loadModuleConfig("home", HomeConfig.class, HomeConfig.createDefault(), false);
         this.homeModule = new HomeModule(this, this.configManager, homeConfig);
         this.homeModule.enable();
 

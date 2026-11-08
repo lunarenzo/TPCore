@@ -2,516 +2,386 @@ package com.lunatech.tpcore.module.home.service.impl;
 
 import com.lunatech.tpcore.config.model.HomeConfig;
 import com.lunatech.tpcore.constant.Permissions;
-import com.lunatech.tpcore.module.home.cache.HomeCache;
 import com.lunatech.tpcore.module.home.engine.ConcurrentTeleportPipelineEngine;
 import com.lunatech.tpcore.module.home.model.Home;
 import com.lunatech.tpcore.module.home.repository.HomeRepository;
 import com.lunatech.tpcore.module.home.service.HomeResultStatus;
 import com.lunatech.tpcore.module.home.service.HomeService;
+import com.lunatech.tpcore.util.MessageFormatter;
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
-import java.util.Collections;
-import java.util.HashSet;
+import java.lang.ref.WeakReference;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
+import java.util.function.Consumer;
+import java.util.regex.Pattern;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
-import org.bukkit.Bukkit;
 import org.bukkit.Location;
-import org.bukkit.World;
 import org.bukkit.entity.Player;
-import org.bukkit.event.EventHandler;
-import org.bukkit.event.HandlerList;
-import org.bukkit.event.Listener;
-import org.bukkit.event.entity.EntityDamageEvent;
-import org.bukkit.event.player.PlayerMoveEvent;
-import org.bukkit.event.player.PlayerQuitEvent;
-import org.bukkit.permissions.PermissionAttachmentInfo;
 import org.bukkit.plugin.Plugin;
 
-public final class DefaultHomeService implements HomeService, Listener {
-
+public final class DefaultHomeService implements HomeService {
+    private static final Pattern NAME = Pattern.compile("[A-Za-z0-9_.+-]+");
+    private static final MiniMessage MINI = MiniMessage.miniMessage();
     private final Plugin plugin;
     private final HomeRepository repository;
-    private final HomeCache cache;
-    private final Supplier<HomeConfig> configSupplier;
-    private final ConcurrentTeleportPipelineEngine pipelineEngine;
-    private final MiniMessage miniMessage = MiniMessage.miniMessage();
-    private final Map<UUID, Long> cooldownMap = new ConcurrentHashMap<>();
-    private final Map<UUID, ActiveWarmup> activeWarmups = new ConcurrentHashMap<>();
+    private final Supplier<HomeConfig> settings;
+    private final ConcurrentTeleportPipelineEngine engine;
+    private final CompletableFuture<Void> initialized;
+    private final Object admission = new Object();
+    private final Map<UUID, Request> requests = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> cooldowns = new HashMap<>();
+    private volatile boolean closed;
 
-    @FunctionalInterface
-    private interface TaskHandle {
-        void cancel();
+    private enum Phase { PREPARING, DISPATCHED, DONE }
+    private static final class Request {
+        final UUID actor, owner;
+        final String name, permission;
+        final HomeConfig config;
+        final boolean trackCooldown;
+        final CompletableFuture<HomeResultStatus> result = new CompletableFuture<>();
+        final AtomicReference<Phase> phase = new AtomicReference<>(Phase.PREPARING);
+        volatile CompletableFuture<?> observation;
+        volatile ScheduledTask warmup;
+        Request(UUID actor, UUID owner, String name, String permission, HomeConfig config, boolean trackCooldown) {
+            this.actor = actor; this.owner = owner; this.name = name; this.permission = permission; this.config = config;
+            this.trackCooldown = trackCooldown;
+        }
     }
 
-    private record ActiveWarmup(Location startLocation, CompletableFuture<Boolean> future, TaskHandle taskHandle) {}
-
-    public DefaultHomeService(Plugin plugin, HomeRepository repository, HomeCache cache, Supplier<HomeConfig> configSupplier) {
-        this.plugin = Objects.requireNonNull(plugin, "plugin cannot be null");
-        this.repository = Objects.requireNonNull(repository, "repository cannot be null");
-        this.cache = Objects.requireNonNull(cache, "cache cannot be null");
-        this.configSupplier = Objects.requireNonNull(configSupplier, "configSupplier cannot be null");
-        this.pipelineEngine = new ConcurrentTeleportPipelineEngine(plugin, configSupplier);
-
-        Bukkit.getPluginManager().registerEvents(this, plugin);
-    }
-
-    @Override
-    public CompletableFuture<HomeResultStatus> setHome(Player player, String homeName, boolean force) {
-        Objects.requireNonNull(player, "player cannot be null");
-        Objects.requireNonNull(homeName, "homeName cannot be null");
-
-        HomeConfig config = configSupplier.get();
-        Location loc = player.getLocation();
-        String worldName = loc.getWorld().getName();
-
-        if (isWorldRestricted(worldName, config)) {
-            return CompletableFuture.completedFuture(HomeResultStatus.WORLD_RESTRICTED);
-        }
-
-        UUID uuid = player.getUniqueId();
-        boolean exists = cache.getHome(uuid, homeName).isPresent();
-
-        if (!exists && cache.getHomeCount(uuid) >= getMaxHomeLimit(player)) {
-            return CompletableFuture.completedFuture(HomeResultStatus.LIMIT_REACHED);
-        }
-
-        if (exists && !force && config.requireOverwriteConfirmation()) {
-            return CompletableFuture.completedFuture(HomeResultStatus.OVERWRITE_REQUIRED);
-        }
-
-        Set<UUID> sharedWith = cache.getHome(uuid, homeName)
-            .map(Home::sharedWith)
-            .orElse(Collections.emptySet());
-
-        Home home = new Home(
-            uuid,
-            homeName,
-            worldName,
-            loc.getX(),
-            loc.getY(),
-            loc.getZ(),
-            loc.getYaw(),
-            loc.getPitch(),
-            System.currentTimeMillis(),
-            sharedWith
-        );
-
-        return repository.save(home)
-            .thenApply(v -> {
-                cache.putHome(uuid, home);
-                return HomeResultStatus.SUCCESS;
-            })
-            .exceptionally(ex -> HomeResultStatus.ERROR);
-    }
-
-    @Override
-    public CompletableFuture<HomeResultStatus> deleteHome(Player player, String homeName) {
-        Objects.requireNonNull(player, "player cannot be null");
-        Objects.requireNonNull(homeName, "homeName cannot be null");
-
-        UUID uuid = player.getUniqueId();
-        if (cache.getHome(uuid, homeName).isEmpty()) {
-            return CompletableFuture.completedFuture(HomeResultStatus.HOME_NOT_FOUND);
-        }
-
-        return repository.delete(uuid, homeName)
-            .thenApply(v -> {
-                cache.removeHome(uuid, homeName);
-                return HomeResultStatus.SUCCESS;
-            })
-            .exceptionally(ex -> HomeResultStatus.ERROR);
-    }
-
-    @Override
-    public CompletableFuture<HomeResultStatus> setHomeOther(Player admin, UUID targetUuid, String homeName, Location location) {
-        Objects.requireNonNull(admin, "admin cannot be null");
-        Objects.requireNonNull(targetUuid, "targetUuid cannot be null");
-        Objects.requireNonNull(homeName, "homeName cannot be null");
-        Objects.requireNonNull(location, "location cannot be null");
-
-        Home home = new Home(
-            targetUuid,
-            homeName,
-            location.getWorld().getName(),
-            location.getX(),
-            location.getY(),
-            location.getZ(),
-            location.getYaw(),
-            location.getPitch(),
-            System.currentTimeMillis(),
-            Collections.emptySet()
-        );
-
-        return repository.save(home).thenApply(v -> {
-            if (cache.isLoaded(targetUuid)) {
-                cache.putHome(targetUuid, home);
-            }
-            return HomeResultStatus.SUCCESS;
-        }).exceptionally(ex -> HomeResultStatus.ERROR);
-    }
-
-    @Override
-    public CompletableFuture<HomeResultStatus> deleteHomeOther(Player admin, UUID targetUuid, String homeName) {
-        Objects.requireNonNull(admin, "admin cannot be null");
-        Objects.requireNonNull(targetUuid, "targetUuid cannot be null");
-        Objects.requireNonNull(homeName, "homeName cannot be null");
-
-        return repository.delete(targetUuid, homeName).thenApply(v -> {
-            if (cache.isLoaded(targetUuid)) {
-                cache.removeHome(targetUuid, homeName);
-            }
-            return HomeResultStatus.SUCCESS;
-        }).exceptionally(ex -> HomeResultStatus.ERROR);
-    }
-
-    @Override
-    public CompletableFuture<HomeResultStatus> shareHome(Player player, String homeName, UUID targetUuid) {
-        Objects.requireNonNull(player, "player cannot be null");
-        Objects.requireNonNull(homeName, "homeName cannot be null");
-        Objects.requireNonNull(targetUuid, "targetUuid cannot be null");
-
-        HomeConfig config = configSupplier.get();
-        if (!config.enableHomeSharing()) {
-            return CompletableFuture.completedFuture(HomeResultStatus.ERROR);
-        }
-
-        UUID uuid = player.getUniqueId();
-        Optional<Home> opt = cache.getHome(uuid, homeName);
-        if (opt.isEmpty()) {
-            return CompletableFuture.completedFuture(HomeResultStatus.HOME_NOT_FOUND);
-        }
-
-        Home home = opt.get();
-        if (home.isSharedWith(targetUuid)) {
-            return CompletableFuture.completedFuture(HomeResultStatus.ALREADY_SHARED);
-        }
-
-        Set<UUID> newShared = new HashSet<>(home.sharedWith());
-        newShared.add(targetUuid);
-        Home updatedHome = home.withSharedWith(newShared);
-
-        return repository.save(updatedHome).thenApply(v -> {
-            cache.putHome(uuid, updatedHome);
-            return HomeResultStatus.SUCCESS;
-        }).exceptionally(ex -> HomeResultStatus.ERROR);
-    }
-
-    @Override
-    public CompletableFuture<HomeResultStatus> unshareHome(Player player, String homeName, UUID targetUuid) {
-        Objects.requireNonNull(player, "player cannot be null");
-        Objects.requireNonNull(homeName, "homeName cannot be null");
-        Objects.requireNonNull(targetUuid, "targetUuid cannot be null");
-
-        HomeConfig config = configSupplier.get();
-        if (!config.enableHomeSharing()) {
-            return CompletableFuture.completedFuture(HomeResultStatus.ERROR);
-        }
-
-        UUID uuid = player.getUniqueId();
-        Optional<Home> opt = cache.getHome(uuid, homeName);
-        if (opt.isEmpty()) {
-            return CompletableFuture.completedFuture(HomeResultStatus.HOME_NOT_FOUND);
-        }
-
-        Home home = opt.get();
-        if (!home.isSharedWith(targetUuid)) {
-            return CompletableFuture.completedFuture(HomeResultStatus.NOT_SHARED);
-        }
-
-        Set<UUID> newShared = new HashSet<>(home.sharedWith());
-        newShared.remove(targetUuid);
-        Home updatedHome = home.withSharedWith(newShared);
-
-        return repository.save(updatedHome).thenApply(v -> {
-            cache.putHome(uuid, updatedHome);
-            return HomeResultStatus.SUCCESS;
-        }).exceptionally(ex -> HomeResultStatus.ERROR);
-    }
-
-    @Override
-    public CompletableFuture<Boolean> teleportHome(Player player, String homeName) {
-        Objects.requireNonNull(player, "player cannot be null");
-        Objects.requireNonNull(homeName, "homeName cannot be null");
-
-        UUID uuid = player.getUniqueId();
-        Optional<Home> optHome = cache.getHome(uuid, homeName);
-        if (optHome.isEmpty()) {
-            return CompletableFuture.completedFuture(false);
-        }
-
-        return executeTeleport(player, optHome.get());
-    }
-
-    @Override
-    public CompletableFuture<Boolean> teleportHomeOther(Player player, UUID targetUuid, String homeName) {
-        Objects.requireNonNull(player, "player cannot be null");
-        Objects.requireNonNull(targetUuid, "targetUuid cannot be null");
-        Objects.requireNonNull(homeName, "homeName cannot be null");
-
-        return repository.findByName(targetUuid, homeName).thenCompose(optHome -> {
-            if (optHome.isEmpty()) {
-                return CompletableFuture.completedFuture(false);
-            }
-            return executeTeleport(player, optHome.get());
+    public DefaultHomeService(Plugin plugin, HomeRepository repository, Supplier<HomeConfig> settings, ConcurrentTeleportPipelineEngine engine) {
+        this.plugin = plugin; this.repository = repository; this.settings = settings; this.engine = engine;
+        initialized = repository.initialize();
+        initialized.whenComplete((ignored, error) -> {
+            if (error != null) plugin.getSLF4JLogger().error("Home storage initialization failed", error);
         });
     }
 
-    @Override
-    public CompletableFuture<Boolean> teleportSharedHome(Player player, UUID ownerUuid, String homeName) {
-        Objects.requireNonNull(player, "player cannot be null");
-        Objects.requireNonNull(ownerUuid, "ownerUuid cannot be null");
-        Objects.requireNonNull(homeName, "homeName cannot be null");
-
-        HomeConfig config = configSupplier.get();
-        if (!config.enableHomeSharing()) {
-            return CompletableFuture.completedFuture(false);
-        }
-
-        return repository.findByName(ownerUuid, homeName).thenCompose(optHome -> {
-            if (optHome.isEmpty() || !optHome.get().isSharedWith(player.getUniqueId())) {
-                return CompletableFuture.completedFuture(false);
-            }
-            return executeTeleport(player, optHome.get());
-        });
+    public boolean ready() { return !closed && initialized.isDone() && !initialized.isCompletedExceptionally(); }
+    private HomeResultStatus availability() {
+        if (closed || !settings.get().enabled()) return HomeResultStatus.DISABLED;
+        if (!initialized.isDone()) return HomeResultStatus.NOT_READY;
+        return initialized.isCompletedExceptionally() ? HomeResultStatus.STORAGE_ERROR : HomeResultStatus.SUCCESS;
     }
 
-    @Override
-    public CompletableFuture<ConcurrentTeleportPipelineEngine.BenchmarkResult> runBenchmark(Player player, int taskCount, String targetWorldFilter) {
-        return runBenchmark(player, taskCount, targetWorldFilter, 0);
+    @Override public CompletableFuture<HomeResultStatus> setHome(Player player, String name, boolean force) {
+        if (!valid(name) || name.length() > 32) return done(HomeResultStatus.INVALID_NAME);
+        HomeConfig config = settings.get();
+        var location = player.getLocation();
+        var world = location.getWorld();
+        if (restricted(world.getName(), config)) return done(HomeResultStatus.WORLD_RESTRICTED);
+        UUID owner = player.getUniqueId();
+        Home home = new Home(owner, name, world.getName(), world.getUID(), location.getX(), location.getY(), location.getZ(),
+            location.getYaw(), location.getPitch(), System.currentTimeMillis());
+        int limit = homeLimit(player, config);
+        return mutate(owner, name, () -> repository.save(home, force || !config.requireOverwriteConfirmation(), limit));
     }
 
-    @Override
-    public CompletableFuture<ConcurrentTeleportPipelineEngine.BenchmarkResult> runBenchmark(Player player, int taskCount, String targetWorldFilter, int chunkOffsetStart) {
-        Objects.requireNonNull(player, "player cannot be null");
-        HomeConfig config = configSupplier.get();
-        if (config.benchmark() == null || !config.benchmark().enabled()) {
-            return CompletableFuture.failedFuture(new IllegalStateException("Benchmark feature is disabled in home.yml"));
-        }
-        return pipelineEngine.runBenchmark(player, taskCount, targetWorldFilter, chunkOffsetStart, repository);
+    @Override public CompletableFuture<HomeResultStatus> deleteHome(Player player, String name) {
+        if (!valid(name)) return done(HomeResultStatus.INVALID_NAME);
+        UUID owner = player.getUniqueId();
+        var runtime = settings.get().runtime();
+        return mutate(owner, name, () -> repository.archive(owner, name, runtime.recoveryCapacity(), TimeUnit.DAYS.toMillis(runtime.recoveryDays())));
     }
 
-    @Override
-    public Optional<Home> getHome(UUID ownerUuid, String homeName) {
-        if (ownerUuid == null || homeName == null) {
-            return Optional.empty();
-        }
-        return cache.getHome(ownerUuid, homeName);
+    @Override public CompletableFuture<HomeResultStatus> restoreHome(Player player, String name) {
+        if (!valid(name)) return done(HomeResultStatus.INVALID_NAME);
+        UUID owner = player.getUniqueId();
+        HomeConfig config = settings.get();
+        int limit = homeLimit(player, config);
+        return mutate(owner, name, () -> repository.restore(owner, name, limit, TimeUnit.DAYS.toMillis(config.runtime().recoveryDays())));
     }
 
-    @Override
-    public Map<String, Home> getHomes(UUID ownerUuid) {
-        if (ownerUuid == null) {
-            return Collections.emptyMap();
-        }
-        return cache.getHomes(ownerUuid);
-    }
-
-    @Override
-    public int getMaxHomeLimit(Player player) {
-        Objects.requireNonNull(player, "player cannot be null");
-        if (player.hasPermission(Permissions.HOME_BYPASS_LIMIT)) {
-            return Integer.MAX_VALUE;
-        }
-
-        HomeConfig config = configSupplier.get();
-        int maxLimit = config.homeLimits().getOrDefault("default", 3);
-
-        for (Map.Entry<String, Integer> entry : config.homeLimits().entrySet()) {
-            if (player.hasPermission("tpcore.homes.limit." + entry.getKey())) {
-                maxLimit = Math.max(maxLimit, entry.getValue());
-            }
-        }
-
-        for (PermissionAttachmentInfo pai : player.getEffectivePermissions()) {
-            String perm = pai.getPermission().toLowerCase();
-            if (perm.startsWith("tpcore.homes.limit.") && pai.getValue()) {
-                String sub = perm.substring("tpcore.homes.limit.".length());
-                try {
-                    int val = Integer.parseInt(sub);
-                    maxLimit = Math.max(maxLimit, val);
-                } catch (NumberFormatException ignored) {}
-            }
-        }
-        return maxLimit;
-    }
-
-    @Override
-    public boolean isLocationSafe(Location location) {
-        return pipelineEngine.isLocationSafe(location);
-    }
-
-    public boolean isPreFlightSafe(Location target) {
-        return pipelineEngine.isPreFlightSafe(target, configSupplier.get());
-    }
-
-    public long getRemainingCooldownSeconds(Player player) {
-        UUID uuid = player.getUniqueId();
-        Long expiresAt = cooldownMap.get(uuid);
-        if (expiresAt == null) return 0;
-
-        long diff = expiresAt - System.currentTimeMillis();
-        return diff > 0 ? (diff / 1000L) + 1 : 0;
-    }
-
-    public void close() {
-        HandlerList.unregisterAll(this);
-        activeWarmups.forEach((uuid, warmup) -> {
-            if (warmup.taskHandle() != null) {
-                warmup.taskHandle().cancel();
-            }
-            warmup.future().complete(false);
-        });
-        activeWarmups.clear();
-        cooldownMap.clear();
-        pipelineEngine.close();
-    }
-
-    private CompletableFuture<Boolean> executeTeleport(Player player, Home home) {
-        UUID uuid = player.getUniqueId();
-        HomeConfig config = configSupplier.get();
-
-        if (!player.hasPermission(Permissions.HOME_BYPASS_COOLDOWN)) {
-            long remainingSec = getRemainingCooldownSeconds(player);
-            if (remainingSec > 0) {
-                return CompletableFuture.completedFuture(false);
-            }
-        }
-
-        World world = Bukkit.getWorld(home.worldName());
-        if (world == null) {
-            return CompletableFuture.completedFuture(false);
-        }
-
-        Location target = new Location(world, home.x(), home.y(), home.z(), home.yaw(), home.pitch());
-        int warmup = config.warmupSeconds();
-        int cooldown = config.cooldownSeconds();
-
-        ActiveWarmup existing = activeWarmups.remove(uuid);
-        if (existing != null) {
-            if (existing.taskHandle() != null) {
-                existing.taskHandle().cancel();
-            }
-            existing.future().complete(false);
-        }
-
-        if (warmup <= 0 || player.hasPermission(Permissions.HOME_BYPASS_WARMUP)) {
-            return pipelineEngine.submitTeleport(player, home, target).thenApply(success -> {
-                if (success && cooldown > 0 && !player.hasPermission(Permissions.HOME_BYPASS_COOLDOWN)) {
-                    cooldownMap.put(uuid, System.currentTimeMillis() + (cooldown * 1000L));
+    private CompletableFuture<HomeResultStatus> mutate(UUID owner, String name, Supplier<CompletableFuture<HomeResultStatus>> write) {
+        List<Request> invalidated = new ArrayList<>();
+        CompletableFuture<HomeResultStatus> result;
+        synchronized (admission) {
+            HomeResultStatus available = availability();
+            if (available != HomeResultStatus.SUCCESS) return done(available);
+            result = write.get();
+            if (!result.isCompletedExceptionally()) {
+                for (Request request : requests.values()) {
+                    if (owner.equals(request.owner) && name.equalsIgnoreCase(request.name)
+                        && request.phase.compareAndSet(Phase.PREPARING, Phase.DONE)) invalidated.add(request);
                 }
-                return success;
-            });
+            }
         }
-
-        CompletableFuture<Boolean> future = new CompletableFuture<>();
-        String warmupMsg = config.messages().prefix() + config.messages().warmupStart();
-        player.sendMessage(miniMessage.deserialize(
-            warmupMsg,
-            Placeholder.parsed("home", home.name()),
-            Placeholder.parsed("seconds", String.valueOf(warmup))
-        ));
-
-        TaskHandle taskHandle = schedulePlayerTask(player, warmup * 20L, () -> {
-            activeWarmups.remove(uuid);
-            pipelineEngine.submitTeleport(player, home, target).thenAccept(success -> {
-                if (success && cooldown > 0 && !player.hasPermission(Permissions.HOME_BYPASS_COOLDOWN)) {
-                    cooldownMap.put(uuid, System.currentTimeMillis() + (cooldown * 1000L));
-                }
-                future.complete(success);
-            });
-        });
-
-        activeWarmups.put(uuid, new ActiveWarmup(player.getLocation().clone(), future, taskHandle));
-        return future;
+        invalidated.forEach(request -> finish(request, HomeResultStatus.CANCELLED));
+        return result.exceptionally(error -> storageFailure("write", error));
     }
 
-    private TaskHandle schedulePlayerTask(Player player, long delayTicks, Runnable runnable) {
+    @Override public CompletableFuture<List<Home>> list(UUID owner, int limit, long offset) {
+        synchronized (admission) {
+            HomeResultStatus available = availability();
+            if (available != HomeResultStatus.SUCCESS) return CompletableFuture.failedFuture(new HomeUnavailable(available));
+            return repository.list(owner, limit, offset);
+        }
+    }
+
+    @Override public CompletableFuture<HomeResultStatus> teleport(Player player, UUID owner, String name, String permission, boolean respawn) {
+        if (!valid(name)) return done(HomeResultStatus.INVALID_NAME);
+        HomeConfig config = settings.get();
+        UUID actor = player.getUniqueId();
+        if (permission != null && !player.hasPermission(permission)) return done(HomeResultStatus.NO_PERMISSION);
+        boolean bypassCooldown = respawn || player.hasPermission(Permissions.HOME_BYPASS_COOLDOWN);
+        int warmup = respawn || player.hasPermission(Permissions.HOME_BYPASS_WARMUP) ? 0 : Math.clamp(config.warmupSeconds(), 0, 300);
+        Request request;
+        CompletableFuture<Optional<Home>> lookup;
+        synchronized (admission) {
+            HomeResultStatus available = availability();
+            if (available != HomeResultStatus.SUCCESS) return done(available);
+            if (engine.isDispatched(actor)) return done(HomeResultStatus.OUTCOME_UNKNOWN);
+            if (!bypassCooldown && remainingCooldown(actor) > 0) return done(HomeResultStatus.COOLDOWN_ACTIVE);
+            if (requests.containsKey(actor) || requests.size() >= config.runtime().maxRequests()) return done(HomeResultStatus.BUSY);
+            if (cooldowns.size() + requests.size() >= config.runtime().maxCooldowns()) {
+                long now = System.nanoTime();
+                cooldowns.values().removeIf(expiry -> expiry - now <= 0);
+            }
+            if (!bypassCooldown && !cooldowns.containsKey(actor)
+                && cooldowns.size() + requests.size() >= config.runtime().maxCooldowns()) return done(HomeResultStatus.BUSY);
+            request = new Request(actor, owner, name, permission, config, !respawn);
+            requests.put(actor, request);
+            lookup = repository.findByName(owner, name);
+        }
+        var deadline = new CompletableFuture<Void>();
+        deadline.orTimeout((long) warmup + config.runtime().timeoutSeconds(), TimeUnit.SECONDS).whenComplete((ignored, error) -> {
+            if (error != null) {
+                Phase prior = request.phase.getAndSet(Phase.DONE);
+                if (prior != Phase.DONE) {
+                    if (prior == Phase.DISPATCHED) plugin.getSLF4JLogger().warn("Home teleport outcome unknown: player {}, owner {}, home {}",
+                        request.actor, request.owner, request.name);
+                    finish(request, prior == Phase.DISPATCHED ? HomeResultStatus.OUTCOME_UNKNOWN : HomeResultStatus.TIMED_OUT);
+                }
+            }
+        });
+        request.result.whenComplete((ignored, error) -> deadline.complete(null));
+        // An admitted lookup retains only immutable request data and weak session handles on the I/O lane.
+        var playerHandle = new WeakReference<>(player);
+        var requestHandle = new WeakReference<>(request);
+        lookup.whenComplete((home, error) -> {
+            Request current = requestHandle.get();
+            if (current == null || !preparing(current)) return;
+            if (error != null) { cancel(current, storageFailure("lookup", error)); return; }
+            if (home.isEmpty()) { cancel(current, HomeResultStatus.HOME_NOT_FOUND); return; }
+            Player online = playerHandle.get();
+            if (online == null) { cancel(current, HomeResultStatus.CANCELLED); return; }
+            onOwner(current, online, () -> warmup(current, online, home.get(), warmup), respawn ? 1 : 0);
+        });
+        return request.result;
+    }
+
+    private void warmup(Request request, Player player, Home home, int seconds) {
+        if (seconds == 0) { inspect(request, player, home); return; }
+        var messages = request.config.messages();
+        String template = messages.warmupStart();
+        player.sendMessage(MessageFormatter.parse(MINI, template.contains("<prefix>") ? template : messages.prefix() + template,
+            Placeholder.parsed("prefix", messages.prefix()),
+            Placeholder.unparsed("home", home.name()), Placeholder.unparsed("seconds", Integer.toString(seconds))));
+        onOwner(request, player, () -> inspect(request, player, home), seconds * 20L);
+    }
+
+    private void inspect(Request request, Player player, Home home) {
+        if (!authorized(request, player)) return;
+        var world = ConcurrentTeleportPipelineEngine.resolve(home, request.config);
+        if (world == null) { cancel(request, HomeResultStatus.WORLD_UNAVAILABLE); return; }
+        if (restricted(world.getName(), request.config)) { cancel(request, HomeResultStatus.WORLD_RESTRICTED); return; }
+        var target = ConcurrentTeleportPipelineEngine.position(home, world);
+        var inspection = engine.inspect(target, request.config);
+        request.observation = inspection;
+        if (!preparing(request)) inspection.complete(HomeResultStatus.CANCELLED);
+        inspection.whenComplete((status, error) -> {
+            request.observation = null;
+            if (!preparing(request)) return;
+            if (error != null) {
+                plugin.getSLF4JLogger().warn("Home landing inspection failed", error);
+                cancel(request, HomeResultStatus.TELEPORT_FAILED);
+            } else if (status != HomeResultStatus.SUCCESS) cancel(request, status);
+            else {
+                long checked = System.nanoTime();
+                onOwner(request, player, () -> {
+                    if (System.nanoTime() - checked > TimeUnit.MILLISECONDS.toNanos(request.config.runtime().safetyFreshnessMillis())) {
+                        cancel(request, HomeResultStatus.UNSAFE_LOCATION);
+                        return;
+                    }
+                    if (ConcurrentTeleportPipelineEngine.resolve(home, request.config) != world) {
+                        cancel(request, HomeResultStatus.WORLD_UNAVAILABLE);
+                        return;
+                    }
+                    dispatch(request, player, target);
+                }, 0);
+            }
+        });
+    }
+
+    private void dispatch(Request request, Player player, Location target) {
+        if (!authorized(request, player)) return;
+        boolean applyCooldown = request.trackCooldown && !player.hasPermission(Permissions.HOME_BYPASS_COOLDOWN);
+        if (applyCooldown && remainingCooldown(request.actor) > 0) {
+            cancel(request, HomeResultStatus.COOLDOWN_ACTIVE);
+            return;
+        }
+        UUID ticket = engine.reserveDispatch(request.actor);
+        if (ticket == null) { cancel(request, HomeResultStatus.BUSY); return; }
+        var outcome = new CompletableFuture<Boolean>();
+        boolean claimed;
+        synchronized (admission) {
+            claimed = !closed && settings.get() == request.config && request.phase.compareAndSet(Phase.PREPARING, Phase.DISPATCHED);
+            if (claimed) request.observation = outcome;
+        }
+        if (!claimed) {
+            engine.releaseDispatch(request.actor, ticket);
+            cancel(request, HomeResultStatus.CANCELLED);
+            return;
+        }
+        outcome.whenComplete((success, failure) -> {
+            if (!request.phase.compareAndSet(Phase.DISPATCHED, Phase.DONE)) return;
+            if (failure != null) plugin.getSLF4JLogger().warn("Home teleport dispatch failed", failure);
+            if (Boolean.TRUE.equals(success) && applyCooldown) {
+                synchronized (admission) {
+                    if (!closed && cooldowns.size() < request.config.runtime().maxCooldowns() && request.config.cooldownSeconds() > 0)
+                        cooldowns.put(request.actor, System.nanoTime() + TimeUnit.SECONDS.toNanos(request.config.cooldownSeconds()));
+                }
+            }
+            finish(request, Boolean.TRUE.equals(success) ? HomeResultStatus.SUCCESS : HomeResultStatus.TELEPORT_FAILED);
+        });
+        if (request.phase.get() == Phase.DISPATCHED) engine.teleport(player, target, request.actor, ticket, outcome);
+        else engine.releaseDispatch(request.actor, ticket);
+    }
+
+    private boolean authorized(Request request, Player player) {
+        if (!preparing(request)) return false;
+        if (request.permission != null && !player.hasPermission(request.permission)) {
+            cancel(request, HomeResultStatus.NO_PERMISSION); return false;
+        }
+        return true;
+    }
+
+    private boolean preparing(Request request) {
+        if (request.phase.get() != Phase.PREPARING) return false;
+        if (closed || settings.get() != request.config) {
+            cancel(request, HomeResultStatus.CANCELLED); return false;
+        }
+        return true;
+    }
+
+    private void onOwner(Request request, Player player, Runnable action, long delay) {
+        if (!preparing(request)) return;
         try {
-            ScheduledTask task = player.getScheduler().runDelayed(plugin, t -> runnable.run(), null, delayTicks);
-            return task::cancel;
-        } catch (NoSuchMethodError | Exception e) {
-            int taskId = Bukkit.getScheduler().scheduleSyncDelayedTask(plugin, runnable, delayTicks);
-            return () -> Bukkit.getScheduler().cancelTask(taskId);
-        }
-    }
-
-    private boolean isWorldRestricted(String worldName, HomeConfig config) {
-        HomeConfig.HomeWorldRestrictions res = config.worldRestrictions();
-        if (res == null || res.worlds() == null) {
-            return false;
-        }
-        boolean listed = res.worlds().stream().anyMatch(w -> w.equalsIgnoreCase(worldName));
-        return "WHITELIST".equalsIgnoreCase(res.mode()) ? !listed : listed;
-    }
-
-    @EventHandler
-    public void onPlayerMove(PlayerMoveEvent event) {
-        if (activeWarmups.isEmpty() || !activeWarmups.containsKey(event.getPlayer().getUniqueId())) {
-            return;
-        }
-
-        Location from = event.getFrom();
-        Location to = event.getTo();
-        if (from.getBlockX() == to.getBlockX() && from.getBlockY() == to.getBlockY() && from.getBlockZ() == to.getBlockZ() && from.getWorld() == to.getWorld()) {
-            return;
-        }
-
-        HomeConfig config = configSupplier.get();
-        if (!config.cancelOnMove()) {
-            return;
-        }
-
-        Player player = event.getPlayer();
-        ActiveWarmup warmup = activeWarmups.remove(player.getUniqueId());
-        if (warmup != null) {
-            if (warmup.taskHandle() != null) {
-                warmup.taskHandle().cancel();
+            var scheduler = player.getScheduler();
+            Runnable retired = () -> cancel(request, HomeResultStatus.CANCELLED);
+            Consumer<ScheduledTask> callback = ignored -> {
+                if (preparing(request)) {
+                    try { action.run(); }
+                    catch (RuntimeException error) {
+                        plugin.getSLF4JLogger().warn("Home entity handoff failed", error);
+                        cancel(request, HomeResultStatus.TELEPORT_FAILED);
+                    }
+                }
+            };
+            ScheduledTask task = delay > 0 ? scheduler.runDelayed(plugin, callback, retired, delay) : scheduler.run(plugin, callback, retired);
+            if (task == null) cancel(request, HomeResultStatus.CANCELLED);
+            else if (delay > 0) {
+                request.warmup = task;
+                if (request.phase.get() != Phase.PREPARING) task.cancel();
             }
-            warmup.future().complete(false);
-            String msg = config.messages().prefix() + config.messages().warmupCancelledMove();
-            player.sendMessage(miniMessage.deserialize(msg));
+        } catch (RuntimeException error) { cancel(request, HomeResultStatus.CANCELLED); }
+    }
+
+    public void cancel(UUID player, HomeResultStatus status) {
+        Request request = requests.get(player);
+        if (request != null) cancel(request, status);
+    }
+
+    public boolean hasPending(UUID player) {
+        Request request = requests.get(player);
+        return request != null && request.phase.get() == Phase.PREPARING;
+    }
+
+    private void cancel(Request request, HomeResultStatus status) {
+        if (request.phase.compareAndSet(Phase.PREPARING, Phase.DONE)) finish(request, status);
+    }
+
+    private void finish(Request request, HomeResultStatus status) {
+        CompletableFuture<?> observation = request.observation;
+        request.observation = null;
+        if (observation != null) observation.cancel(false);
+        ScheduledTask task = request.warmup;
+        request.warmup = null;
+        try {
+            if (task != null) task.cancel();
+        } finally {
+            requests.remove(request.actor, request);
+            request.result.complete(status);
         }
     }
 
-    @EventHandler
-    public void onEntityDamage(EntityDamageEvent event) {
-        if (activeWarmups.isEmpty()) {
-            return;
-        }
-
-        HomeConfig config = configSupplier.get();
-        if (!config.cancelOnDamage() || !(event.getEntity() instanceof Player player)) {
-            return;
-        }
-
-        ActiveWarmup warmup = activeWarmups.remove(player.getUniqueId());
-        if (warmup != null) {
-            if (warmup.taskHandle() != null) {
-                warmup.taskHandle().cancel();
-            }
-            warmup.future().complete(false);
-            String msg = config.messages().prefix() + config.messages().warmupCancelledDamage();
-            player.sendMessage(miniMessage.deserialize(msg));
+    @Override public long remainingCooldown(UUID player) {
+        synchronized (admission) {
+            Long expiry = cooldowns.get(player);
+            if (expiry == null) return 0;
+            long remaining = expiry - System.nanoTime();
+            if (remaining <= 0) { cooldowns.remove(player); return 0; }
+            return TimeUnit.NANOSECONDS.toSeconds(remaining - 1) + 1;
         }
     }
 
-    @EventHandler
-    public void onPlayerQuit(PlayerQuitEvent event) {
-        UUID uuid = event.getPlayer().getUniqueId();
-        cooldownMap.remove(uuid);
-        ActiveWarmup warmup = activeWarmups.remove(uuid);
-        if (warmup != null) {
-            if (warmup.taskHandle() != null) {
-                warmup.taskHandle().cancel();
-            }
-            warmup.future().complete(false);
+    public CompletableFuture<Void> close() {
+        synchronized (admission) { closed = true; cooldowns.clear(); }
+        requests.forEach((id, request) -> {
+            Phase prior = request.phase.getAndSet(Phase.DONE);
+            if (prior != Phase.DONE) finish(request, prior == Phase.DISPATCHED ? HomeResultStatus.OUTCOME_UNKNOWN : HomeResultStatus.CANCELLED);
+        });
+        return repository.close();
+    }
+
+    public static boolean valid(String name) { return name != null && NAME.matcher(name).matches(); }
+
+    public static int homeLimit(Player player, HomeConfig config) {
+        if (player.hasPermission(Permissions.HOME_BYPASS_LIMIT)) return Integer.MAX_VALUE;
+        int limit = config.homeLimits().getOrDefault("default", 3);
+        String prefix = "tpcore.homes.limit.";
+        for (var entry : config.homeLimits().entrySet()) {
+            if (player.hasPermission(prefix + entry.getKey())) limit = Math.max(limit, entry.getValue());
         }
+        for (var permission : player.getEffectivePermissions()) {
+            String node = permission.getPermission();
+            if (permission.getValue() && node.startsWith(prefix)) {
+                try { limit = Math.max(limit, Integer.parseInt(node.substring(prefix.length()))); }
+                catch (NumberFormatException ignored) { /* Named tiers are handled above. */ }
+            }
+        }
+        return Math.max(0, limit);
+    }
+
+    public static boolean restricted(String world, HomeConfig config) {
+        var rule = config.worldRestrictions();
+        if (rule == null || rule.worlds() == null) return false;
+        boolean listed = rule.worlds().stream().anyMatch(world::equalsIgnoreCase);
+        return "WHITELIST".equalsIgnoreCase(rule.mode()) ? !listed : listed;
+    }
+
+    public HomeResultStatus storageFailure(String operation, Throwable failure) {
+        while (failure instanceof CompletionException && failure.getCause() != null) failure = failure.getCause();
+        if (failure instanceof HomeUnavailable unavailable) return unavailable.status;
+        if (failure instanceof RejectedExecutionException) return closed ? HomeResultStatus.DISABLED : HomeResultStatus.BUSY;
+        plugin.getSLF4JLogger().warn("Home storage operation failed: {}", operation, failure);
+        return HomeResultStatus.STORAGE_ERROR;
+    }
+
+    private static CompletableFuture<HomeResultStatus> done(HomeResultStatus status) { return CompletableFuture.completedFuture(status); }
+    private static final class HomeUnavailable extends RuntimeException {
+        final HomeResultStatus status;
+        HomeUnavailable(HomeResultStatus status) { this.status = status; }
     }
 }

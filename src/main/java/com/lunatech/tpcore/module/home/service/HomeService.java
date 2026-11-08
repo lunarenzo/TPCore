@@ -1,43 +1,16 @@
 package com.lunatech.tpcore.module.home.service;
 
-import com.lunatech.tpcore.module.home.engine.ConcurrentTeleportPipelineEngine.BenchmarkResult;
 import com.lunatech.tpcore.module.home.model.Home;
-import java.util.Map;
-import java.util.Optional;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import org.bukkit.Location;
 import org.bukkit.entity.Player;
 
 public interface HomeService {
-
-    CompletableFuture<HomeResultStatus> setHome(Player player, String homeName, boolean force);
-
-    CompletableFuture<HomeResultStatus> deleteHome(Player player, String homeName);
-
-    CompletableFuture<HomeResultStatus> setHomeOther(Player admin, UUID targetUuid, String homeName, Location location);
-
-    CompletableFuture<HomeResultStatus> deleteHomeOther(Player admin, UUID targetUuid, String homeName);
-
-    CompletableFuture<HomeResultStatus> shareHome(Player player, String homeName, UUID targetUuid);
-
-    CompletableFuture<HomeResultStatus> unshareHome(Player player, String homeName, UUID targetUuid);
-
-    CompletableFuture<Boolean> teleportHome(Player player, String homeName);
-
-    CompletableFuture<Boolean> teleportHomeOther(Player player, UUID targetUuid, String homeName);
-
-    CompletableFuture<Boolean> teleportSharedHome(Player player, UUID ownerUuid, String homeName);
-
-    CompletableFuture<BenchmarkResult> runBenchmark(Player player, int taskCount, String targetWorldFilter);
-
-    CompletableFuture<BenchmarkResult> runBenchmark(Player player, int taskCount, String targetWorldFilter, int chunkOffsetStart);
-
-    Optional<Home> getHome(UUID ownerUuid, String homeName);
-
-    Map<String, Home> getHomes(UUID ownerUuid);
-
-    int getMaxHomeLimit(Player player);
-
-    boolean isLocationSafe(Location location);
+    CompletableFuture<HomeResultStatus> setHome(Player player, String name, boolean force);
+    CompletableFuture<HomeResultStatus> deleteHome(Player player, String name);
+    CompletableFuture<HomeResultStatus> restoreHome(Player player, String name);
+    CompletableFuture<HomeResultStatus> teleport(Player player, UUID owner, String name, String permission, boolean respawn);
+    CompletableFuture<List<Home>> list(UUID owner, int limit, long offset);
+    long remainingCooldown(UUID player);
 }

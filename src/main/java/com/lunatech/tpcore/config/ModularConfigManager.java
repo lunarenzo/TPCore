@@ -157,12 +157,16 @@ public final class ModularConfigManager {
     }
 
     public <T> T loadModuleConfig(String moduleName, Class<T> configClass, T defaultConfig) {
+        return loadModuleConfig(moduleName, configClass, defaultConfig, true);
+    }
+
+    public <T> T loadModuleConfig(String moduleName, Class<T> configClass, T defaultConfig, boolean appendMissingKeys) {
         Path file = this.modulesDirectory.resolve(moduleName + ".yml");
         String resourcePath = "modules/" + moduleName + ".yml";
         boolean extracted = this.extractResourceIfMissing(resourcePath, file);
 
         try {
-            return this.loadAndMergeConfig(file, configClass, defaultConfig, extracted, resourcePath);
+            return this.loadAndMergeConfig(file, configClass, defaultConfig, extracted, appendMissingKeys ? resourcePath : null);
         } catch (ConfigurateException e) {
             this.logger.error("Error parsing module configuration {}.yml. Falling back to default settings.", moduleName, e);
         }
@@ -171,6 +175,10 @@ public final class ModularConfigManager {
     }
 
     public <T> T tryLoadModuleConfig(String moduleName, Class<T> configClass, T defaultConfig) throws ConfigurateException {
+        return tryLoadModuleConfig(moduleName, configClass, defaultConfig, true);
+    }
+
+    public <T> T tryLoadModuleConfig(String moduleName, Class<T> configClass, T defaultConfig, boolean appendMissingKeys) throws ConfigurateException {
         Path file = this.modulesDirectory.resolve(moduleName + ".yml");
         String resourcePath = "modules/" + moduleName + ".yml";
         boolean extracted = false;
@@ -181,7 +189,7 @@ public final class ModularConfigManager {
             return defaultConfig;
         }
 
-        return this.loadAndMergeConfig(file, configClass, defaultConfig, extracted, resourcePath);
+        return this.loadAndMergeConfig(file, configClass, defaultConfig, extracted, appendMissingKeys ? resourcePath : null);
     }
 
     private <T> T loadAndMergeConfig(Path file, Class<T> configClass, T defaultConfig, boolean newlyExtracted, String resourcePath) throws ConfigurateException {

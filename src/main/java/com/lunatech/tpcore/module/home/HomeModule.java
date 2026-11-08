@@ -3,128 +3,111 @@ package com.lunatech.tpcore.module.home;
 import com.lunatech.tpcore.config.ModularConfigManager;
 import com.lunatech.tpcore.config.ReloadableModule;
 import com.lunatech.tpcore.config.model.HomeConfig;
-import com.lunatech.tpcore.module.home.cache.HomeCache;
-import com.lunatech.tpcore.module.home.cache.impl.DefaultHomeCache;
 import com.lunatech.tpcore.module.home.command.HomeCommandRegistry;
-import com.lunatech.tpcore.module.home.listener.HomeJoinQuitListener;
-import com.lunatech.tpcore.module.home.listener.HomeRespawnListener;
-import com.lunatech.tpcore.module.home.repository.HomeRepository;
+import com.lunatech.tpcore.module.home.engine.ConcurrentTeleportPipelineEngine;
+import com.lunatech.tpcore.module.home.listener.HomeTravelListener;
 import com.lunatech.tpcore.module.home.repository.impl.SqliteHomeRepository;
-import com.lunatech.tpcore.module.home.service.HomeService;
 import com.lunatech.tpcore.module.home.service.impl.DefaultHomeService;
-import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import org.bukkit.Bukkit;
 import org.bukkit.event.HandlerList;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public final class HomeModule implements ReloadableModule {
-
     private final JavaPlugin plugin;
     private final ModularConfigManager configManager;
+    private final ConcurrentTeleportPipelineEngine engine;
     private volatile HomeConfig config;
-    private boolean isInitialized = false;
-
-    private HomeRepository repository;
-    private HomeCache cache;
-    private HomeService service;
-    private HomeJoinQuitListener joinQuitListener;
-    private HomeRespawnListener respawnListener;
-    private HomeCommandRegistry commandRegistry;
+    private volatile DefaultHomeService service;
+    private HomeTravelListener listener;
+    private CompletableFuture<Void> stopped = CompletableFuture.completedFuture(null);
+    private boolean active;
+    private boolean commandsRegistered;
 
     public HomeModule(JavaPlugin plugin, ModularConfigManager configManager, HomeConfig config) {
-        this.plugin = Objects.requireNonNull(plugin, "plugin cannot be null");
-        this.configManager = Objects.requireNonNull(configManager, "configManager cannot be null");
-        this.config = Objects.requireNonNull(config, "config cannot be null");
+        this.plugin = plugin; this.configManager = configManager; this.config = config;
+        engine = new ConcurrentTeleportPipelineEngine(plugin, config.runtime().maxRequests());
+        configManager.registerModule(this);
     }
 
-    @Override
-    public String getModuleName() {
-        return "home";
-    }
+    @Override public String getModuleName() { return "home"; }
 
-    @Override
-    public boolean reloadConfig() {
+    @Override public boolean reloadConfig() {
+        var claimed = new AtomicBoolean();
+        var applied = new CompletableFuture<Boolean>();
         try {
-            HomeConfig newConfig = this.configManager.tryLoadModuleConfig("home", HomeConfig.class, HomeConfig.createDefault());
-            if (newConfig != null) {
-                boolean wasEnabled = this.isInitialized;
-                boolean isEnabled = newConfig.enabled();
-                this.config = newConfig;
-
-                if (wasEnabled && !isEnabled) {
-                    disable();
-                } else if (!wasEnabled && isEnabled) {
-                    enable();
-                }
-                return true;
+            HomeConfig next = configManager.tryLoadModuleConfig("home", HomeConfig.class, HomeConfig.createDefault(), false);
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(next.runtime().timeoutSeconds());
+            Bukkit.getGlobalRegionScheduler().execute(plugin, () -> {
+                if (!claimed.compareAndSet(false, true)) return;
+                if (System.nanoTime() - deadline >= 0 || !plugin.isEnabled()) { applied.complete(false); return; }
+                try {
+                    boolean restart = !next.enabled() || service == null || !service.ready()
+                        || next.runtime().storageQueueCapacity() != config.runtime().storageQueueCapacity();
+                    config = next;
+                    if (restart) {
+                        stop();
+                        startWhenStopped();
+                    }
+                    applied.complete(true); // Config accepted; storage readiness is separate.
+                } catch (RuntimeException failure) { applied.completeExceptionally(failure); }
+            });
+            try { return applied.get(next.runtime().timeoutSeconds(), TimeUnit.SECONDS); }
+            catch (TimeoutException timeout) { return !claimed.compareAndSet(false, true) && applied.join(); }
+            catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                return !claimed.compareAndSet(false, true) && applied.join();
             }
-        } catch (Exception e) {
-            this.plugin.getSLF4JLogger().error("Failed to reload Home module configuration.", e);
+        } catch (Exception failure) {
+            plugin.getSLF4JLogger().error("Failed to reload Home configuration", failure);
+            return false;
         }
-        return false;
     }
 
     public void enable() {
-        if (!this.config.enabled()) {
-            this.plugin.getSLF4JLogger().info("Home Module is disabled in configuration. Skipping registration.");
-            return;
+        active = true;
+        if (!commandsRegistered) {
+            new HomeCommandRegistry(plugin, () -> service, () -> config).registerAll();
+            commandsRegistered = true;
         }
+        if (config.enabled() && service == null) start();
+    }
 
-        if (this.isInitialized) {
-            return;
-        }
+    private void start() {
+        var repository = new SqliteHomeRepository(plugin.getDataFolder(), plugin.getSLF4JLogger(), config.runtime().storageQueueCapacity());
+        service = new DefaultHomeService(plugin, repository, () -> config, engine);
+        listener = new HomeTravelListener(plugin, () -> service, () -> config);
+        plugin.getServer().getPluginManager().registerEvents(listener, plugin);
+    }
 
-        this.repository = new SqliteHomeRepository(this.plugin.getDataFolder(), this.plugin.getSLF4JLogger());
-        this.repository.initialize().join();
+    private void stop() {
+        var current = service;
+        service = null;
+        if (listener != null) { HandlerList.unregisterAll(listener); listener = null; }
+        if (current == null) return;
+        var closing = current.close();
+        stopped = closing;
+        closing.whenComplete((ignored, error) -> {
+            if (error != null) plugin.getSLF4JLogger().error("Home storage shutdown failed", error);
+            else if (plugin.isEnabled()) {
+                try {
+                    Bukkit.getGlobalRegionScheduler().execute(plugin, () -> {
+                        if (stopped == closing) startWhenStopped();
+                    });
+                } catch (RuntimeException failure) { plugin.getSLF4JLogger().warn("Cannot reschedule Home startup", failure); }
+            }
+        });
+    }
 
-        this.cache = new DefaultHomeCache();
-        this.service = new DefaultHomeService(this.plugin, this.repository, this.cache, () -> this.config);
-
-        this.joinQuitListener = new HomeJoinQuitListener(this.plugin, this.repository, this.cache, () -> this.config);
-        this.respawnListener = new HomeRespawnListener(this.service, () -> this.config);
-        this.commandRegistry = new HomeCommandRegistry(this.plugin, this.service, () -> this.config);
-
-        this.plugin.getServer().getPluginManager().registerEvents(this.joinQuitListener, this.plugin);
-        this.plugin.getServer().getPluginManager().registerEvents(this.respawnListener, this.plugin);
-
-        this.commandRegistry.registerAll();
-        this.configManager.registerModule(this);
-        this.isInitialized = true;
-
-        this.plugin.getSLF4JLogger().info("Home Module successfully enabled with SQLite primary storage.");
+    private void startWhenStopped() {
+        if (active && config.enabled() && service == null && stopped.isDone() && !stopped.isCompletedExceptionally()) start();
     }
 
     public void disable() {
-        if (!this.isInitialized) {
-            return;
-        }
-
-        this.configManager.unregisterModule("home");
-
-        if (this.service instanceof DefaultHomeService defaultService) {
-            defaultService.close();
-        }
-        if (this.joinQuitListener != null) {
-            HandlerList.unregisterAll(this.joinQuitListener);
-        }
-        if (this.respawnListener != null) {
-            HandlerList.unregisterAll(this.respawnListener);
-        }
-        if (this.cache != null) {
-            this.cache.clear();
-        }
-        if (this.repository != null) {
-            this.repository.close().join();
-        }
-
-        this.isInitialized = false;
-        this.plugin.getSLF4JLogger().info("Home Module disabled.");
-    }
-
-    public HomeService getService() {
-        return this.service;
-    }
-
-    public HomeCache getCache() {
-        return this.cache;
+        active = false;
+        stop();
     }
 }
