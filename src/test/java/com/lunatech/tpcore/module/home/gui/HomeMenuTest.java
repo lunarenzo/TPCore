@@ -1,6 +1,7 @@
 package com.lunatech.tpcore.module.home.gui;
 
 import com.lunatech.tpcore.config.model.HomeConfig;
+import com.lunatech.tpcore.config.model.HomeEconomyConfig;
 import com.lunatech.tpcore.constant.Permissions;
 import com.lunatech.tpcore.module.home.hook.HomeForms;
 import com.lunatech.tpcore.module.home.listener.HomeMenuListener;
@@ -420,12 +421,41 @@ class HomeMenuTest {
         void choose(int button) { selection.accept(button); }
     }
 
+    @Test void javaAndBedrockMenusShowEffectivePricesAndHonorBypass() {
+        try (var fixture = new Fixture()) {
+            fixture.enablePricing();
+            fixture.page(0, 1);
+            fixture.menus.main(fixture.player);
+            fixture.tick();
+            ItemMeta button = fixture.meta.get(fixture.slots.get(fixture.top).get(11));
+            verify(button).lore(argThat(lines -> lines.toString().contains("Fee: 8.25")));
+        }
+        try (var fixture = new Fixture()) {
+            fixture.enablePricing();
+            fixture.beginBedrock();
+            assertTrue(fixture.forms.menus.getFirst().description().contains("Fee: 8.25"));
+            assertTrue(fixture.forms.prompts.getFirst().description().contains("Fee: 8.25"));
+        }
+        try (var fixture = new Fixture()) {
+            fixture.enablePricing();
+            fixture.forms.supported = true;
+            fixture.permissions.add(Permissions.HOME_BYPASS_TELEPORT_COST);
+            fixture.page(1, 1);
+            fixture.menus.homes(fixture.player);
+            fixture.tick();
+            fixture.forms.choose(0);
+            fixture.tick();
+            assertTrue(fixture.forms.menus.getLast().description().contains("Fee: 0"));
+            assertFalse(fixture.forms.menus.getLast().description().contains("Fee: 4.50"));
+        }
+    }
+
     private static final class Fixture implements AutoCloseable {
         final UUID id = UUID.randomUUID();
         final Plugin plugin = mock(Plugin.class);
         final Player player = mock(Player.class);
         final DefaultHomeService service = mock(DefaultHomeService.class);
-        final HomeConfig config = HomeConfig.createDefault();
+        HomeConfig config = HomeConfig.createDefault();
         final AtomicLong clock = new AtomicLong(1);
         final Forms forms = new Forms();
         final HomeMenus menus = new HomeMenus(plugin, () -> service, () -> config, clock::get, forms);
@@ -496,6 +526,10 @@ class HomeMenuTest {
         }
 
         HomeMenuHolder holder() { return (HomeMenuHolder) top.getHolder(false); }
+        void enablePricing() {
+            config = spy(config);
+            doReturn(new HomeEconomyConfig(true, "4.50", "8.25", 256, 512, Map.of())).when(config).economy();
+        }
         Material materialAt(int slot) { return materials.get(slots.get(top).get(slot)); }
         HomePage.Entry entry(int index) {
             return new HomePage.Entry(index + 1, new Home(id, "base" + index, "world", null, 0, 64, 0, 0, 0, index));

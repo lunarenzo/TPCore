@@ -122,6 +122,25 @@ gui:
     form-expired: "<yellow>This Home form expired. Use /home gui or /homes to open it again."
     disabled: "<yellow>The Home GUI is disabled."
     home-changed: "<yellow>That home was changed or removed. Open the list again to see the latest destination."
+economy:
+  enabled: false
+  teleport-cost: "0.00"
+  create-cost: "0.00"
+  max-unresolved-payments: 256
+  payment-history-limit: 512
+  messages:
+    fee: "<gray>Home fee: <gold><amount></gold>.</gray>"
+    menu-fee: "Fee: <amount>"
+    economy-unavailable: "<red>Home payments are unavailable.</red>"
+    insufficient-funds: "<red>You do not have enough funds for this home action.</red>"
+    payment-rejected: "<red>The economy provider rejected your home payment.</red>"
+    payment-pending: "<yellow>The payment outcome is pending. Contact staff if it does not resolve.</yellow>"
+    payment-refunded: "<yellow>Your home fee of <gold><amount></gold> was refunded.</yellow>"
+    payment-not-found: "<yellow>No matching home payment was found.</yellow>"
+    payment-acknowledged: "<green>Payment <id> marked as reconciled.</green>"
+    payment-ack-denied: "<yellow>Only an unresolved payment without active work can be acknowledged.</yellow>"
+    payment-row: "<gray><id> | <player> | <action> <home> | <state> | <amount></gray>"
+    payment-detail: "<gray>Provider: <provider> | Debit: <debit> | Refund: <refund> | Updated: <updated> | Reconciled by: <operator></gray>"
 runtime:
   storage-queue-capacity: 64
   # Time allowed to drain accepted operations on shutdown. Queued writes that miss the deadline are discarded and logged.

@@ -8,6 +8,7 @@ import java.lang.ref.WeakReference;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiConsumer;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.World;
@@ -211,12 +212,18 @@ public final class ConcurrentTeleportPipelineEngine {
     }
 
     public void teleport(Player player, Location target, UUID id, CompletableFuture<Boolean> result) {
+        teleport(player, target, id, result, null);
+    }
+
+    public void teleport(Player player, Location target, UUID id, CompletableFuture<Boolean> result,
+        BiConsumer<Boolean, Throwable> settlement) {
         WorkTicket ticket = dispatched.get(id);
         result.whenComplete((ignored, failure) -> { if (result.isCancelled()) ticket.abandon(); });
         var observer = new WeakReference<>(result);
         try {
             player.teleportAsync(target).whenComplete((success, failure) -> {
                 if (dispatched.remove(id, ticket)) ticket.release();
+                if (settlement != null) settlement.accept(success, failure);
                 var current = observer.get();
                 if (current != null) {
                     if (failure == null) current.complete(success);
@@ -225,6 +232,7 @@ public final class ConcurrentTeleportPipelineEngine {
             });
         } catch (RuntimeException failure) {
             if (dispatched.remove(id, ticket)) ticket.release();
+            if (settlement != null) settlement.accept(null, failure);
             result.completeExceptionally(failure);
         }
     }

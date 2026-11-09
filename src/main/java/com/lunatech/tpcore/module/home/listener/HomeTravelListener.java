@@ -55,7 +55,7 @@ public final class HomeTravelListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onQuit(PlayerQuitEvent event) {
         DefaultHomeService current = service.get();
-        if (current != null) current.cancel(event.getPlayer().getUniqueId(), HomeResultStatus.CANCELLED);
+        if (current != null) current.quit(event.getPlayer().getUniqueId());
     }
 
     @EventHandler(priority = EventPriority.MONITOR)

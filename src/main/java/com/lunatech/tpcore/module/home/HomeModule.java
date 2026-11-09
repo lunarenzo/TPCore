@@ -4,6 +4,7 @@ import com.lunatech.tpcore.config.ModularConfigManager;
 import com.lunatech.tpcore.config.ReloadableModule;
 import com.lunatech.tpcore.config.model.HomeConfig;
 import com.lunatech.tpcore.module.home.command.HomeCommandRegistry;
+import com.lunatech.tpcore.module.home.economy.HomeEconomy;
 import com.lunatech.tpcore.module.home.engine.ConcurrentTeleportPipelineEngine;
 import com.lunatech.tpcore.module.home.gui.HomeMenus;
 import com.lunatech.tpcore.module.home.hook.HomeForms;
@@ -25,6 +26,7 @@ public final class HomeModule implements ReloadableModule {
     private final ModularConfigManager configManager;
     private final ConcurrentTeleportPipelineEngine engine;
     private final HomeMenus menus;
+    private final HomeEconomy.BankLane bankLane = new HomeEconomy.BankLane();
     private volatile HomeConfig config;
     private volatile DefaultHomeService service;
     private HomeTravelListener listener;
@@ -107,7 +109,7 @@ public final class HomeModule implements ReloadableModule {
     private void start() {
         var repository = new SqliteHomeRepository(plugin.getDataFolder(), plugin.getSLF4JLogger(),
             config.runtime().storageQueueCapacity(), config.runtime().storageDrainSeconds());
-        service = new DefaultHomeService(plugin, repository, () -> config, engine);
+        service = new DefaultHomeService(plugin, repository, () -> config, engine, bankLane);
         listener = new HomeTravelListener(plugin, () -> service, () -> config);
         plugin.getServer().getPluginManager().registerEvents(listener, plugin);
     }
@@ -139,5 +141,6 @@ public final class HomeModule implements ReloadableModule {
         active = false;
         menus.invalidate();
         stop();
+        bankLane.close();
     }
 }

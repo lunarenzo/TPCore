@@ -30,6 +30,14 @@ dependencies:
       join-classpath: true
 
 permissions:
+  tpcore.home.admin.payments:
+    default: op
+  tpcore.home.bypass.cost:
+    default: false
+  tpcore.home.bypass.cost.teleport:
+    default: false
+  tpcore.home.bypass.cost.create:
+    default: false
   tpcore.warp.payments.acknowledge:
     description: Acknowledge independently reconciled warp payments and reset an idle payment circuit. Never transfers money.
     default: op

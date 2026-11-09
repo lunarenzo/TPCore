@@ -2,11 +2,14 @@ package com.lunatech.tpcore.module.home.repository.impl;
 
 import com.lunatech.tpcore.module.home.model.Home;
 import com.lunatech.tpcore.module.home.model.HomePage;
+import com.lunatech.tpcore.module.home.model.HomePayment;
+import com.lunatech.tpcore.module.home.model.HomePayment.State;
 import com.lunatech.tpcore.module.home.repository.HomeRepository;
 import com.lunatech.tpcore.module.home.service.HomeResultStatus;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import java.io.File;
+import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -27,6 +30,7 @@ import org.slf4j.Logger;
 
 public final class SqliteHomeRepository implements HomeRepository {
     private static final String COLUMNS = "owner_uuid, home_name, world_name, x, y, z, yaw, pitch, created_at, shared_with, world_id";
+    private static final String UNRESOLVED = "state NOT IN ('REJECTED','KEPT','REFUNDED','ACKNOWLEDGED')";
     private final File directory;
     private final Logger logger;
     private final ThreadPoolExecutor io;
@@ -91,6 +95,13 @@ public final class SqliteHomeRepository implements HomeRepository {
                                 deleted_at BIGINT NOT NULL, PRIMARY KEY(owner_uuid, home_name))
                             """);
                         statement.execute("CREATE INDEX IF NOT EXISTS idx_home_recovery_age ON tpcore_home_recovery(deleted_at)");
+                        statement.execute("""
+                            CREATE TABLE IF NOT EXISTS tpcore_home_payments (
+                                id TEXT PRIMARY KEY, player TEXT NOT NULL, home TEXT NOT NULL, action TEXT NOT NULL,
+                                provider TEXT NOT NULL, requested TEXT NOT NULL, debit TEXT, refund TEXT,
+                                state TEXT NOT NULL, updated INTEGER NOT NULL, operator TEXT)
+                            """);
+                        statement.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_home_payment_player ON tpcore_home_payments(player) WHERE " + UNRESOLVED);
                     }
                     return null;
                 });
@@ -229,7 +240,14 @@ public final class SqliteHomeRepository implements HomeRepository {
                     boolean exists = exists(connection, home.ownerUuid(), home.name());
                     if (exists && !overwrite) return HomeResultStatus.OVERWRITE_REQUIRED;
                     if (!exists && atLimit(connection, home.ownerUuid(), limit)) return HomeResultStatus.LIMIT_REACHED;
-                    try (var statement = connection.prepareStatement("""
+                    return writeHome(connection, home);
+                });
+            }
+        });
+    }
+
+    private static HomeResultStatus writeHome(Connection connection, Home home) throws SQLException {
+        try (var statement = connection.prepareStatement("""
                         INSERT INTO tpcore_homes (owner_uuid,home_name,world_name,x,y,z,yaw,pitch,created_at,world_id)
                         VALUES (?,?,?,?,?,?,?,?,?,?)
                         ON CONFLICT(owner_uuid,home_name) DO UPDATE SET world_name=excluded.world_name,
@@ -242,7 +260,157 @@ public final class SqliteHomeRepository implements HomeRepository {
                         statement.setLong(9, home.createdAt()); statement.setString(10, home.worldId() == null ? null : home.worldId().toString());
                         statement.executeUpdate();
                     }
+        return HomeResultStatus.SUCCESS;
+    }
+
+    @Override public CompletableFuture<SaveCheck> checkSave(Home home, boolean overwrite, int limit) {
+        return submit(() -> {
+            try (Connection connection = pool.getConnection();
+                 var query = connection.prepareStatement("SELECT id," + COLUMNS + " FROM tpcore_homes WHERE owner_uuid=? AND home_name=?")) {
+                key(query, home.ownerUuid(), home.name());
+                try (var rows = query.executeQuery()) {
+                    if (rows.next()) return overwrite
+                        ? new SaveCheck(HomeResultStatus.SUCCESS, new HomePage.Entry(rows.getLong("id"), read(rows, home.ownerUuid())))
+                        : new SaveCheck(HomeResultStatus.OVERWRITE_REQUIRED, null);
+                }
+                return new SaveCheck(atLimit(connection, home.ownerUuid(), limit) ? HomeResultStatus.LIMIT_REACHED : HomeResultStatus.SUCCESS, null);
+            }
+        });
+    }
+
+    @Override public CompletableFuture<HomeResultStatus> saveChecked(Home home, HomePage.Entry expected, int limit, UUID payment, int historyLimit) {
+        return submitWrite(() -> {
+            try (Connection connection = pool.getConnection()) {
+                return transaction(connection, () -> {
+                    if (expected != null) {
+                        if (!expected.home().ownerUuid().equals(home.ownerUuid()) || !expected.home().name().equalsIgnoreCase(home.name())
+                            || matching(connection, expected).isEmpty()) return HomeResultStatus.HOME_CHANGED;
+                    } else {
+                        if (exists(connection, home.ownerUuid(), home.name())) return HomeResultStatus.HOME_CHANGED;
+                        if (atLimit(connection, home.ownerUuid(), limit)) return HomeResultStatus.LIMIT_REACHED;
+                    }
+                    if (payment != null) {
+                        try (var check = connection.prepareStatement("""
+                            SELECT 1 FROM tpcore_home_payments
+                            WHERE id=? AND player=? AND home=? AND action='CREATE' AND state='DEBITED'
+                            """)) {
+                            check.setString(1, payment.toString());
+                            check.setString(2, home.ownerUuid().toString());
+                            check.setString(3, home.name());
+                            try (var rows = check.executeQuery()) {
+                                if (!rows.next()) return HomeResultStatus.PAYMENT_PENDING;
+                            }
+                        }
+                        if (expected != null || !changePayment(connection, payment, State.DEBITED, State.KEPT, null, null, historyLimit))
+                            return HomeResultStatus.PAYMENT_PENDING;
+                    }
+                    return writeHome(connection, home);
+                });
+            }
+        });
+    }
+
+    @Override public CompletableFuture<HomeResultStatus> beginPayment(HomePayment payment, int capacity) {
+        return submit(() -> {
+            try (Connection connection = pool.getConnection()) {
+                return transaction(connection, () -> {
+                    try (var check = connection.prepareStatement("SELECT COUNT(*), MAX(player=?) FROM tpcore_home_payments WHERE " + UNRESOLVED)) {
+                        check.setString(1, payment.player().toString());
+                        try (var rows = check.executeQuery()) {
+                            if (rows.next()) {
+                                if (rows.getBoolean(2)) return HomeResultStatus.PAYMENT_PENDING;
+                                if (rows.getInt(1) >= capacity) return HomeResultStatus.ECONOMY_UNAVAILABLE;
+                            }
+                        }
+                    }
+                    try (var insert = connection.prepareStatement("""
+                        INSERT INTO tpcore_home_payments (id,player,home,action,provider,requested,state,updated)
+                        VALUES (?,?,?,?,?,?,'DEBIT_PENDING',?)
+                        """)) {
+                        insert.setString(1, payment.id().toString()); insert.setString(2, payment.player().toString());
+                        insert.setString(3, payment.home()); insert.setString(4, payment.action().name());
+                        insert.setString(5, payment.provider()); insert.setString(6, payment.requested().toPlainString());
+                        insert.setLong(7, payment.updated()); insert.executeUpdate();
+                    }
                     return HomeResultStatus.SUCCESS;
+                });
+            }
+        });
+    }
+
+    @Override public CompletableFuture<Boolean> updatePayment(UUID id, State expected, State next,
+        BigDecimal debit, BigDecimal refund, int historyLimit) {
+        return submit(() -> {
+            try (Connection connection = pool.getConnection()) {
+                return transaction(connection, () -> changePayment(connection, id, expected, next, debit, refund, historyLimit));
+            }
+        });
+    }
+
+    private static boolean changePayment(Connection connection, UUID id, State expected, State next,
+        BigDecimal debit, BigDecimal refund, int historyLimit) throws SQLException {
+        try (var update = connection.prepareStatement("""
+            UPDATE tpcore_home_payments SET state=?,debit=COALESCE(?,debit),refund=COALESCE(?,refund),updated=?
+            WHERE id=? AND state=?
+            """)) {
+            update.setString(1, next.name()); update.setString(2, debit == null ? null : debit.toPlainString());
+            update.setString(3, refund == null ? null : refund.toPlainString());
+            update.setLong(4, System.currentTimeMillis()); update.setString(5, id.toString()); update.setString(6, expected.name());
+            if (update.executeUpdate() != 1) return false;
+        }
+        if (next.resolved()) prunePayments(connection, historyLimit);
+        return true;
+    }
+
+    private static void prunePayments(Connection connection, int historyLimit) throws SQLException {
+        try (var prune = connection.prepareStatement("DELETE FROM tpcore_home_payments WHERE id IN ("
+            + "SELECT id FROM tpcore_home_payments WHERE NOT (" + UNRESOLVED + ") ORDER BY updated DESC,rowid DESC LIMIT -1 OFFSET ?)")) {
+            prune.setInt(1, historyLimit);
+            prune.executeUpdate();
+        }
+    }
+
+    @Override public CompletableFuture<List<HomePayment>> listPayments(long offset) {
+        return submit(() -> {
+            try (Connection connection = pool.getConnection();
+                 var query = connection.prepareStatement("SELECT * FROM tpcore_home_payments ORDER BY (" + UNRESOLVED + ") DESC,updated DESC,rowid DESC LIMIT 10 OFFSET ?")) {
+                query.setLong(1, offset);
+                var result = new ArrayList<HomePayment>();
+                try (var rows = query.executeQuery()) { while (rows.next()) result.add(readPayment(rows)); }
+                return List.copyOf(result);
+            }
+        });
+    }
+
+    @Override public CompletableFuture<Optional<HomePayment>> findPayment(UUID id) {
+        return submit(() -> {
+            try (Connection connection = pool.getConnection();
+                 var query = connection.prepareStatement("SELECT * FROM tpcore_home_payments WHERE id=?")) {
+                query.setString(1, id.toString());
+                try (var rows = query.executeQuery()) { return rows.next() ? Optional.of(readPayment(rows)) : Optional.empty(); }
+            }
+        });
+    }
+
+    private static HomePayment readPayment(ResultSet rows) throws SQLException {
+        String debit = rows.getString("debit"), refund = rows.getString("refund");
+        return new HomePayment(UUID.fromString(rows.getString("id")), UUID.fromString(rows.getString("player")),
+            rows.getString("home"), HomePayment.Action.valueOf(rows.getString("action")), rows.getString("provider"),
+            new BigDecimal(rows.getString("requested")), debit == null ? null : new BigDecimal(debit),
+            refund == null ? null : new BigDecimal(refund), State.valueOf(rows.getString("state")),
+            rows.getLong("updated"), rows.getString("operator"));
+    }
+
+    @Override public CompletableFuture<Boolean> acknowledgePayment(UUID id, String operator, int historyLimit) {
+        return submit(() -> {
+            try (Connection connection = pool.getConnection()) {
+                return transaction(connection, () -> {
+                    try (var update = connection.prepareStatement("UPDATE tpcore_home_payments SET state='ACKNOWLEDGED',operator=?,updated=? WHERE id=? AND " + UNRESOLVED)) {
+                        update.setString(1, operator); update.setLong(2, System.currentTimeMillis()); update.setString(3, id.toString());
+                        if (update.executeUpdate() != 1) return false;
+                    }
+                    prunePayments(connection, historyLimit);
+                    return true;
                 });
             }
         });

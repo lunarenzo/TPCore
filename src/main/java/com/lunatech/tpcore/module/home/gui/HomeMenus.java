@@ -32,6 +32,7 @@ import static com.lunatech.tpcore.module.home.gui.HomeMenuRenderer.LIST;
 import static com.lunatech.tpcore.module.home.gui.HomeMenuRenderer.NEXT;
 import static com.lunatech.tpcore.module.home.gui.HomeMenuRenderer.PREVIOUS;
 import static com.lunatech.tpcore.module.home.gui.HomeMenuRenderer.SET;
+import static com.lunatech.tpcore.module.home.messaging.HomeFeedback.menuFee;
 import static com.lunatech.tpcore.module.home.messaging.HomeFeedback.send;
 import static com.lunatech.tpcore.module.home.messaging.HomeFeedback.showStatus;
 
@@ -227,8 +228,9 @@ public final class HomeMenus {
         }
         int limit = DefaultHomeService.homeLimit(player, session.config);
         boolean set = player.hasPermission(Permissions.HOME_SET), list = player.hasPermission(Permissions.HOME_LIST);
+        String fee = set ? menuFee(player, session.config, true) : "";
         Runnable fallback = () -> open(player, session,
-            HomeMenuRenderer.main(session.player, UUID.randomUUID(), session.config.gui(), count, limit, set, list));
+            HomeMenuRenderer.main(session.player, UUID.randomUUID(), session.config.gui(), count, limit, set, list, fee));
         if (!nativeMenus(session)) { fallback.run(); return; }
         var text = session.config.gui().bedrock();
         List<FormButton> buttons = new ArrayList<>(2);
@@ -239,12 +241,13 @@ public final class HomeMenus {
         if (list) buttons.add(new FormButton(text.message("my-homes"), online -> readList(online, session, 1)));
         String description = text.message("menu-description").replace("{count}", Long.toString(count))
             .replace("{limit}", limit == Integer.MAX_VALUE ? session.config.gui().messages().get("unlimited") : Integer.toString(limit));
-        showMenu(player, session, text.message("menu-title"), description, buttons, fallback);
+        showMenu(player, session, text.message("menu-title"), withFee(description, fee), buttons, fallback);
     }
 
     private void inventoryList(Player player, Session session, HomePage page) {
         open(player, session, HomeMenuRenderer.homes(session.player, UUID.randomUUID(), session.config.gui(), page,
-            player.hasPermission(Permissions.HOME_USE), player.hasPermission(Permissions.HOME_DEL)));
+            player.hasPermission(Permissions.HOME_USE), player.hasPermission(Permissions.HOME_DEL),
+            menuFee(player, session.config, false)));
     }
 
     private void showHomeActions(Player player, Session session, HomePage page, HomePage.Entry entry) {
@@ -269,8 +272,13 @@ public final class HomeMenus {
             .replace("{y}", String.format(Locale.ROOT, "%.2f", home.y()))
             .replace("{z}", String.format(Locale.ROOT, "%.2f", home.z()))
             .replace("{world}", home.worldName());
-        showMenu(player, session, text.message("home-title").replace("{name}", home.name()), destination, buttons,
+        String fee = player.hasPermission(Permissions.HOME_USE) ? menuFee(player, session.config, false) : "";
+        showMenu(player, session, text.message("home-title").replace("{name}", home.name()), withFee(destination, fee), buttons,
             () -> inventoryList(player, session, page));
+    }
+
+    private static String withFee(String description, String fee) {
+        return fee.isEmpty() ? description : description + "\n" + fee;
     }
 
     private record FormButton(String label, Consumer<Player> action) {}
@@ -357,7 +365,7 @@ public final class HomeMenus {
         if (!require(player, session, Permissions.HOME_SET)) { forget(session); return; }
 
         var config = session.config.gui().bedrock();
-        String description = config.message("description");
+        String description = withFee(config.message("description"), menuFee(player, session.config, true));
         if (error != null) description = config.message(error) + "\n\n" + description;
         var form = new HomeForms.Prompt(config.message("title"), description, config.message("name-label"),
             config.message("placeholder"), value);

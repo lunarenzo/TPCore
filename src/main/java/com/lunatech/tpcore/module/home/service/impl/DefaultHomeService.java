@@ -2,15 +2,20 @@ package com.lunatech.tpcore.module.home.service.impl;
 
 import com.lunatech.tpcore.config.model.HomeConfig;
 import com.lunatech.tpcore.constant.Permissions;
+import com.lunatech.tpcore.module.home.economy.HomeEconomy;
 import com.lunatech.tpcore.module.home.engine.ConcurrentTeleportPipelineEngine;
+import com.lunatech.tpcore.module.home.messaging.HomeFeedback;
 import com.lunatech.tpcore.module.home.model.Home;
 import com.lunatech.tpcore.module.home.model.HomePage;
+import com.lunatech.tpcore.module.home.model.HomePayment;
 import com.lunatech.tpcore.module.home.repository.HomeRepository;
 import com.lunatech.tpcore.module.home.service.HomeResultStatus;
 import com.lunatech.tpcore.module.home.service.HomeService;
 import com.lunatech.tpcore.util.MessageFormatter;
+import io.papermc.paper.threadedregions.scheduler.EntityScheduler;
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 import java.lang.ref.WeakReference;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -23,6 +28,7 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import java.util.function.Consumer;
@@ -41,8 +47,10 @@ public final class DefaultHomeService implements HomeService {
     private final Supplier<HomeConfig> settings;
     private final ConcurrentTeleportPipelineEngine engine;
     private final CompletableFuture<Void> initialized;
+    private final HomeEconomy economy;
     private final Object admission = new Object();
     private final Map<UUID, Request> requests = new ConcurrentHashMap<>();
+    private final Map<UUID, CompletableFuture<HomeResultStatus>> pricedSaves = new ConcurrentHashMap<>();
     private final Map<UUID, Long> cooldowns = new HashMap<>();
     private final Map<HomeKey, PendingWrites> writes = new HashMap<>();
     private long admissionSequence;
@@ -63,21 +71,27 @@ public final class DefaultHomeService implements HomeService {
         final String name, permission;
         final HomeConfig config;
         final boolean trackCooldown;
+        final boolean personal;
         final long admitted;
         final CompletableFuture<HomeResultStatus> result = new CompletableFuture<>();
         final AtomicReference<Phase> phase = new AtomicReference<>(Phase.PREPARING);
         volatile CompletableFuture<?> observation;
         volatile ScheduledTask warmup;
+        BigDecimal fee = BigDecimal.ZERO;
+        volatile HomeEconomy.Attempt payment;
         Waiting waiting;
         Request(UUID actor, UUID owner, String name, String permission, HomeConfig config, boolean trackCooldown, long admitted) {
             this.actor = actor; this.owner = owner; this.name = name; this.permission = permission; this.config = config;
             this.trackCooldown = trackCooldown;
+            personal = trackCooldown && Permissions.HOME_USE.equals(permission);
             this.admitted = admitted;
         }
     }
 
-    public DefaultHomeService(Plugin plugin, HomeRepository repository, Supplier<HomeConfig> settings, ConcurrentTeleportPipelineEngine engine) {
+    public DefaultHomeService(Plugin plugin, HomeRepository repository, Supplier<HomeConfig> settings,
+        ConcurrentTeleportPipelineEngine engine, HomeEconomy.BankLane bankLane) {
         this.plugin = plugin; this.repository = repository; this.settings = settings; this.engine = engine;
+        economy = new HomeEconomy(plugin, repository, bankLane);
         initialized = repository.initialize();
         initialized.whenComplete((ignored, error) -> {
             if (error != null) plugin.getSLF4JLogger().error("Home storage initialization failed", error);
@@ -111,8 +125,120 @@ public final class DefaultHomeService implements HomeService {
             location.getYaw(), location.getPitch(), System.currentTimeMillis());
         int limit = homeLimit(player, config);
         boolean safe = ConcurrentTeleportPipelineEngine.isSafe(location, config);
-        return mutate(owner, name, () -> repository.save(home, overwrite, limit))
+        var result = config.economy() == null || config.economy().cost(true).signum() == 0
+            ? mutate(owner, name, () -> repository.save(home, overwrite, limit))
+            : saveWithPricing(player, config, home, overwrite, limit);
+        return result
             .thenApply(status -> !safe && status == HomeResultStatus.SUCCESS ? HomeResultStatus.SAVED_UNSAFE : status);
+    }
+
+    private CompletableFuture<HomeResultStatus> saveWithPricing(Player player, HomeConfig config, Home home, boolean overwrite, int limit) {
+        var result = new CompletableFuture<HomeResultStatus>();
+        synchronized (admission) {
+            HomeResultStatus available = availability();
+            if (available != HomeResultStatus.SUCCESS) return done(available);
+            if (pricedSaves.size() >= config.runtime().maxRequests()
+                || pricedSaves.putIfAbsent(home.ownerUuid(), result) != null) return done(HomeResultStatus.BUSY);
+        }
+        var handle = new WeakReference<>(player);
+        var scheduler = player.getScheduler();
+        var payment = new AtomicReference<HomeEconomy.Attempt>();
+        var committing = new AtomicBoolean();
+        var deadline = new CompletableFuture<Void>();
+        deadline.orTimeout(config.runtime().timeoutSeconds(), TimeUnit.SECONDS).whenComplete((ignored, failure) -> {
+            if (failure != null) result.complete(committing.get() || payment.get() != null
+                ? HomeResultStatus.PAYMENT_PENDING : HomeResultStatus.TIMED_OUT);
+        });
+        result.whenComplete((status, failure) -> {
+            deadline.complete(null);
+            pricedSaves.remove(home.ownerUuid(), result);
+            var attempt = payment.get();
+            if (attempt != null) attempt.abort();
+        });
+        repository.checkSave(home, overwrite, limit).whenComplete((check, failure) -> {
+            if (failure != null) { result.complete(storageFailure("save check", failure)); return; }
+            if (check.status() != HomeResultStatus.SUCCESS) { result.complete(check.status()); return; }
+            onSaveOwner(handle, scheduler, config, home, result, online -> {
+                BigDecimal price = check.existing() == null ? HomeEconomy.fee(online, config, true) : BigDecimal.ZERO;
+                if (price.signum() == 0) {
+                    committing.set(true);
+                    if (result.isDone()) return;
+                    saveChecked(config, home, check.existing(), homeLimit(online, config), null)
+                        .whenComplete((status, error) -> completeSave(result, status, error));
+                    return;
+                }
+                HomeFeedback.fee(online, config, price);
+                var attempt = economy.charge(home.ownerUuid(), home.name(), HomePayment.Action.CREATE, price, config, refundNotice(online, config));
+                payment.set(attempt);
+                if (result.isDone()) { attempt.abort(); return; }
+                attempt.ready().thenAccept(status -> {
+                    if (status != HomeResultStatus.SUCCESS) { result.complete(status); return; }
+                    onSaveOwner(handle, scheduler, config, home, result, owner -> {
+                        if (HomeEconomy.fee(owner, config, true).compareTo(price) != 0) {
+                            result.complete(HomeResultStatus.CANCELLED);
+                            return;
+                        }
+                        committing.set(true);
+                        if (result.isDone() || !attempt.claimEffect()) { result.complete(HomeResultStatus.CANCELLED); return; }
+                        saveChecked(config, home, null, homeLimit(owner, config), attempt.id()).whenComplete((saved, error) -> {
+                            attempt.creationOutcome(saved, error);
+                            completeSave(result, saved, error);
+                        });
+                    });
+                });
+            });
+        });
+        return result;
+    }
+
+    private void onSaveOwner(WeakReference<Player> handle, EntityScheduler scheduler,
+        HomeConfig config, Home home, CompletableFuture<HomeResultStatus> result, Consumer<Player> action) {
+        if (result.isDone()) return;
+        Runnable retired = () -> result.complete(HomeResultStatus.CANCELLED);
+        try {
+            if (scheduler.run(plugin, task -> {
+                if (result.isDone()) return;
+                Player player = handle.get();
+                if (player == null || closed || settings.get() != config) { retired.run(); return; }
+                if (!player.hasPermission(Permissions.HOME_SET)) { result.complete(HomeResultStatus.NO_PERMISSION); return; }
+                if (ConcurrentTeleportPipelineEngine.resolve(home, config) == null) { result.complete(HomeResultStatus.WORLD_UNAVAILABLE); return; }
+                if (restricted(home.worldName(), config)) { result.complete(HomeResultStatus.WORLD_RESTRICTED); return; }
+                try { action.accept(player); }
+                catch (RuntimeException failure) { result.complete(storageFailure("paid save", failure)); }
+            }, retired) == null) retired.run();
+        } catch (RuntimeException failure) { retired.run(); }
+    }
+
+    private CompletableFuture<HomeResultStatus> saveChecked(HomeConfig config, Home home, HomePage.Entry expected, int limit, UUID payment) {
+        return mutate(home.ownerUuid(), home.name(), () -> settings.get() == config
+            ? repository.saveChecked(home, expected, limit, payment, config.economy().paymentHistoryLimit())
+            : done(HomeResultStatus.CANCELLED));
+    }
+
+    private void completeSave(CompletableFuture<HomeResultStatus> result, HomeResultStatus status, Throwable error) {
+        result.complete(error == null ? status : storageFailure("paid save", error));
+    }
+
+    private Consumer<BigDecimal> refundNotice(Player player, HomeConfig config) {
+        var handle = new WeakReference<>(player);
+        var scheduler = player.getScheduler();
+        return amount -> {
+            try {
+                scheduler.run(plugin, task -> {
+                    Player online = handle.get();
+                    if (online != null) HomeFeedback.send(online, config, config.economy().message("payment-refunded"),
+                        Placeholder.unparsed("amount", amount.toPlainString()));
+                }, null);
+            } catch (RuntimeException ignored) {
+                // The durable refund remains available after a player or plugin retires.
+            }
+        };
+    }
+
+    public CompletableFuture<List<HomePayment>> payments(long page) { return repository.listPayments((page - 1) * 10); }
+    public CompletableFuture<Optional<HomePayment>> payment(UUID id) { return repository.findPayment(id); }
+    public CompletableFuture<Boolean> acknowledgePayment(UUID id, String operator) {
+        return economy.acknowledge(id, operator, settings.get().economy().paymentHistoryLimit());
     }
 
     @Override public CompletableFuture<HomeResultStatus> deleteHome(Player player, String name) {
@@ -239,6 +365,7 @@ public final class DefaultHomeService implements HomeService {
             if (!bypassCooldown && !cooldowns.containsKey(actor)
                 && cooldowns.size() + requests.size() >= config.runtime().maxCooldowns()) return done(HomeResultStatus.BUSY);
             request = new Request(actor, owner, name, permission, config, !respawn, ++admissionSequence);
+            if (request.personal) request.fee = HomeEconomy.fee(player, config, false);
             requests.put(actor, request);
             lookup = expected == null ? repository.findByName(owner, name) : repository.findMatching(expected);
         }
@@ -249,7 +376,10 @@ public final class DefaultHomeService implements HomeService {
                 if (prior != Phase.DONE) {
                     if (prior == Phase.DISPATCHED) plugin.getSLF4JLogger().warn("Home teleport outcome unknown: player {}, owner {}, home {}",
                         request.actor, request.owner, request.name);
-                    finish(request, prior == Phase.DISPATCHED ? HomeResultStatus.OUTCOME_UNKNOWN : HomeResultStatus.TIMED_OUT);
+                    var payment = request.payment;
+                    HomeResultStatus status = prior == Phase.DISPATCHED ? HomeResultStatus.OUTCOME_UNKNOWN
+                        : payment != null ? HomeResultStatus.PAYMENT_PENDING : HomeResultStatus.TIMED_OUT;
+                    finish(request, status);
                 }
             }
         });
@@ -273,6 +403,7 @@ public final class DefaultHomeService implements HomeService {
     }
 
     private void warmup(Request request, Player player, Home home, int seconds) {
+        HomeFeedback.fee(player, request.config, request.fee);
         if (seconds == 0) { inspect(request, player, home); return; }
         var messages = request.config.messages();
         String template = messages.warmupStart();
@@ -317,19 +448,24 @@ public final class DefaultHomeService implements HomeService {
 
     private void dispatch(Request request, Player player, Home home, Location target) {
         if (!authorized(request, player)) return;
+        if (request.personal && HomeEconomy.fee(player, request.config, false).compareTo(request.fee) != 0) {
+            cancel(request, HomeResultStatus.CANCELLED);
+            return;
+        }
         boolean applyCooldown = request.trackCooldown && !player.hasPermission(Permissions.HOME_BYPASS_COOLDOWN);
         if (applyCooldown && remainingCooldown(request.actor) > 0) {
             cancel(request, HomeResultStatus.COOLDOWN_ACTIVE);
             return;
         }
         var outcome = new CompletableFuture<Boolean>();
+        boolean needsDebit = request.fee.signum() > 0 && request.payment == null;
         PendingWrites pending;
         boolean claimed = false;
         boolean busy = false;
         synchronized (admission) {
             pending = writes.get(new HomeKey(request.owner, request.name));
             if (pending != null) request.waiting = new Waiting(new WeakReference<>(player), home);
-            else if (!closed && settings.get() == request.config && request.phase.get() == Phase.PREPARING) {
+            else if (!needsDebit && !closed && settings.get() == request.config && request.phase.get() == Phase.PREPARING) {
                 busy = !engine.reserveDispatch(request.actor, request.config.runtime().stalledWorkReserve());
                 if (!busy) {
                     request.observation = outcome;
@@ -339,6 +475,10 @@ public final class DefaultHomeService implements HomeService {
             }
         }
         if (pending != null) return; // Inspect again after the last write; this landing may no longer be fresh.
+        if (needsDebit) {
+            fundTravel(request, player, home);
+            return;
+        }
         if (!claimed) {
             cancel(request, busy ? HomeResultStatus.BUSY : HomeResultStatus.CANCELLED);
             return;
@@ -352,10 +492,44 @@ public final class DefaultHomeService implements HomeService {
                         cooldowns.put(request.actor, System.nanoTime() + TimeUnit.SECONDS.toNanos(request.config.cooldownSeconds()));
                 }
             }
-            finish(request, Boolean.TRUE.equals(success) ? HomeResultStatus.SUCCESS : HomeResultStatus.TELEPORT_FAILED);
+            HomeResultStatus status = Boolean.TRUE.equals(success) ? HomeResultStatus.SUCCESS : HomeResultStatus.TELEPORT_FAILED;
+            if (request.payment != null && (failure != null || success == null)) status = HomeResultStatus.OUTCOME_UNKNOWN;
+            finish(request, status);
         });
-        if (request.phase.get() == Phase.DISPATCHED) engine.teleport(player, target, request.actor, outcome);
-        else engine.releaseDispatch(request.actor);
+        var payment = request.payment;
+        if (payment != null && !payment.claimEffect()) {
+            engine.releaseDispatch(request.actor);
+            payment.abort();
+            if (request.phase.compareAndSet(Phase.DISPATCHED, Phase.DONE)) finish(request, HomeResultStatus.CANCELLED);
+            return;
+        }
+        if (request.phase.get() == Phase.DISPATCHED) {
+            if (payment == null) engine.teleport(player, target, request.actor, outcome);
+            else engine.teleport(player, target, request.actor, outcome, payment::travelOutcome);
+        } else {
+            engine.releaseDispatch(request.actor);
+            if (payment != null) payment.travelOutcome(false, null);
+        }
+    }
+
+    private void fundTravel(Request request, Player player, Home home) {
+        if (!preparing(request)) return;
+        var handle = new WeakReference<>(player);
+        var payment = economy.charge(request.actor, request.name, HomePayment.Action.TRAVEL, request.fee,
+            request.config, refundNotice(player, request.config));
+        request.payment = payment;
+        if (!preparing(request)) { payment.abort(); return; }
+        payment.ready().thenAccept(status -> {
+            if (status != HomeResultStatus.SUCCESS) { cancel(request, status); return; }
+            if (!preparing(request)) { payment.abort(); return; }
+            repository.findByName(request.owner, request.name).whenComplete((latest, failure) -> {
+                if (failure != null) { cancel(request, storageFailure("paid travel lookup", failure)); return; }
+                if (latest.isEmpty() || !latest.get().equals(home)) { cancel(request, HomeResultStatus.HOME_CHANGED); return; }
+                Player online = handle.get();
+                if (online != null) onOwner(request, online, () -> inspect(request, online, home), 0);
+                else cancel(request, HomeResultStatus.CANCELLED);
+            });
+        });
     }
 
     private boolean authorized(Request request, Player player) {
@@ -402,6 +576,12 @@ public final class DefaultHomeService implements HomeService {
         if (request != null) cancel(request, status);
     }
 
+    public void quit(UUID player) {
+        cancel(player, HomeResultStatus.CANCELLED);
+        var save = pricedSaves.get(player);
+        if (save != null) save.complete(HomeResultStatus.CANCELLED);
+    }
+
     public boolean hasPending(UUID player) {
         Request request = requests.get(player);
         return request != null && request.phase.get() == Phase.PREPARING;
@@ -412,6 +592,8 @@ public final class DefaultHomeService implements HomeService {
     }
 
     private void finish(Request request, HomeResultStatus status) {
+        var payment = request.payment;
+        if (payment != null) payment.abort();
         CompletableFuture<?> observation = request.observation;
         request.observation = null;
         if (observation != null) observation.cancel(false);
@@ -437,6 +619,8 @@ public final class DefaultHomeService implements HomeService {
 
     public CompletableFuture<Void> close() {
         synchronized (admission) { closed = true; cooldowns.clear(); }
+        pricedSaves.values().forEach(save -> save.complete(HomeResultStatus.CANCELLED));
+        economy.close();
         requests.forEach((id, request) -> {
             Phase prior = request.phase.getAndSet(Phase.DONE);
             if (prior != Phase.DONE) finish(request, prior == Phase.DISPATCHED ? HomeResultStatus.OUTCOME_UNKNOWN : HomeResultStatus.CANCELLED);

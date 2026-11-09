@@ -2,6 +2,7 @@ package com.lunatech.tpcore.module.home;
 
 import com.lunatech.tpcore.config.model.HomeConfig;
 import com.lunatech.tpcore.config.model.HomeRuntimeConfig;
+import com.lunatech.tpcore.module.home.economy.HomeEconomy;
 import com.lunatech.tpcore.module.home.engine.ConcurrentTeleportPipelineEngine;
 import com.lunatech.tpcore.module.home.model.Home;
 import com.lunatech.tpcore.module.home.repository.HomeRepository;
@@ -228,6 +229,7 @@ class HomeTeleportTest {
         final CompletableFuture<Boolean> nativeTeleport = new CompletableFuture<>();
         final org.mockito.MockedStatic<Bukkit> bukkit = mockStatic(Bukkit.class);
         final HomeRepository repository = mock(HomeRepository.class);
+        final HomeEconomy.BankLane bankLane = new HomeEconomy.BankLane();
         final HomeConfig config = mock(HomeConfig.class);
         final DefaultHomeService service;
         String owner = "command";
@@ -289,7 +291,7 @@ class HomeTeleportTest {
             when(repository.close()).thenReturn(CompletableFuture.completedFuture(null));
             var home = new Home(playerId, "base", "world", worldId, 64.5, 64, 64.5, 0, 0, 1);
             when(repository.findByName(playerId, "base")).thenReturn(CompletableFuture.completedFuture(Optional.of(home)));
-            service = new DefaultHomeService(plugin, repository, () -> config, new ConcurrentTeleportPipelineEngine(plugin, 4));
+            service = new DefaultHomeService(plugin, repository, () -> config, new ConcurrentTeleportPipelineEngine(plugin, 4), bankLane);
         }
 
         CompletableFuture<HomeResultStatus> begin() { return service.teleport(player, playerId, "base", USE, false); }
@@ -299,6 +301,6 @@ class HomeTeleportTest {
             owner = context;
             try { task.run(); } finally { owner = "command"; }
         }
-        @Override public void close() { service.close().join(); bukkit.close(); }
+        @Override public void close() { service.close().join(); bankLane.close(); bukkit.close(); }
     }
 }

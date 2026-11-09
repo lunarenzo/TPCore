@@ -50,11 +50,13 @@ public record HomeConfig(
     @Comment("Module message strings (Alphabetically ordered)")
     HomeMessages messages,
     HomeRuntimeConfig runtime,
-    HomeGuiConfig gui
+    HomeGuiConfig gui,
+    HomeEconomyConfig economy
 ) {
     public HomeConfig {
         if (runtime == null) runtime = HomeRuntimeConfig.createDefault();
         if (gui == null) gui = HomeGuiConfig.createDefault();
+        if (economy == null) economy = HomeEconomyConfig.createDefault();
         if (benchmark == null) benchmark = HomeBenchmarkConfig.createDefault();
         if (safetyChecks == null) safetyChecks = HomeSafetyConfig.createDefault();
         if (worldRestrictions == null) worldRestrictions = HomeWorldRestrictions.createDefault();
@@ -88,7 +90,8 @@ public record HomeConfig(
             ),
             HomeMessages.createDefault(),
             HomeRuntimeConfig.createDefault(),
-            HomeGuiConfig.createDefault()
+            HomeGuiConfig.createDefault(),
+            HomeEconomyConfig.createDefault()
         );
     }
 

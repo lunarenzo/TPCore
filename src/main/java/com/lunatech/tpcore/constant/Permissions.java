@@ -39,6 +39,10 @@ public final class Permissions {
     public static final String HOME_BYPASS_COOLDOWN = "tpcore.home.bypass.cooldown";
     public static final String HOME_BYPASS_LIMIT = "tpcore.home.bypass.limit";
     public static final String HOME_ADMIN_BENCHMARK = "tpcore.home.admin.benchmark";
+    public static final String HOME_ADMIN_PAYMENTS = "tpcore.home.admin.payments";
+    public static final String HOME_BYPASS_COST = "tpcore.home.bypass.cost";
+    public static final String HOME_BYPASS_TELEPORT_COST = "tpcore.home.bypass.cost.teleport";
+    public static final String HOME_BYPASS_CREATE_COST = "tpcore.home.bypass.cost.create";
     public static final String WARP_USE = "tpcore.warp.use";
     public static final String WARP_SIGN_CREATE = "tpcore.warp.sign.create";
     public static final String WARP_SIGN_REMOVE = "tpcore.warp.sign.remove";

@@ -22,18 +22,18 @@ final class HomeMenuRenderer {
 
     private HomeMenuRenderer() {}
 
-    static HomeMenuHolder main(UUID player, UUID token, HomeGuiConfig gui, long count, int limit, boolean set, boolean list) {
+    static HomeMenuHolder main(UUID player, UUID token, HomeGuiConfig gui, long count, int limit, boolean set, boolean list, String fee) {
         var holder = new HomeMenuHolder(player, token, HomeMenuHolder.Screen.MENU, 1, 1, List.of(), null, title(gui, "menu"));
         frame(holder, gui);
         var inventory = holder.getInventory();
-        if (set) inventory.setItem(SET, icon(gui, "set", List.of(),
+        if (set) inventory.setItem(SET, icon(gui, "set", fee.isEmpty() ? List.of() : List.of(fee),
             Placeholder.unparsed("count", Long.toString(count)), Placeholder.unparsed("limit",
                 limit == Integer.MAX_VALUE ? gui.messages().get("unlimited") : Integer.toString(limit))));
         if (list) inventory.setItem(LIST, icon(gui, "homes", List.of()));
         return holder;
     }
 
-    static HomeMenuHolder homes(UUID player, UUID token, HomeGuiConfig gui, HomePage page, boolean use, boolean delete) {
+    static HomeMenuHolder homes(UUID player, UUID token, HomeGuiConfig gui, HomePage page, boolean use, boolean delete, String fee) {
         var holder = new HomeMenuHolder(player, token, HomeMenuHolder.Screen.HOMES, page.page(), page.pages(), page.entries(), null,
             title(gui, "homes", Placeholder.unparsed("page", Long.toString(page.page())),
                 Placeholder.unparsed("pages", Long.toString(page.pages()))));
@@ -45,6 +45,7 @@ final class HomeMenuRenderer {
         if (page.entries().isEmpty()) inventory.setItem(22, icon(gui, "empty", List.of()));
         List<String> actions = new ArrayList<>(2);
         if (use) actions.add(gui.messages().get("left-click"));
+        if (use && !fee.isEmpty()) actions.add(fee);
         if (delete) actions.add(gui.messages().get("right-click"));
         for (int index = 0; index < page.entries().size(); index++) {
             Home home = page.entries().get(index).home();

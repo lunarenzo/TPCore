@@ -5,6 +5,7 @@ import com.lunatech.tpcore.config.model.HomeConfig;
 import com.lunatech.tpcore.module.home.service.impl.DefaultHomeService;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.math.BigDecimal;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.slf4j.LoggerFactory;
@@ -44,6 +45,8 @@ class HomeConfigurationTest {
         assertEquals(2, existing.runtime().stalledWorkReserve());
         assertTrue(existing.gui().enabled());
         assertTrue(existing.gui().bedrock().enabled());
+        assertFalse(existing.economy().enabled());
+        assertEquals(0, existing.economy().cost(true).signum());
         Files.writeString(path, legacy + "gui:\n  enabled: false\n  icons:\n    home:\n      name: My custom home\n");
         var customized = configManager.loadModuleConfig("home", HomeConfig.class, HomeConfig.createDefault(), false);
         assertFalse(customized.gui().enabled());
@@ -61,5 +64,13 @@ class HomeConfigurationTest {
         assertFalse(invalid.worldRestrictions().validMode());
         assertTrue(DefaultHomeService.restricted("allowed", invalid));
         assertTrue(DefaultHomeService.restricted("other", invalid));
+
+        Files.writeString(path, "economy:\n  enabled: true\n  teleport-cost: '1.25'\n");
+        var priced = configManager.tryLoadModuleConfig("home", HomeConfig.class, HomeConfig.createDefault(), false);
+        assertEquals(new BigDecimal("1.25"), priced.economy().cost(false));
+        assertEquals(0, priced.economy().cost(true).signum());
+        assertEquals(256, priced.economy().maxUnresolvedPayments());
+        Files.writeString(path, "economy:\n  enabled: true\n  teleport-cost: '-1.00'\n");
+        assertThrows(Exception.class, () -> configManager.tryLoadModuleConfig("home", HomeConfig.class, HomeConfig.createDefault(), false));
     }
 }

@@ -3,6 +3,7 @@ package com.lunatech.tpcore.module.home.command;
 import com.lunatech.tpcore.config.model.HomeConfig;
 import com.lunatech.tpcore.constant.Permissions;
 import com.lunatech.tpcore.module.home.gui.HomeMenus;
+import com.lunatech.tpcore.module.home.model.HomePayment;
 import com.lunatech.tpcore.module.home.service.HomeResultStatus;
 import com.lunatech.tpcore.module.home.service.impl.DefaultHomeService;
 import com.lunatech.tpcore.util.MessageFormatter;
@@ -14,11 +15,14 @@ import io.papermc.paper.command.brigadier.CommandSourceStack;
 import io.papermc.paper.command.brigadier.Commands;
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
 import java.lang.ref.WeakReference;
+import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
+import java.util.function.BiConsumer;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import org.bukkit.Bukkit;
@@ -118,6 +122,16 @@ public final class HomeCommandRegistry {
             .then(Commands.argument("count", IntegerArgumentType.integer(1, 1000))
                 .executes(ctx -> benchmark(ctx.getSource().getSender(), IntegerArgumentType.getInteger(ctx, "count"))))
             .build(), "Measure one bounded read from Home storage", List.of("homebench"));
+        commands.register(Commands.literal("homepayments").requires(src -> src.getSender().hasPermission(Permissions.HOME_ADMIN_PAYMENTS))
+            .then(Commands.literal("list")
+                .executes(ctx -> payments(ctx.getSource().getSender(), 1))
+                .then(Commands.argument("page", IntegerArgumentType.integer(1))
+                    .executes(ctx -> payments(ctx.getSource().getSender(), IntegerArgumentType.getInteger(ctx, "page")))))
+            .then(Commands.literal("show").then(Commands.argument("id", StringArgumentType.word())
+                .executes(ctx -> payment(ctx.getSource().getSender(), StringArgumentType.getString(ctx, "id"), false))))
+            .then(Commands.literal("acknowledge").then(Commands.argument("id", StringArgumentType.word())
+                .executes(ctx -> payment(ctx.getSource().getSender(), StringArgumentType.getString(ctx, "id"), true))))
+            .build(), "Inspect or reconcile Home payment records", List.of());
     }
 
     private boolean canAccessHome(CommandSender sender) {
@@ -149,6 +163,10 @@ public final class HomeCommandRegistry {
 
     private DefaultHomeService available(CommandSender sender, HomeConfig config) {
         if (!(sender instanceof Player)) { send(sender, config, config.messages().onlyPlayers()); return null; }
+        return moduleAvailable(sender, config);
+    }
+
+    private DefaultHomeService moduleAvailable(CommandSender sender, HomeConfig config) {
         var current = service.get();
         if (!config.enabled()) send(sender, config, config.messages().moduleDisabled());
         else if (current == null) send(sender, config, config.runtime().message("not-ready"));
@@ -233,6 +251,74 @@ public final class HomeCommandRegistry {
     }
 
     private record Timing(int rows, long millis) {}
+
+    private int payments(CommandSender sender, int page) {
+        HomeConfig config = settings.get();
+        var current = moduleAvailable(sender, config);
+        if (current != null) paymentReply(current, sender, current.payments(page), (viewer, entries) -> {
+            if (entries.isEmpty()) send(viewer, config, config.economy().message("payment-not-found"));
+            entries.forEach(entry -> paymentRow(viewer, config, entry, false));
+        });
+        return Command.SINGLE_SUCCESS;
+    }
+
+    private int payment(CommandSender sender, String argument, boolean acknowledge) {
+        HomeConfig config = settings.get();
+        var current = moduleAvailable(sender, config);
+        if (current == null) return Command.SINGLE_SUCCESS;
+        UUID id;
+        try { id = UUID.fromString(argument); }
+        catch (IllegalArgumentException invalid) {
+            send(sender, config, config.economy().message("payment-not-found"));
+            return Command.SINGLE_SUCCESS;
+        }
+        if (acknowledge) {
+            String operator = sender instanceof Player player ? player.getUniqueId().toString() : sender.getName();
+            paymentReply(current, sender, current.acknowledgePayment(id, operator), (viewer, accepted) ->
+                send(viewer, config, config.economy().message(accepted ? "payment-acknowledged" : "payment-ack-denied"),
+                    Placeholder.unparsed("id", id.toString())));
+        } else {
+            paymentReply(current, sender, current.payment(id), (viewer, record) -> {
+                if (record.isEmpty()) send(viewer, config, config.economy().message("payment-not-found"));
+                else paymentRow(viewer, config, record.get(), true);
+            });
+        }
+        return Command.SINGLE_SUCCESS;
+    }
+
+    private static void paymentRow(CommandSender viewer, HomeConfig config, HomePayment entry, boolean detail) {
+        send(viewer, config, config.economy().message("payment-row"),
+            Placeholder.unparsed("id", entry.id().toString()), Placeholder.unparsed("player", entry.player().toString()),
+            Placeholder.unparsed("action", entry.action().name()), Placeholder.unparsed("home", entry.home()),
+            Placeholder.unparsed("state", entry.state().name()), Placeholder.unparsed("amount", entry.requested().toPlainString()));
+        if (detail) send(viewer, config, config.economy().message("payment-detail"),
+            Placeholder.unparsed("provider", entry.provider()), Placeholder.unparsed("debit", entry.debit() == null ? "—" : entry.debit().toPlainString()),
+            Placeholder.unparsed("refund", entry.refund() == null ? "—" : entry.refund().toPlainString()),
+            Placeholder.unparsed("updated", Instant.ofEpochMilli(entry.updated()).toString()),
+            Placeholder.unparsed("operator", entry.operator() == null ? "—" : entry.operator()));
+    }
+
+    private <T> void paymentReply(DefaultHomeService current, CommandSender sender, CompletableFuture<T> future,
+        BiConsumer<CommandSender, T> render) {
+        if (sender instanceof Player player) {
+            reply(current, player, future, (online, value) -> {
+                if (online.hasPermission(Permissions.HOME_ADMIN_PAYMENTS)) render.accept(online, value);
+            });
+            return;
+        }
+        future.whenComplete((value, failure) -> {
+            if (!plugin.isEnabled()) return;
+            try {
+                Bukkit.getGlobalRegionScheduler().execute(plugin, () -> {
+                    if (service.get() != current || !sender.hasPermission(Permissions.HOME_ADMIN_PAYMENTS)) return;
+                    if (failure == null) render.accept(sender, value);
+                    else send(sender, settings.get(), settings.get().economy().message("economy-unavailable"));
+                });
+            } catch (RuntimeException retired) {
+                if (plugin.isEnabled()) plugin.getSLF4JLogger().warn("Home payment reply could not be scheduled", retired);
+            }
+        });
+    }
 
     @FunctionalInterface
     private interface PlayerReply<T> { void accept(Player player, T result); }

@@ -1,8 +1,10 @@
 package com.lunatech.tpcore.module.home.messaging;
 
 import com.lunatech.tpcore.config.model.HomeConfig;
+import com.lunatech.tpcore.module.home.economy.HomeEconomy;
 import com.lunatech.tpcore.module.home.service.HomeResultStatus;
 import com.lunatech.tpcore.util.MessageFormatter;
+import java.math.BigDecimal;
 import java.util.Locale;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
@@ -34,12 +36,25 @@ public final class HomeFeedback {
             case DISABLED -> messages.moduleDisabled();
             case MOVED -> messages.warmupCancelledMove();
             case DAMAGED -> messages.warmupCancelledDamage();
+            case ECONOMY_UNAVAILABLE, INSUFFICIENT_FUNDS, PAYMENT_REJECTED, PAYMENT_PENDING ->
+                config.economy().message(status.name().toLowerCase(Locale.ROOT).replace('_', '-'));
             default -> config.runtime().message(status.name().toLowerCase(Locale.ROOT).replace('_', '-'));
         };
         send(player, config, template, Placeholder.unparsed("home", home), Placeholder.unparsed("max", Integer.toString(limit)),
             Placeholder.unparsed("seconds", Long.toString(seconds)));
         if (status == HomeResultStatus.SAVED_UNSAFE)
             send(player, config, config.runtime().message("saved-unsafe"), Placeholder.unparsed("home", home));
+    }
+
+    public static void fee(Player player, HomeConfig config, BigDecimal fee) {
+        if (fee.signum() > 0) send(player, config, config.economy().message("fee"),
+            Placeholder.unparsed("amount", fee.toPlainString()));
+    }
+
+    public static String menuFee(Player player, HomeConfig config, boolean creation) {
+        if (config.economy() == null || config.economy().cost(creation).signum() == 0) return "";
+        BigDecimal fee = HomeEconomy.fee(player, config, creation);
+        return config.economy().message("menu-fee").replace("<amount>", fee.toPlainString());
     }
 
     public static void send(CommandSender sender, HomeConfig config, String template, TagResolver... values) {
