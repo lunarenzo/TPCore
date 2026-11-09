@@ -77,15 +77,33 @@ public record HomeGuiConfig(boolean enabled, int promptTimeoutSeconds, Map<Strin
 
     @ConfigSerializable
     public record Bedrock(boolean enabled, Map<String, String> messages) {
-        private static final Map<String, String> DEFAULTS = Map.of(
-            "title", "Create Home",
-            "description", "Your home will be saved at your location when you submit.",
-            "name-label", "Home name",
-            "placeholder", "Enter a home name",
-            "blank", "Enter a name for your home.",
-            "invalid", "Use 1–32 letters, numbers, dots, underscores, plus signs, or hyphens.",
-            "duplicate", "You already have a home with that name. Choose a different name.",
-            "unavailable", "<yellow>The Bedrock form is unavailable."
+        private static final Map<String, String> DEFAULTS = Map.ofEntries(
+            Map.entry("title", "Create Home"),
+            Map.entry("description", "Your home will be saved at your location when you submit."),
+            Map.entry("name-label", "Home name"),
+            Map.entry("placeholder", "Enter a home name"),
+            Map.entry("blank", "Enter a name for your home."),
+            Map.entry("invalid", "Use 1–32 letters, numbers, dots, underscores, plus signs, or hyphens."),
+            Map.entry("duplicate", "You already have a home with that name. Choose a different name."),
+            Map.entry("unavailable", "<yellow>The Bedrock form is unavailable."),
+            Map.entry("menu-title", "Home"),
+            Map.entry("menu-description", "Homes saved: {count}/{limit}"),
+            Map.entry("set-home", "Set Home"),
+            Map.entry("my-homes", "My Homes"),
+            Map.entry("list-title", "My Homes ({page}/{pages})"),
+            Map.entry("list-description", "Select a home to view its destination and actions."),
+            Map.entry("empty-list", "You have no saved homes yet."),
+            Map.entry("home-title", "{name}"),
+            Map.entry("home-destination", "World: {world}\nX: {x}  Y: {y}  Z: {z}"),
+            Map.entry("teleport", "Teleport"),
+            Map.entry("delete", "Delete"),
+            Map.entry("delete-title", "Delete {name}?"),
+            Map.entry("delete-description", "This archives the home. You can recover it with /homerestore."),
+            Map.entry("confirm-delete", "Confirm deletion"),
+            Map.entry("cancel", "Cancel"),
+            Map.entry("previous", "Previous Page"),
+            Map.entry("next", "Next Page"),
+            Map.entry("back", "Back")
         );
 
         public Bedrock {

@@ -32,7 +32,7 @@ gui:
   enabled: true
   prompt-timeout-seconds: 60
   bedrock:
-    # Show a native form to players recognized by Floodgate on this server.
+    # Use native menus and naming forms for players recognized by Floodgate.
     enabled: true
     messages:
       title: "Create Home"
@@ -43,6 +43,24 @@ gui:
       invalid: "Use 1–32 letters, numbers, dots, underscores, plus signs, or hyphens."
       duplicate: "You already have a home with that name. Choose a different name."
       unavailable: "<yellow>The Bedrock form is unavailable."
+      menu-title: "Home"
+      menu-description: "Homes saved: {count}/{limit}"
+      set-home: "Set Home"
+      my-homes: "My Homes"
+      list-title: "My Homes ({page}/{pages})"
+      list-description: "Select a home to view its destination and actions."
+      empty-list: "You have no saved homes yet."
+      home-title: "{name}"
+      home-destination: "World: {world}\nX: {x}  Y: {y}  Z: {z}"
+      teleport: "Teleport"
+      delete: "Delete"
+      delete-title: "Delete {name}?"
+      delete-description: "This archives the home. You can recover it with /homerestore."
+      confirm-delete: "Confirm deletion"
+      cancel: "Cancel"
+      previous: "Previous Page"
+      next: "Next Page"
+      back: "Back"
   titles:
     menu: "SetHome GUI – Menu"
     homes: "My Homes (<page>/<pages>)"

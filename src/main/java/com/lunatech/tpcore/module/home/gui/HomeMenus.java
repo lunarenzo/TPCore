@@ -2,11 +2,14 @@ package com.lunatech.tpcore.module.home.gui;
 
 import com.lunatech.tpcore.config.model.HomeConfig;
 import com.lunatech.tpcore.constant.Permissions;
-import com.lunatech.tpcore.module.home.hook.HomeNameForm;
+import com.lunatech.tpcore.module.home.hook.HomeForms;
 import com.lunatech.tpcore.module.home.model.HomePage;
 import com.lunatech.tpcore.module.home.service.HomeResultStatus;
 import com.lunatech.tpcore.module.home.service.impl.DefaultHomeService;
 import java.lang.ref.WeakReference;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -15,6 +18,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import org.bukkit.entity.Player;
@@ -36,7 +40,7 @@ public final class HomeMenus {
     private final Supplier<DefaultHomeService> services;
     private final Supplier<HomeConfig> settings;
     private final LongSupplier nanoTime;
-    private final HomeNameForm forms;
+    private final HomeForms forms;
     private final AtomicBoolean formFailureLogged = new AtomicBoolean();
     private final ConcurrentHashMap<UUID, Session> sessions = new ConcurrentHashMap<>();
 
@@ -47,7 +51,7 @@ public final class HomeMenus {
         final DefaultHomeService service;
         UUID view;
         UUID prompt;
-        Consumer<HomeNameForm.Reply> formReply;
+        Consumer<?> formReply;
         volatile long promptDeadline;
         boolean pending;
         boolean closing;
@@ -61,12 +65,12 @@ public final class HomeMenus {
         }
     }
 
-    public HomeMenus(Plugin plugin, Supplier<DefaultHomeService> services, Supplier<HomeConfig> settings, HomeNameForm forms) {
+    public HomeMenus(Plugin plugin, Supplier<DefaultHomeService> services, Supplier<HomeConfig> settings, HomeForms forms) {
         this(plugin, services, settings, System::nanoTime, forms);
     }
 
     HomeMenus(Plugin plugin, Supplier<DefaultHomeService> services, Supplier<HomeConfig> settings, LongSupplier nanoTime,
-        HomeNameForm forms) {
+        HomeForms forms) {
         this.plugin = plugin;
         this.services = services;
         this.settings = settings;
@@ -160,20 +164,20 @@ public final class HomeMenus {
                 }
             }
             case CONFIRM -> {
-                if (click != ClickType.LEFT || !require(player, session, Permissions.HOME_LIST)) return;
+                if (click != ClickType.LEFT) return;
                 if (slot == CANCEL) readList(player, session, holder.page());
-                if (slot == CONFIRM && require(player, session, Permissions.HOME_DEL)) {
-                    HomePage.Entry entry = holder.selected();
-                    long page = holder.page();
-                    complete(player, session, session.service.deleteHome(player, entry), (online, result) -> {
-                        feedback(online, session, "delete", entry.home().name(), result);
-                        if (result == HomeResultStatus.SUCCESS || result == HomeResultStatus.HOME_CHANGED) {
-                            readList(online, session, page);
-                        }
-                    });
-                }
+                if (slot == CONFIRM) delete(player, session, holder.selected(), holder.page());
             }
         }
+    }
+
+    private void delete(Player player, Session session, HomePage.Entry entry, long page) {
+        if (!require(player, session, Permissions.HOME_LIST) || !require(player, session, Permissions.HOME_DEL)) return;
+        complete(player, session, session.service.deleteHome(player, entry), (online, result) -> {
+            feedback(online, session, "delete", entry.home().name(), result);
+            if (result == HomeResultStatus.SUCCESS || result == HomeResultStatus.HOME_CHANGED) readList(online, session, page);
+            else if (session.view == null) forget(session);
+        });
     }
 
     private void travel(Player player, Session session, HomePage.Entry entry, long returnPage) {
@@ -199,8 +203,20 @@ public final class HomeMenus {
             if (session.view == null) forget(session);
             return;
         }
-        open(player, session, HomeMenuRenderer.homes(session.player, UUID.randomUUID(), session.config.gui(), page,
-            player.hasPermission(Permissions.HOME_USE), player.hasPermission(Permissions.HOME_DEL)));
+        if (!nativeMenus(session)) { inventoryList(player, session, page); return; }
+        var text = session.config.gui().bedrock();
+        List<FormButton> buttons = new ArrayList<>();
+        for (var entry : page.entries()) {
+            buttons.add(new FormButton(entry.home().name(), online -> showHomeActions(online, session, page, entry)));
+        }
+        if (page.page() > 1) buttons.add(new FormButton(text.message("previous"), online -> readList(online, session, page.page() - 1)));
+        if (page.page() < page.pages()) buttons.add(new FormButton(text.message("next"), online -> readList(online, session, page.page() + 1)));
+        buttons.add(new FormButton(text.message("back"), online -> fetch(online, session, 1,
+            (owner, first) -> showMain(owner, session, first.total()))));
+        String title = text.message("list-title").replace("{page}", Long.toString(page.page()))
+            .replace("{pages}", Long.toString(page.pages()));
+        showMenu(player, session, title, text.message(page.entries().isEmpty() ? "empty-list" : "list-description"),
+            buttons, () -> inventoryList(player, session, page));
     }
 
     private void showMain(Player player, Session session, long count) {
@@ -209,22 +225,86 @@ public final class HomeMenus {
             if (session.view == null) forget(session);
             return;
         }
-        open(player, session, HomeMenuRenderer.main(session.player, UUID.randomUUID(), session.config.gui(), count,
-            DefaultHomeService.homeLimit(player, session.config), player.hasPermission(Permissions.HOME_SET),
-            player.hasPermission(Permissions.HOME_LIST)));
+        int limit = DefaultHomeService.homeLimit(player, session.config);
+        boolean set = player.hasPermission(Permissions.HOME_SET), list = player.hasPermission(Permissions.HOME_LIST);
+        Runnable fallback = () -> open(player, session,
+            HomeMenuRenderer.main(session.player, UUID.randomUUID(), session.config.gui(), count, limit, set, list));
+        if (!nativeMenus(session)) { fallback.run(); return; }
+        var text = session.config.gui().bedrock();
+        List<FormButton> buttons = new ArrayList<>(2);
+        if (set) buttons.add(new FormButton(text.message("set-home"), online -> {
+            if (require(online, session, Permissions.HOME_SET)) prompt(online, session);
+            else forget(session);
+        }));
+        if (list) buttons.add(new FormButton(text.message("my-homes"), online -> readList(online, session, 1)));
+        String description = text.message("menu-description").replace("{count}", Long.toString(count))
+            .replace("{limit}", limit == Integer.MAX_VALUE ? session.config.gui().messages().get("unlimited") : Integer.toString(limit));
+        showMenu(player, session, text.message("menu-title"), description, buttons, fallback);
+    }
+
+    private void inventoryList(Player player, Session session, HomePage page) {
+        open(player, session, HomeMenuRenderer.homes(session.player, UUID.randomUUID(), session.config.gui(), page,
+            player.hasPermission(Permissions.HOME_USE), player.hasPermission(Permissions.HOME_DEL)));
+    }
+
+    private void showHomeActions(Player player, Session session, HomePage page, HomePage.Entry entry) {
+        if (!require(player, session, Permissions.HOME_LIST)) return;
+        var text = session.config.gui().bedrock();
+        var home = entry.home();
+        List<FormButton> buttons = new ArrayList<>(3);
+        if (player.hasPermission(Permissions.HOME_USE)) buttons.add(new FormButton(text.message("teleport"), online -> {
+            if (require(online, session, Permissions.HOME_LIST)) travel(online, session, entry, page.page());
+        }));
+        if (player.hasPermission(Permissions.HOME_DEL)) buttons.add(new FormButton(text.message("delete"), online -> {
+            if (!require(online, session, Permissions.HOME_LIST) || !require(online, session, Permissions.HOME_DEL)) return;
+            showMenu(online, session, text.message("delete-title").replace("{name}", home.name()),
+                text.message("delete-description"), List.of(
+                    new FormButton(text.message("confirm-delete"), owner -> delete(owner, session, entry, page.page())),
+                    new FormButton(text.message("cancel"), owner -> readList(owner, session, page.page()))),
+                () -> open(online, session, HomeMenuRenderer.confirm(session.player, UUID.randomUUID(), session.config.gui(), page.page(), entry)));
+        }));
+        buttons.add(new FormButton(text.message("back"), online -> readList(online, session, page.page())));
+        String destination = text.message("home-destination")
+            .replace("{x}", String.format(Locale.ROOT, "%.2f", home.x()))
+            .replace("{y}", String.format(Locale.ROOT, "%.2f", home.y()))
+            .replace("{z}", String.format(Locale.ROOT, "%.2f", home.z()))
+            .replace("{world}", home.worldName());
+        showMenu(player, session, text.message("home-title").replace("{name}", home.name()), destination, buttons,
+            () -> inventoryList(player, session, page));
+    }
+
+    private record FormButton(String label, Consumer<Player> action) {}
+
+    private void showMenu(Player player, Session session, String title, String description, List<FormButton> buttons, Runnable fallback) {
+        if (!live(session)) return;
+        boolean replacingInventory = session.view != null;
+        close(player, session);
+        session.promptDeadline = newDeadline(session);
+        var menu = new HomeForms.Menu(title, description, buttons.stream().map(FormButton::label).toList());
+        Runnable deliver = () -> this.<Integer>sendNative(player, session, reply -> forms.sendMenu(session.player, menu, reply), (online, selection) -> {
+            session.promptDeadline = 0;
+            if (selection < 0 || selection >= buttons.size()) { forget(session); return; }
+            buttons.get(selection).action().accept(online);
+            if (!session.pending && session.prompt == null && session.view == null) forget(session);
+        }, fallback);
+        if (replacingInventory) afterInventoryClose(player, session, deliver);
+        else deliver.run();
+    }
+
+    private boolean nativeMenus(Session session) {
+        return session.config.gui().bedrock().enabled() && supportsForms(session.player);
+    }
+
+    private long newDeadline(Session session) {
+        return nanoTime.getAsLong() + TimeUnit.SECONDS.toNanos(session.config.gui().promptTimeoutSeconds());
     }
 
     private void prompt(Player player, Session session) {
         close(player, session);
         session.prompt = UUID.randomUUID();
-        session.promptDeadline = nanoTime.getAsLong() + TimeUnit.SECONDS.toNanos(session.config.gui().promptTimeoutSeconds());
-        if (session.config.gui().bedrock().enabled() && supportsForms(session.player)) {
-            UUID token = session.prompt;
-            if (player.getScheduler().run(plugin, task -> {
-                if (live(session) && token.equals(session.prompt)) {
-                    sendForm(player, session, defaultName(session.config), null);
-                }
-            }, () -> forget(session)) == null) forget(session);
+        session.promptDeadline = newDeadline(session);
+        if (nativeMenus(session)) {
+            afterInventoryClose(player, session, () -> sendForm(player, session, defaultName(session.config), null));
             return;
         }
         String prefix = "/home gui set " + session.prompt + " ";
@@ -238,6 +318,14 @@ public final class HomeMenus {
         }
         send(player, session.config, "<click:run_command:'/home gui cancel " + session.prompt + "'>" + messages.get("cancel-prompt") + "</click>");
         message(player, session.config, "manual-name");
+    }
+
+    private void afterInventoryClose(Player player, Session session, Runnable action) {
+        UUID token = UUID.randomUUID();
+        session.prompt = token;
+        if (player.getScheduler().run(plugin, task -> {
+            if (live(session) && token.equals(session.prompt)) action.run();
+        }, () -> forget(session)) == null) forget(session);
     }
 
     private static String defaultName(HomeConfig config) {
@@ -267,57 +355,65 @@ public final class HomeMenus {
         }
         if (!require(player, session, Permissions.HOME_SET)) { forget(session); return; }
 
-        UUID token = UUID.randomUUID();
-        session.prompt = token;
         var config = session.config.gui().bedrock();
         String description = config.message("description");
         if (error != null) description = config.message(error) + "\n\n" + description;
-        var form = new HomeNameForm.Prompt(config.message("title"), description, config.message("name-label"),
+        var form = new HomeForms.Prompt(config.message("title"), description, config.message("name-label"),
             config.message("placeholder"), value);
+        this.<HomeForms.Reply>sendNative(player, session, reply -> forms.send(session.player, form, reply),
+            (online, reply) -> formResult(online, session, reply), () -> {
+                forget(session);
+                send(player, session.config, config.message("unavailable"));
+                message(player, session.config, "manual-name");
+            });
+    }
+
+    private <T> void sendNative(Player player, Session session, Predicate<Consumer<T>> deliver,
+        BiConsumer<Player, T> action, Runnable fallback) {
+        UUID token = UUID.randomUUID();
+        session.prompt = token;
         var handle = new WeakReference<>(player);
         var scheduler = new WeakReference<>(player.getScheduler());
         var received = new AtomicBoolean();
-        session.formReply = reply -> {
+        Consumer<T> receiver = reply -> {
             if (!received.compareAndSet(false, true) || !live(session)) return;
-            // Do not retain an oversized input in the entity task.
-            String name = reply.name();
-            var bounded = name != null && name.length() > 32
-                ? new HomeNameForm.Reply(HomeNameForm.Outcome.MALFORMED, null) : reply;
             var owner = scheduler.get();
             try {
                 if (owner == null || owner.run(plugin, task -> {
                     Player online = handle.get();
-                    if (online != null && live(session) && token.equals(session.prompt)) {
-                        formResult(online, session, bounded);
-                    }
+                    if (online == null || !live(session) || !token.equals(session.prompt)) return;
+                    session.formReply = null;
+                    session.prompt = null;
+                    if (nanoTime.getAsLong() - session.promptDeadline >= 0) { forget(session); return; }
+                    action.accept(online, reply);
                 }, () -> forget(session)) == null) forget(session);
             } catch (RuntimeException rejected) {
                 forget(session);
                 if (plugin.isEnabled()) logFormFailure(rejected);
             }
         };
+        session.formReply = receiver;
         try {
-            if (forms.send(session.player, form, session.formReply)) return;
+            if (deliver.test(receiver)) return;
         } catch (RuntimeException | LinkageError unavailable) {
             logFormFailure(unavailable);
         }
-        forget(session);
-        send(player, session.config, config.message("unavailable"));
-        message(player, session.config, "manual-name");
-    }
-
-    private void formResult(Player player, Session session, HomeNameForm.Reply reply) {
-        long deadline = session.promptDeadline;
         session.formReply = null;
         session.prompt = null;
-        if (reply.outcome() == HomeNameForm.Outcome.CLOSED || nanoTime.getAsLong() - deadline >= 0) {
+        session.promptDeadline = 0;
+        if (live(session)) fallback.run();
+    }
+
+    private void formResult(Player player, Session session, HomeForms.Reply reply) {
+        long deadline = session.promptDeadline;
+        if (reply.outcome() == HomeForms.Outcome.CLOSED) {
             forget(session);
             return;
         }
         if (!require(player, session, Permissions.HOME_SET)) { forget(session); return; }
         String name = reply.name();
-        if (reply.outcome() == HomeNameForm.Outcome.MALFORMED || !validNewName(name)) {
-            String error = reply.outcome() == HomeNameForm.Outcome.SUBMITTED && (name == null || name.isBlank()) ? "blank" : "invalid";
+        if (reply.outcome() == HomeForms.Outcome.MALFORMED || !validNewName(name)) {
+            String error = reply.outcome() == HomeForms.Outcome.SUBMITTED && (name == null || name.isBlank()) ? "blank" : "invalid";
             sendForm(player, session, "", error);
             return;
         }

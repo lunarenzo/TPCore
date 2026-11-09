@@ -1,14 +1,15 @@
 package com.lunatech.tpcore.module.home.hook.impl;
 
-import com.lunatech.tpcore.module.home.hook.HomeNameForm;
+import com.lunatech.tpcore.module.home.hook.HomeForms;
 import java.lang.ref.WeakReference;
 import java.util.UUID;
 import java.util.function.Consumer;
 import org.geysermc.cumulus.form.CustomForm;
+import org.geysermc.cumulus.form.SimpleForm;
 import org.geysermc.cumulus.response.CustomFormResponse;
 import org.geysermc.floodgate.api.FloodgateApi;
 
-public final class FloodgateHomeNameForm implements HomeNameForm {
+public final class FloodgateHomeForms implements HomeForms {
     @Override public boolean supports(UUID player) {
         var api = FloodgateApi.getInstance();
         return api != null && api.isFloodgatePlayer(player);
@@ -30,13 +31,27 @@ public final class FloodgateHomeNameForm implements HomeNameForm {
 
     private static Reply submitted(CustomFormResponse response) {
         try {
-            return new Reply(Outcome.SUBMITTED, response.asInput());
+            String input = response.asInput();
+            // Bound the data retained in the entity scheduler handoff.
+            return input != null && input.length() > 32 ? new Reply(Outcome.MALFORMED, null)
+                : new Reply(Outcome.SUBMITTED, input);
         } catch (IllegalStateException malformed) {
             return new Reply(Outcome.MALFORMED, null);
         }
     }
 
-    private static void deliver(WeakReference<Consumer<Reply>> receiver, Reply reply) {
+    @Override public boolean sendMenu(UUID player, Menu menu, Consumer<Integer> selection) {
+        var api = FloodgateApi.getInstance();
+        if (api == null) return false;
+        var receiver = new WeakReference<>(selection);
+        var builder = SimpleForm.builder().title(menu.title()).content(menu.description())
+            .closedOrInvalidResultHandler(() -> deliver(receiver, -1))
+            .validResultHandler(response -> deliver(receiver, response.clickedButtonId()));
+        menu.buttons().forEach(builder::button);
+        return api.sendForm(player, builder);
+    }
+
+    private static <T> void deliver(WeakReference<Consumer<T>> receiver, T reply) {
         var callback = receiver.get();
         if (callback != null) callback.accept(reply);
     }

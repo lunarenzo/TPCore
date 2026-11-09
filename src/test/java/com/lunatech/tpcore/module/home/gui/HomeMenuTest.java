@@ -2,7 +2,7 @@ package com.lunatech.tpcore.module.home.gui;
 
 import com.lunatech.tpcore.config.model.HomeConfig;
 import com.lunatech.tpcore.constant.Permissions;
-import com.lunatech.tpcore.module.home.hook.HomeNameForm;
+import com.lunatech.tpcore.module.home.hook.HomeForms;
 import com.lunatech.tpcore.module.home.listener.HomeMenuListener;
 import com.lunatech.tpcore.module.home.model.Home;
 import com.lunatech.tpcore.module.home.model.HomePage;
@@ -218,7 +218,8 @@ class HomeMenuTest {
             fixture.tick();
             fixture.tick();
             fixture.tick();
-            assertEquals(54, fixture.top.getSize());
+            assertEquals("My Homes (1/1)", fixture.forms.menus.getLast().title());
+            assertNull(fixture.top);
             verify(fixture.service).createHome(fixture.player, "home");
         }
     }
@@ -252,7 +253,7 @@ class HomeMenuTest {
         for (int scenario = 0; scenario < 3; scenario++) {
             try (var fixture = new Fixture()) {
                 fixture.beginBedrock();
-                if (scenario == 0) fixture.forms.reply.accept(new HomeNameForm.Reply(HomeNameForm.Outcome.CLOSED, null));
+                if (scenario == 0) fixture.forms.reply.accept(new HomeForms.Reply(HomeForms.Outcome.CLOSED, null));
                 else if (scenario == 1) {
                     fixture.permissions.remove(Permissions.HOME_SET);
                     fixture.forms.submit("base");
@@ -278,7 +279,7 @@ class HomeMenuTest {
             saved.complete(HomeResultStatus.SUCCESS);
             fixture.tick();
             assertTrue(fixture.tasks.isEmpty());
-            verify(fixture.player, times(1)).openInventory(any(Inventory.class));
+            verify(fixture.player, never()).openInventory(any(Inventory.class));
             verify(fixture.service).createHome(fixture.player, "my-base");
             assertTrue(fixture.messages.stream().anyMatch(message -> message.toString().contains("set to your current location")));
         }
@@ -293,18 +294,118 @@ class HomeMenuTest {
         }
     }
 
-    private static final class Forms implements HomeNameForm {
+    @Test void bedrockBrowsePaginatesAndRechecksPermissionBeforeConfirmedDeletion() {
+        try (var fixture = new Fixture()) {
+            fixture.forms.supported = true;
+            fixture.page(29, 1);
+            fixture.page(29, 2);
+            fixture.menus.homes(fixture.player);
+            fixture.tick();
+            assertEquals("My Homes (1/2)", fixture.forms.menus.getLast().title());
+            assertEquals("Next Page", fixture.forms.menus.getLast().buttons().get(28));
+            fixture.forms.choose(28);
+            fixture.tick();
+            fixture.tick();
+            assertEquals(List.of("base28", "Previous Page", "Back"), fixture.forms.menus.getLast().buttons());
+            fixture.forms.choose(0);
+            fixture.tick();
+            assertEquals(List.of("Teleport", "Delete", "Back"), fixture.forms.menus.getLast().buttons());
+            fixture.forms.choose(1);
+            fixture.tick();
+            assertEquals(List.of("Confirm deletion", "Cancel"), fixture.forms.menus.getLast().buttons());
+            verify(fixture.service, never()).deleteHome(any(), any(HomePage.Entry.class));
+            fixture.permissions.remove(Permissions.HOME_DEL);
+            fixture.forms.choose(0);
+            fixture.tick();
+            verify(fixture.service, never()).deleteHome(any(), any(HomePage.Entry.class));
+        }
+    }
+
+    @Test void failedBedrockMenuDeliveryFallsBackToInventory() {
+        try (var fixture = new Fixture()) {
+            fixture.forms.supported = true;
+            fixture.forms.deliversMenu = false;
+            fixture.page(0, 1);
+            fixture.menus.main(fixture.player);
+            fixture.tick();
+            assertEquals(27, fixture.top.getSize());
+        }
+    }
+
+    @Test void duplicateAndStaleBedrockSelectionsDoNotAct() {
+        try (var fixture = new Fixture()) {
+            fixture.forms.supported = true;
+            fixture.page(1, 1);
+            fixture.menus.homes(fixture.player);
+            fixture.tick();
+            var first = fixture.forms.selection;
+            first.accept(0);
+            first.accept(0);
+            assertEquals(1, fixture.tasks.size());
+            fixture.tick();
+            first.accept(0);
+            assertTrue(fixture.tasks.isEmpty());
+            fixture.forms.choose(0);
+            fixture.menus.invalidate();
+            fixture.tick();
+            verify(fixture.service, never()).teleport(any(), any(HomePage.Entry.class));
+        }
+    }
+
+    @Test void bedrockDeleteCancellationAndConfirmationUseTheCurrentPage() {
+        try (var fixture = new Fixture()) {
+            fixture.forms.supported = true;
+            fixture.page(1, 1);
+            fixture.menus.homes(fixture.player);
+            fixture.tick();
+            fixture.forms.choose(0);
+            fixture.tick();
+            fixture.forms.choose(1);
+            fixture.tick();
+            fixture.forms.choose(1);
+            fixture.tick();
+            fixture.tick();
+            assertEquals("My Homes (1/1)", fixture.forms.menus.getLast().title());
+            verify(fixture.service, never()).deleteHome(any(), any(HomePage.Entry.class));
+
+            var entry = fixture.entry(0);
+            when(fixture.service.deleteHome(fixture.player, entry))
+                .thenReturn(CompletableFuture.completedFuture(HomeResultStatus.SUCCESS));
+            fixture.forms.choose(0);
+            fixture.tick();
+            fixture.forms.choose(1);
+            fixture.tick();
+            fixture.page(0, 1);
+            fixture.forms.choose(0);
+            fixture.tick();
+            fixture.tick();
+            fixture.tick();
+            verify(fixture.service).deleteHome(fixture.player, entry);
+            assertEquals(List.of("Back"), fixture.forms.menus.getLast().buttons());
+        }
+    }
+
+    private static final class Forms implements HomeForms {
         boolean supported;
         boolean delivers = true;
+        boolean deliversMenu = true;
         final List<Prompt> prompts = new ArrayList<>();
+        final List<Menu> menus = new ArrayList<>();
         Consumer<Reply> reply;
+        Consumer<Integer> selection;
         @Override public boolean supports(UUID player) { return supported; }
         @Override public boolean send(UUID player, Prompt prompt, Consumer<Reply> response) {
             prompts.add(prompt);
             reply = response;
             return delivers;
         }
+        @Override public boolean sendMenu(UUID player, Menu menu, Consumer<Integer> response) {
+            menus.add(menu);
+            selection = response;
+            return deliversMenu;
+        }
         void submit(String name) { reply.accept(new Reply(Outcome.SUBMITTED, name)); }
+        void choose(int button) { selection.accept(button); }
     }
 
     private static final class Fixture implements AutoCloseable {
@@ -398,7 +499,8 @@ class HomeMenuTest {
             page(0, 1);
             menus.main(player);
             tick();
-            click(11, ClickType.LEFT);
+            assertEquals(List.of("Set Home", "My Homes"), forms.menus.getLast().buttons());
+            forms.choose(0);
             tick();
             assertNull(top);
             assertTrue(forms.prompts.isEmpty());
