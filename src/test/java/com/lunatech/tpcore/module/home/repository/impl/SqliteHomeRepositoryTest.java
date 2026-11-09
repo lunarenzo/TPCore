@@ -7,6 +7,8 @@ import java.sql.DriverManager;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -70,6 +72,64 @@ class SqliteHomeRepositoryTest {
     }
 
     @Test
+    void suggestionsUseLiteralPrefixAcrossTheFullCollectionAndCoalesceQueuedInput() throws Exception {
+        var repo = repository();
+        try (var connection = DriverManager.getConnection(url()); var statement = connection.createStatement()) {
+            for (String name : List.of("alpha", "mine-2", "mine_1", "Mine_2")) repo.save(home(name, 1), false, 10).join();
+            statement.execute("BEGIN IMMEDIATE");
+            var blocker = repo.archive(owner, "absent", 10, RETENTION);
+            var old = repo.suggestNames(owner, "m", 1);
+            var newest = repo.suggestNames(owner, "MINE_", 2);
+            assertEquals(List.of(), old.get(1, TimeUnit.SECONDS));
+            var save = repo.save(home("z", 3), false, 10);
+            statement.execute("COMMIT");
+            assertEquals(HomeResultStatus.HOME_NOT_FOUND, blocker.get(2, TimeUnit.SECONDS));
+            assertEquals(List.of("mine_1", "Mine_2"), newest.get(2, TimeUnit.SECONDS));
+            assertEquals(HomeResultStatus.SUCCESS, save.get(2, TimeUnit.SECONDS));
+        } finally { repo.close().join(); }
+    }
+
+    @Test
+    void shutdownDrainsAcceptedWritesAfterSqliteContentionClears() throws Exception {
+        var repo = repository();
+        try (var connection = DriverManager.getConnection(url()); var statement = connection.createStatement()) {
+            statement.execute("BEGIN IMMEDIATE");
+            var write = repo.archive(owner, "absent", 10, RETENTION);
+            var save = repo.save(home("base", 1), false, 10);
+            var close = repo.close();
+            assertFalse(close.isDone());
+            statement.execute("COMMIT");
+            assertEquals(HomeResultStatus.HOME_NOT_FOUND, write.get(3, TimeUnit.SECONDS));
+            assertEquals(HomeResultStatus.SUCCESS, save.get(3, TimeUnit.SECONDS));
+            close.get(3, TimeUnit.SECONDS);
+        } finally { repo.close().join(); }
+        var reopened = repository();
+        try { assertTrue(reopened.findByName(owner, "base").join().isPresent()); }
+        finally { reopened.close().join(); }
+    }
+
+    @Test
+    void drainDeadlineRejectsQueuedWritesWithoutClosingAnActiveWorker() throws Exception {
+        var repo = new SqliteHomeRepository(directory.toFile(), LoggerFactory.getLogger(getClass()), 8, 1);
+        repo.initialize().join();
+        try (var connection = DriverManager.getConnection(url()); var statement = connection.createStatement()) {
+            statement.execute("BEGIN IMMEDIATE");
+            var blocker = repo.archive(owner, "absent", 10, RETENTION);
+            var queued = repo.save(home("base", 1), false, 10);
+            var close = repo.close();
+            assertInstanceOf(RejectedExecutionException.class,
+                assertThrows(ExecutionException.class, () -> queued.get(3, TimeUnit.SECONDS)).getCause());
+            assertFalse(close.isDone());
+            statement.execute("COMMIT");
+            assertEquals(HomeResultStatus.HOME_NOT_FOUND, blocker.get(3, TimeUnit.SECONDS));
+            close.get(3, TimeUnit.SECONDS);
+        } finally { repo.close().join(); }
+        var reopened = repository();
+        try { assertTrue(reopened.findByName(owner, "base").join().isEmpty()); }
+        finally { reopened.close().join(); }
+    }
+
+    @Test
     void deletionAndArchiveRollbackTogetherAndRestoreHonorsLimits() throws Exception {
         var repo = repository();
         try {
@@ -130,7 +190,7 @@ class SqliteHomeRepositoryTest {
     private String url() { return "jdbc:sqlite:" + directory.resolve("tpcore.db"); }
 
     private SqliteHomeRepository repository() {
-        var repo = new SqliteHomeRepository(directory.toFile(), LoggerFactory.getLogger(getClass()), 8);
+        var repo = new SqliteHomeRepository(directory.toFile(), LoggerFactory.getLogger(getClass()), 8, 10);
         try {
             repo.initialize().join();
             return repo;

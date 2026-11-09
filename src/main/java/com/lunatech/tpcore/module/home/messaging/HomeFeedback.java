@@ -18,7 +18,7 @@ public final class HomeFeedback {
     public static void showStatus(Player player, HomeConfig config, String operation, String home, HomeResultStatus status, int limit, long seconds) {
         var messages = config.messages();
         String template = switch (status) {
-            case SUCCESS -> switch (operation) {
+            case SUCCESS, SAVED_UNSAFE -> switch (operation) {
                 case "set" -> messages.setHomeSuccess();
                 case "delete" -> config.runtime().message("archived");
                 case "restore" -> config.runtime().message("restored");
@@ -38,6 +38,8 @@ public final class HomeFeedback {
         };
         send(player, config, template, Placeholder.unparsed("home", home), Placeholder.unparsed("max", Integer.toString(limit)),
             Placeholder.unparsed("seconds", Long.toString(seconds)));
+        if (status == HomeResultStatus.SAVED_UNSAFE)
+            send(player, config, config.runtime().message("saved-unsafe"), Placeholder.unparsed("home", home));
     }
 
     public static void send(CommandSender sender, HomeConfig config, String template, TagResolver... values) {

@@ -11,7 +11,8 @@ import org.spongepowered.configurate.objectmapping.ConfigSerializable;
 public record HomeRuntimeConfig(
     int storageQueueCapacity, int maxRequests, int maxCooldowns, int timeoutSeconds,
     int safetyFreshnessMillis, int listPageSize, boolean allowLegacyWorldNames, boolean generateChunks,
-    int recoveryCapacity, int recoveryDays, Set<String> hazards, Map<String, String> messages
+    int recoveryCapacity, int recoveryDays, Set<String> hazards, Map<String, String> messages,
+    int stalledWorkReserve, int storageDrainSeconds
 ) {
     private static final Set<String> DEFAULT_HAZARDS = Set.of("MAGMA_BLOCK", "LAVA", "FIRE", "SOUL_FIRE", "CACTUS",
         "SWEET_BERRY_BUSH", "POWDER_SNOW", "WITHER_ROSE", "CAMPFIRE", "SOUL_CAMPFIRE", "POINTED_DRIPSTONE");
@@ -24,6 +25,7 @@ public record HomeRuntimeConfig(
         Map.entry("timed-out", "<prefix><yellow>Your home request timed out before teleporting. Try again shortly.</yellow>"),
         Map.entry("outcome-unknown", "<prefix><yellow>The server has not confirmed your teleport. Wait before trying again.</yellow>"),
         Map.entry("teleport-failed", "<prefix><red>The server did not complete your home teleport.</red>"),
+        Map.entry("saved-unsafe", "<prefix><yellow>Home <home> was saved, but its landing position currently fails the safety check.</yellow>"),
         Map.entry("world-unavailable", "<prefix><red>The saved world is unavailable. Check with staff or reset this home in the intended world.</red>"),
         Map.entry("travel-world-restricted", "<prefix><red>This home's destination world is restricted.</red>"),
         Map.entry("no-permission", "<prefix><red>You no longer have permission to use this home command.</red>"),
@@ -47,6 +49,8 @@ public record HomeRuntimeConfig(
         listPageSize = Math.clamp(listPageSize, 1, 50);
         recoveryCapacity = Math.clamp(recoveryCapacity, 1, 100000);
         recoveryDays = Math.clamp(recoveryDays, 1, 365);
+        stalledWorkReserve = Math.clamp(stalledWorkReserve, 0, 16);
+        storageDrainSeconds = Math.clamp(storageDrainSeconds, 1, 120);
         hazards = hazards == null ? DEFAULT_HAZARDS : hazards.stream().map(s -> s.toUpperCase(Locale.ROOT)).collect(Collectors.toUnmodifiableSet());
         Map<String, String> merged = new HashMap<>(DEFAULT_MESSAGES);
         if (messages != null) merged.putAll(messages);
@@ -54,7 +58,7 @@ public record HomeRuntimeConfig(
     }
 
     public static HomeRuntimeConfig createDefault() {
-        return new HomeRuntimeConfig(64, 32, 2048, 15, 500, 10, true, false, 2048, 7, DEFAULT_HAZARDS, DEFAULT_MESSAGES);
+        return new HomeRuntimeConfig(64, 32, 2048, 15, 500, 10, true, false, 2048, 7, DEFAULT_HAZARDS, DEFAULT_MESSAGES, 2, 10);
     }
 
     public String message(String key) { return messages.get(key); }

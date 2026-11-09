@@ -18,9 +18,11 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.slf4j.Logger;
 
 public final class SqliteHomeRepository implements HomeRepository {
@@ -30,14 +32,26 @@ public final class SqliteHomeRepository implements HomeRepository {
     private final ThreadPoolExecutor io;
     private final AtomicBoolean closing = new AtomicBoolean();
     private final CompletableFuture<Void> stopped = new CompletableFuture<>();
+    private final int drainSeconds;
+    private final Thread shutdownHook;
+    private final AtomicInteger discardedWrites = new AtomicInteger();
+    private final AtomicInteger unsuccessfulWrites = new AtomicInteger();
+    private final AtomicInteger committedWrites = new AtomicInteger();
+    private volatile long drainDeadline;
+    private final Object suggestionLock = new Object();
+    private Suggestion suggestion;
+    private boolean readingSuggestion;
     // Initialized and accessed on the I/O lane; closed after that lane terminates.
     private HikariDataSource pool;
 
-    public SqliteHomeRepository(File directory, Logger logger, int queueCapacity) {
+    public SqliteHomeRepository(File directory, Logger logger, int queueCapacity, int drainSeconds) {
         this.directory = directory;
         this.logger = logger;
+        this.drainSeconds = drainSeconds;
         io = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(queueCapacity),
             Thread.ofVirtual().name("tpcore-home-io-", 0).factory());
+        shutdownHook = Thread.ofPlatform().name("tpcore-home-shutdown").unstarted(this::drainAtJvmExit);
+        Runtime.getRuntime().addShutdownHook(shutdownHook);
     }
 
     @Override public CompletableFuture<Void> initialize() {
@@ -113,6 +127,51 @@ public final class SqliteHomeRepository implements HomeRepository {
         });
     }
 
+    private record Suggestion(UUID owner, String prefix, int limit, CompletableFuture<List<String>> result) {}
+
+    @Override public CompletableFuture<List<String>> suggestNames(UUID owner, String prefix, int limit) {
+        synchronized (suggestionLock) {
+            if (closing.get()) return CompletableFuture.completedFuture(List.of());
+            if (suggestion != null) {
+                if (!suggestion.owner().equals(owner)) return CompletableFuture.completedFuture(List.of());
+                if (readingSuggestion) return CompletableFuture.completedFuture(List.of());
+                var old = suggestion;
+                var latest = new Suggestion(owner, prefix, limit, new CompletableFuture<>());
+                suggestion = latest;
+                old.result().complete(List.of());
+                return latest.result();
+            }
+            // Leave queue capacity for player operations; autocomplete is best effort.
+            if (io.getQueue().remainingCapacity() <= 1 && io.getActiveCount() != 0)
+                return CompletableFuture.completedFuture(List.of());
+            var first = new Suggestion(owner, prefix, limit, new CompletableFuture<>());
+            suggestion = first;
+            submit(() -> {
+                Suggestion current;
+                synchronized (suggestionLock) { readingSuggestion = true; current = suggestion; }
+                try (Connection connection = pool.getConnection();
+                     var statement = connection.prepareStatement(
+                         "SELECT home_name FROM tpcore_homes WHERE owner_uuid=? AND home_name LIKE ? ESCAPE '!' ORDER BY home_name LIMIT ?")) {
+                    statement.setString(1, current.owner().toString());
+                    statement.setString(2, current.prefix().replace("!", "!!").replace("_", "!_").replace("%", "!%") + "%");
+                    statement.setInt(3, current.limit());
+                    List<String> result = new ArrayList<>();
+                    try (var rows = statement.executeQuery()) { while (rows.next()) result.add(rows.getString(1)); }
+                    return List.copyOf(result);
+                }
+            }).whenComplete((names, error) -> {
+                Suggestion current;
+                synchronized (suggestionLock) {
+                    current = suggestion;
+                    suggestion = null;
+                    readingSuggestion = false;
+                }
+                current.result().complete(error == null ? names : List.of());
+            });
+            return first.result();
+        }
+    }
+
     @Override public CompletableFuture<HomePage> page(UUID owner, long requestedPage) {
         return submit(() -> {
             try (Connection connection = pool.getConnection()) {
@@ -164,7 +223,7 @@ public final class SqliteHomeRepository implements HomeRepository {
     }
 
     @Override public CompletableFuture<HomeResultStatus> save(Home home, boolean overwrite, int limit) {
-        return submit(() -> {
+        return submitWrite(() -> {
             try (Connection connection = pool.getConnection()) {
                 return transaction(connection, () -> {
                     boolean exists = exists(connection, home.ownerUuid(), home.name());
@@ -198,7 +257,7 @@ public final class SqliteHomeRepository implements HomeRepository {
     }
 
     private CompletableFuture<HomeResultStatus> archive(UUID owner, String name, HomePage.Entry expected, int capacity, long retentionMillis) {
-        return submit(() -> {
+        return submitWrite(() -> {
             try (Connection connection = pool.getConnection()) {
                 return transaction(connection, () -> {
                     if (expected != null && matching(connection, expected).isEmpty()) return HomeResultStatus.HOME_CHANGED;
@@ -225,7 +284,7 @@ public final class SqliteHomeRepository implements HomeRepository {
     }
 
     @Override public CompletableFuture<HomeResultStatus> restore(UUID owner, String name, int limit, long retentionMillis) {
-        return submit(() -> {
+        return submitWrite(() -> {
             try (Connection connection = pool.getConnection()) {
                 return transaction(connection, () -> {
                     if (exists(connection, owner, name)) return HomeResultStatus.OVERWRITE_REQUIRED;
@@ -283,33 +342,85 @@ public final class SqliteHomeRepository implements HomeRepository {
     }
 
     private <T> CompletableFuture<T> submit(Work<T> work) {
-        CompletableFuture<T> result = new CompletableFuture<>();
-        try {
-            io.execute(() -> {
-                try { result.complete(work.run()); }
-                catch (Exception failure) { result.completeExceptionally(failure); }
-            });
-        } catch (RuntimeException rejected) { result.completeExceptionally(rejected); }
-        return result;
+        return submit(work, false);
+    }
+
+    private CompletableFuture<HomeResultStatus> submitWrite(Work<HomeResultStatus> work) {
+        return submit(work, true);
+    }
+
+    private <T> CompletableFuture<T> submit(Work<T> work, boolean write) {
+        if (closing.get()) return CompletableFuture.failedFuture(new RejectedExecutionException("Home storage is closing"));
+        var task = new StorageTask<>(work, write);
+        try { io.execute(task); }
+        catch (RejectedExecutionException rejected) { task.result.completeExceptionally(rejected); }
+        return task.result;
+    }
+
+    private final class StorageTask<T> implements Runnable {
+        private final Work<T> work;
+        private final boolean write;
+        private final CompletableFuture<T> result = new CompletableFuture<>();
+
+        StorageTask(Work<T> work, boolean write) { this.work = work; this.write = write; }
+
+        void discard() {
+            if (write) discardedWrites.incrementAndGet();
+            result.completeExceptionally(new RejectedExecutionException("Home storage drain deadline expired before execution"));
+        }
+
+        @Override public void run() {
+            long deadline = drainDeadline;
+            if (deadline != 0 && System.nanoTime() - deadline >= 0) { discard(); return; }
+            try {
+                T value = work.run();
+                if (write && closing.get()) {
+                    if (value == HomeResultStatus.SUCCESS) committedWrites.incrementAndGet();
+                    else unsuccessfulWrites.incrementAndGet();
+                }
+                result.complete(value);
+            } catch (Exception failure) {
+                if (write && closing.get()) unsuccessfulWrites.incrementAndGet();
+                result.completeExceptionally(failure);
+            }
+        }
     }
 
     @Override public CompletableFuture<Void> close() {
         if (closing.compareAndSet(false, true)) {
+            drainDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(drainSeconds);
             io.shutdown();
             Thread.startVirtualThread(() -> {
                 try {
-                    if (!io.awaitTermination(10, TimeUnit.SECONDS)) {
-                        logger.warn("Home storage is still draining; keeping its pool open until accepted writes finish");
-                        while (!io.awaitTermination(10, TimeUnit.SECONDS)) {
-                            // Keep accepted writes intact and prevent a replacement lane from opening.
-                        }
+                    if (!io.awaitTermination(Math.max(0, drainDeadline - System.nanoTime()), TimeUnit.NANOSECONDS)) {
+                        var discarded = new ArrayList<Runnable>();
+                        io.getQueue().drainTo(discarded);
+                        for (Runnable item : discarded) ((StorageTask<?>) item).discard();
+                        logger.warn("Home storage drain deadline expired: {} queued writes dropped; any running operation is still unresolved",
+                            discardedWrites.get());
+                        // Do not close a connection while an in-flight transaction owns it.
+                        io.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS);
                     }
                     if (pool != null) pool.close();
+                    logger.info("Home storage drain complete: {} writes committed, {} failed or rejected by policy, {} discarded",
+                        committedWrites.get(), unsuccessfulWrites.get(), discardedWrites.get());
                     stopped.complete(null);
                 } catch (Exception failure) { stopped.completeExceptionally(failure); }
+                finally {
+                    try { Runtime.getRuntime().removeShutdownHook(shutdownHook); }
+                    catch (IllegalStateException shuttingDown) { /* The JVM already started the hook. */ }
+                }
             });
         }
         return stopped;
+    }
+
+    private void drainAtJvmExit() {
+        try { close().get(drainSeconds + 1L, TimeUnit.SECONDS); }
+        catch (Exception incomplete) {
+            logger.error("Home storage did not finish before JVM exit: {} writes committed, {} discarded; an in-flight write may be unresolved",
+                committedWrites.get(), discardedWrites.get(), incomplete);
+        }
     }
 
     @FunctionalInterface

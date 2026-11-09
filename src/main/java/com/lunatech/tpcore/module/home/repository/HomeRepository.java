@@ -14,6 +14,7 @@ public interface HomeRepository {
     CompletableFuture<Optional<Home>> findMatching(HomePage.Entry expected);
     CompletableFuture<HomePage> page(UUID owner, long page);
     CompletableFuture<List<Home>> list(UUID owner, int limit, long offset);
+    CompletableFuture<List<String>> suggestNames(UUID owner, String prefix, int limit);
     CompletableFuture<HomeResultStatus> save(Home home, boolean overwrite, int limit);
     CompletableFuture<HomeResultStatus> archive(UUID owner, String name, int capacity, long retentionMillis);
     CompletableFuture<HomeResultStatus> archiveMatching(HomePage.Entry expected, int capacity, long retentionMillis);

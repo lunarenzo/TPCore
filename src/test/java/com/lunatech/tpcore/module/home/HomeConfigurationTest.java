@@ -2,6 +2,7 @@ package com.lunatech.tpcore.module.home;
 
 import com.lunatech.tpcore.config.ModularConfigManager;
 import com.lunatech.tpcore.config.model.HomeConfig;
+import com.lunatech.tpcore.module.home.service.impl.DefaultHomeService;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
@@ -39,6 +40,8 @@ class HomeConfigurationTest {
         assertEquals(9, existing.warmupSeconds());
         assertEquals(7, existing.runtime().recoveryCapacity());
         assertEquals(64, existing.runtime().storageQueueCapacity());
+        assertEquals(10, existing.runtime().storageDrainSeconds());
+        assertEquals(2, existing.runtime().stalledWorkReserve());
         assertTrue(existing.gui().enabled());
         assertTrue(existing.gui().bedrock().enabled());
         Files.writeString(path, legacy + "gui:\n  enabled: false\n  icons:\n    home:\n      name: My custom home\n");
@@ -47,5 +50,16 @@ class HomeConfigurationTest {
         assertEquals("My custom home", customized.gui().icons().get("home").name());
         assertEquals("CYAN_BED", customized.gui().icons().get("home").material());
         assertEquals(60, customized.gui().promptTimeoutSeconds());
+
+        Files.writeString(path, "world-restrictions:\n  mode: ' whitelist '\n  worlds: [allowed]\n");
+        var whitelist = configManager.tryLoadModuleConfig("home", HomeConfig.class, HomeConfig.createDefault(), false);
+        assertTrue(whitelist.worldRestrictions().validMode());
+        assertFalse(DefaultHomeService.restricted("allowed", whitelist));
+        assertTrue(DefaultHomeService.restricted("other", whitelist));
+        Files.writeString(path, "world-restrictions:\n  mode: WHITELITS\n  worlds: [allowed]\n");
+        var invalid = configManager.tryLoadModuleConfig("home", HomeConfig.class, HomeConfig.createDefault(), false);
+        assertFalse(invalid.worldRestrictions().validMode());
+        assertTrue(DefaultHomeService.restricted("allowed", invalid));
+        assertTrue(DefaultHomeService.restricted("other", invalid));
     }
 }

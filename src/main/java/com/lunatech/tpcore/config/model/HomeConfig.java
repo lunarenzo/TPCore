@@ -1,6 +1,7 @@
 package com.lunatech.tpcore.config.model;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import org.spongepowered.configurate.objectmapping.ConfigSerializable;
 import org.spongepowered.configurate.objectmapping.meta.Comment;
@@ -56,6 +57,7 @@ public record HomeConfig(
         if (gui == null) gui = HomeGuiConfig.createDefault();
         if (benchmark == null) benchmark = HomeBenchmarkConfig.createDefault();
         if (safetyChecks == null) safetyChecks = HomeSafetyConfig.createDefault();
+        if (worldRestrictions == null) worldRestrictions = HomeWorldRestrictions.createDefault();
         if (homeLimits == null) homeLimits = Map.of("default", 3);
         else homeLimits = Map.copyOf(homeLimits);
         if (messages == null) messages = HomeMessages.createDefault();
@@ -117,6 +119,13 @@ public record HomeConfig(
         String mode,
         List<String> worlds
     ) {
+        public HomeWorldRestrictions {
+            mode = mode == null ? "" : mode.strip().toUpperCase(Locale.ROOT);
+            worlds = worlds == null ? List.of() : List.copyOf(worlds);
+        }
+
+        public boolean validMode() { return mode.equals("BLACKLIST") || mode.equals("WHITELIST"); }
+
         public static HomeWorldRestrictions createDefault() {
             return new HomeWorldRestrictions("BLACKLIST", List.of("world_nether_resource", "minigames"));
         }

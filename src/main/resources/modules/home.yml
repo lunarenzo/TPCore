@@ -19,6 +19,8 @@ safety-checks:
   max-nether-height: 128
   max-concurrent-chunk-loads: 8
 world-restrictions:
+  # BLACKLIST blocks the listed worlds. WHITELIST allows only the listed worlds.
+  # Invalid modes are rejected. An empty WHITELIST world list allows no worlds.
   mode: BLACKLIST
   worlds: [world_nether_resource, minigames]
 # Grant tpcore.homes.limit.<tier> or a numeric tpcore.homes.limit.<number>.
@@ -117,12 +119,18 @@ gui:
     cancel-prompt: "<red>[Cancel]"
     prompt-cancelled: "<gray>Home naming cancelled."
     prompt-expired: "<yellow>This naming prompt expired. Open Set Home again."
+    form-expired: "<yellow>This Home form expired. Use /home gui or /homes to open it again."
     disabled: "<yellow>The Home GUI is disabled."
     home-changed: "<yellow>That home was changed or removed. Open the list again to see the latest destination."
 runtime:
   storage-queue-capacity: 64
-  # Also caps unresolved native teleports, with that cap set at server startup.
+  # Time allowed to drain accepted operations on shutdown. Queued writes that miss the deadline are discarded and logged.
+  storage-drain-seconds: 10
+  # Also sets the normal native teleport limit at server startup.
   max-requests: 32
+  # Extra slots per phase (chunk inspections and native teleports) when timed-out server work is still unresolved.
+  # A player with an unresolved dispatched teleport still cannot start a second one.
+  stalled-work-reserve: 2
   max-cooldowns: 2048
   # Applies in addition to the configured warmup.
   timeout-seconds: 15
@@ -146,6 +154,7 @@ runtime:
     timed-out: "<prefix><yellow>Your home request timed out before teleporting. Try again shortly.</yellow>"
     outcome-unknown: "<prefix><yellow>The server has not confirmed your teleport. Wait before trying again.</yellow>"
     teleport-failed: "<prefix><red>The server did not complete your home teleport.</red>"
+    saved-unsafe: "<prefix><yellow>Home <home> was saved, but its landing position currently fails the safety check.</yellow>"
     world-unavailable: "<prefix><red>The saved world is unavailable. Check with staff or reset this home in the intended world.</red>"
     travel-world-restricted: "<prefix><red>This home's destination world is restricted.</red>"
     no-permission: "<prefix><red>You no longer have permission to use this home command.</red>"

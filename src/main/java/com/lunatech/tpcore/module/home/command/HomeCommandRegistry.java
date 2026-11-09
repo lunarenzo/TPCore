@@ -50,10 +50,8 @@ public final class HomeCommandRegistry {
             DefaultHomeService current = service.get();
             if (current == null || !(context.getSource().getSender() instanceof Player player)) return builder.buildFuture();
             String prefix = builder.getRemaining().toLowerCase(Locale.ROOT);
-            return current.list(player.getUniqueId(), settings.get().runtime().listPageSize(), 0).handle((homes, failure) -> {
-                if (failure == null) homes.forEach(home -> {
-                    if (home.name().toLowerCase(Locale.ROOT).startsWith(prefix)) builder.suggest(home.name());
-                });
+            return current.suggestNames(player.getUniqueId(), prefix).handle((homes, failure) -> {
+                if (failure == null) homes.forEach(builder::suggest);
                 return builder.build();
             });
         };

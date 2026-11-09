@@ -37,6 +37,7 @@ public record HomeGuiConfig(boolean enabled, int promptTimeoutSeconds, Map<Strin
         Map.entry("cancel-prompt", "<red>[Cancel]"),
         Map.entry("prompt-cancelled", "<gray>Home naming cancelled."),
         Map.entry("prompt-expired", "<yellow>This naming prompt expired. Open Set Home again."),
+        Map.entry("form-expired", "<yellow>This Home form expired. Use /home gui or /homes to open it again."),
         Map.entry("disabled", "<yellow>The Home GUI is disabled."),
         Map.entry("home-changed", "<yellow>That home was changed or removed. Open the list again to see the latest destination.")
     );

@@ -224,6 +224,18 @@ class HomeMenuTest {
         }
     }
 
+    @Test void lateBedrockSubmissionExplainsExpiryWithoutSaving() {
+        try (var fixture = new Fixture()) {
+            fixture.beginBedrock();
+            fixture.clock.addAndGet(TimeUnit.SECONDS.toNanos(60));
+            fixture.forms.submit("base");
+            fixture.forms.submit("other");
+            fixture.tick();
+            verify(fixture.service, never()).createHome(any(), anyString());
+            assertEquals(1, fixture.messages.stream().filter(message -> message.toString().contains("This Home form expired")).count());
+        }
+    }
+
     @Test void invalidAndDuplicateFormNamesRetryWithinTheOriginalDeadline() {
         try (var fixture = new Fixture()) {
             fixture.beginBedrock();

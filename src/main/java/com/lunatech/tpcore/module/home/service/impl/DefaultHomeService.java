@@ -14,6 +14,7 @@ import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -43,21 +44,35 @@ public final class DefaultHomeService implements HomeService {
     private final Object admission = new Object();
     private final Map<UUID, Request> requests = new ConcurrentHashMap<>();
     private final Map<UUID, Long> cooldowns = new HashMap<>();
+    private final Map<HomeKey, PendingWrites> writes = new HashMap<>();
+    private long admissionSequence;
     private volatile boolean closed;
 
+    private record HomeKey(UUID owner, String name) {
+        HomeKey { name = name.toLowerCase(Locale.ROOT); }
+    }
+
+    private static final class PendingWrites {
+        int count;
+    }
+
+    private record Waiting(WeakReference<Player> player, Home home) {}
     private enum Phase { PREPARING, DISPATCHED, DONE }
     private static final class Request {
         final UUID actor, owner;
         final String name, permission;
         final HomeConfig config;
         final boolean trackCooldown;
+        final long admitted;
         final CompletableFuture<HomeResultStatus> result = new CompletableFuture<>();
         final AtomicReference<Phase> phase = new AtomicReference<>(Phase.PREPARING);
         volatile CompletableFuture<?> observation;
         volatile ScheduledTask warmup;
-        Request(UUID actor, UUID owner, String name, String permission, HomeConfig config, boolean trackCooldown) {
+        Waiting waiting;
+        Request(UUID actor, UUID owner, String name, String permission, HomeConfig config, boolean trackCooldown, long admitted) {
             this.actor = actor; this.owner = owner; this.name = name; this.permission = permission; this.config = config;
             this.trackCooldown = trackCooldown;
+            this.admitted = admitted;
         }
     }
 
@@ -95,7 +110,9 @@ public final class DefaultHomeService implements HomeService {
         Home home = new Home(owner, name, world.getName(), world.getUID(), location.getX(), location.getY(), location.getZ(),
             location.getYaw(), location.getPitch(), System.currentTimeMillis());
         int limit = homeLimit(player, config);
-        return mutate(owner, name, () -> repository.save(home, overwrite, limit));
+        boolean safe = ConcurrentTeleportPipelineEngine.isSafe(location, config);
+        return mutate(owner, name, () -> repository.save(home, overwrite, limit))
+            .thenApply(status -> !safe && status == HomeResultStatus.SUCCESS ? HomeResultStatus.SAVED_UNSAFE : status);
     }
 
     @Override public CompletableFuture<HomeResultStatus> deleteHome(Player player, String name) {
@@ -123,21 +140,54 @@ public final class DefaultHomeService implements HomeService {
     }
 
     private CompletableFuture<HomeResultStatus> mutate(UUID owner, String name, Supplier<CompletableFuture<HomeResultStatus>> write) {
-        List<Request> invalidated = new ArrayList<>();
+        var key = new HomeKey(owner, name);
+        PendingWrites pending;
+        long sequence;
         CompletableFuture<HomeResultStatus> result;
         synchronized (admission) {
             HomeResultStatus available = availability();
             if (available != HomeResultStatus.SUCCESS) return done(available);
             result = write.get();
-            if (!result.isCompletedExceptionally()) {
-                for (Request request : requests.values()) {
-                    if (owner.equals(request.owner) && name.equalsIgnoreCase(request.name)
-                        && request.phase.compareAndSet(Phase.PREPARING, Phase.DONE)) invalidated.add(request);
+            sequence = ++admissionSequence;
+            pending = writes.computeIfAbsent(key, ignored -> new PendingWrites());
+            pending.count++;
+        }
+        return result.handle((status, error) -> {
+            List<Request> invalidated = new ArrayList<>();
+            Map<Request, Waiting> resume = new HashMap<>();
+            synchronized (admission) {
+                if (status == HomeResultStatus.SUCCESS) {
+                    for (Request request : requests.values()) {
+                        if (request.admitted < sequence && owner.equals(request.owner) && name.equalsIgnoreCase(request.name)
+                            && request.phase.compareAndSet(Phase.PREPARING, Phase.DONE)) invalidated.add(request);
+                    }
+                }
+                if (--pending.count == 0) {
+                    writes.remove(key);
+                    for (Request request : requests.values()) {
+                        if (request.waiting != null && owner.equals(request.owner) && name.equalsIgnoreCase(request.name)) {
+                            if (request.phase.get() == Phase.PREPARING) resume.put(request, request.waiting);
+                            request.waiting = null;
+                        }
+                    }
                 }
             }
+            invalidated.forEach(request -> finish(request, HomeResultStatus.HOME_CHANGED));
+            resume.forEach((request, waiting) -> {
+                Player online = waiting.player().get();
+                if (online != null) onOwner(request, online, () -> inspect(request, online, waiting.home()), 0);
+                else cancel(request, HomeResultStatus.CANCELLED);
+            });
+            return error == null ? status : storageFailure("write", error);
+        });
+    }
+
+    public CompletableFuture<List<String>> suggestNames(UUID owner, String prefix) {
+        synchronized (admission) {
+            if (availability() != HomeResultStatus.SUCCESS || prefix.length() > 32 || (!prefix.isEmpty() && !valid(prefix)))
+                return CompletableFuture.completedFuture(List.of());
+            return repository.suggestNames(owner, prefix, settings.get().runtime().listPageSize());
         }
-        invalidated.forEach(request -> finish(request, HomeResultStatus.CANCELLED));
-        return result.exceptionally(error -> storageFailure("write", error));
     }
 
     @Override public CompletableFuture<List<Home>> list(UUID owner, int limit, long offset) {
@@ -188,7 +238,7 @@ public final class DefaultHomeService implements HomeService {
             }
             if (!bypassCooldown && !cooldowns.containsKey(actor)
                 && cooldowns.size() + requests.size() >= config.runtime().maxCooldowns()) return done(HomeResultStatus.BUSY);
-            request = new Request(actor, owner, name, permission, config, !respawn);
+            request = new Request(actor, owner, name, permission, config, !respawn, ++admissionSequence);
             requests.put(actor, request);
             lookup = expected == null ? repository.findByName(owner, name) : repository.findMatching(expected);
         }
@@ -240,7 +290,7 @@ public final class DefaultHomeService implements HomeService {
         var target = ConcurrentTeleportPipelineEngine.position(home, world);
         var inspection = engine.inspect(target, request.config);
         request.observation = inspection;
-        if (!preparing(request)) inspection.complete(HomeResultStatus.CANCELLED);
+        if (!preparing(request)) inspection.cancel(false);
         inspection.whenComplete((status, error) -> {
             request.observation = null;
             if (!preparing(request)) return;
@@ -259,30 +309,38 @@ public final class DefaultHomeService implements HomeService {
                         cancel(request, HomeResultStatus.WORLD_UNAVAILABLE);
                         return;
                     }
-                    dispatch(request, player, target);
+                    dispatch(request, player, home, target);
                 }, 0);
             }
         });
     }
 
-    private void dispatch(Request request, Player player, Location target) {
+    private void dispatch(Request request, Player player, Home home, Location target) {
         if (!authorized(request, player)) return;
         boolean applyCooldown = request.trackCooldown && !player.hasPermission(Permissions.HOME_BYPASS_COOLDOWN);
         if (applyCooldown && remainingCooldown(request.actor) > 0) {
             cancel(request, HomeResultStatus.COOLDOWN_ACTIVE);
             return;
         }
-        UUID ticket = engine.reserveDispatch(request.actor);
-        if (ticket == null) { cancel(request, HomeResultStatus.BUSY); return; }
         var outcome = new CompletableFuture<Boolean>();
-        boolean claimed;
+        PendingWrites pending;
+        boolean claimed = false;
+        boolean busy = false;
         synchronized (admission) {
-            claimed = !closed && settings.get() == request.config && request.phase.compareAndSet(Phase.PREPARING, Phase.DISPATCHED);
-            if (claimed) request.observation = outcome;
+            pending = writes.get(new HomeKey(request.owner, request.name));
+            if (pending != null) request.waiting = new Waiting(new WeakReference<>(player), home);
+            else if (!closed && settings.get() == request.config && request.phase.get() == Phase.PREPARING) {
+                busy = !engine.reserveDispatch(request.actor, request.config.runtime().stalledWorkReserve());
+                if (!busy) {
+                    request.observation = outcome;
+                    claimed = request.phase.compareAndSet(Phase.PREPARING, Phase.DISPATCHED);
+                    if (!claimed) engine.releaseDispatch(request.actor);
+                }
+            }
         }
+        if (pending != null) return; // Inspect again after the last write; this landing may no longer be fresh.
         if (!claimed) {
-            engine.releaseDispatch(request.actor, ticket);
-            cancel(request, HomeResultStatus.CANCELLED);
+            cancel(request, busy ? HomeResultStatus.BUSY : HomeResultStatus.CANCELLED);
             return;
         }
         outcome.whenComplete((success, failure) -> {
@@ -296,8 +354,8 @@ public final class DefaultHomeService implements HomeService {
             }
             finish(request, Boolean.TRUE.equals(success) ? HomeResultStatus.SUCCESS : HomeResultStatus.TELEPORT_FAILED);
         });
-        if (request.phase.get() == Phase.DISPATCHED) engine.teleport(player, target, request.actor, ticket, outcome);
-        else engine.releaseDispatch(request.actor, ticket);
+        if (request.phase.get() == Phase.DISPATCHED) engine.teleport(player, target, request.actor, outcome);
+        else engine.releaseDispatch(request.actor);
     }
 
     private boolean authorized(Request request, Player player) {
@@ -409,7 +467,7 @@ public final class DefaultHomeService implements HomeService {
         var rule = config.worldRestrictions();
         if (rule == null || rule.worlds() == null) return false;
         boolean listed = rule.worlds().stream().anyMatch(world::equalsIgnoreCase);
-        return "WHITELIST".equalsIgnoreCase(rule.mode()) ? !listed : listed;
+        return !rule.validMode() || ("WHITELIST".equals(rule.mode()) ? !listed : listed);
     }
 
     public HomeResultStatus storageFailure(String operation, Throwable failure) {

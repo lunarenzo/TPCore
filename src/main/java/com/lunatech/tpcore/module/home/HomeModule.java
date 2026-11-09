@@ -57,13 +57,15 @@ public final class HomeModule implements ReloadableModule {
         var applied = new CompletableFuture<Boolean>();
         try {
             HomeConfig next = configManager.tryLoadModuleConfig("home", HomeConfig.class, HomeConfig.createDefault(), false);
+            if (!validWorldRules(next)) return false;
             long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(next.runtime().timeoutSeconds());
             Bukkit.getGlobalRegionScheduler().execute(plugin, () -> {
                 if (!claimed.compareAndSet(false, true)) return;
                 if (System.nanoTime() - deadline >= 0 || !plugin.isEnabled()) { applied.complete(false); return; }
                 try {
                     boolean restart = !next.enabled() || service == null || !service.ready()
-                        || next.runtime().storageQueueCapacity() != config.runtime().storageQueueCapacity();
+                        || next.runtime().storageQueueCapacity() != config.runtime().storageQueueCapacity()
+                        || next.runtime().storageDrainSeconds() != config.runtime().storageDrainSeconds();
                     config = next;
                     menus.invalidate();
                     if (restart) {
@@ -92,11 +94,19 @@ public final class HomeModule implements ReloadableModule {
             plugin.getServer().getPluginManager().registerEvents(new HomeMenuListener(menus), plugin);
             commandsRegistered = true;
         }
-        if (config.enabled() && service == null) start();
+        if (config.enabled() && service == null && validWorldRules(config)) start();
+    }
+
+    private boolean validWorldRules(HomeConfig candidate) {
+        if (candidate.worldRestrictions().validMode()) return true;
+        plugin.getSLF4JLogger().error("Invalid Home world-restrictions.mode '{}'; use BLACKLIST or WHITELIST. Configuration not applied.",
+            candidate.worldRestrictions().mode());
+        return false;
     }
 
     private void start() {
-        var repository = new SqliteHomeRepository(plugin.getDataFolder(), plugin.getSLF4JLogger(), config.runtime().storageQueueCapacity());
+        var repository = new SqliteHomeRepository(plugin.getDataFolder(), plugin.getSLF4JLogger(),
+            config.runtime().storageQueueCapacity(), config.runtime().storageDrainSeconds());
         service = new DefaultHomeService(plugin, repository, () -> config, engine);
         listener = new HomeTravelListener(plugin, () -> service, () -> config);
         plugin.getServer().getPluginManager().registerEvents(listener, plugin);

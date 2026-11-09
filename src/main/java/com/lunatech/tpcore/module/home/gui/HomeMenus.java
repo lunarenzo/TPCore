@@ -281,7 +281,8 @@ public final class HomeMenus {
         close(player, session);
         session.promptDeadline = newDeadline(session);
         var menu = new HomeForms.Menu(title, description, buttons.stream().map(FormButton::label).toList());
-        Runnable deliver = () -> this.<Integer>sendNative(player, session, reply -> forms.sendMenu(session.player, menu, reply), (online, selection) -> {
+        Runnable deliver = () -> this.<Integer>sendNative(player, session, reply -> forms.sendMenu(session.player, menu, reply),
+            selection -> selection >= 0, (online, selection) -> {
             session.promptDeadline = 0;
             if (selection < 0 || selection >= buttons.size()) { forget(session); return; }
             buttons.get(selection).action().accept(online);
@@ -361,6 +362,7 @@ public final class HomeMenus {
         var form = new HomeForms.Prompt(config.message("title"), description, config.message("name-label"),
             config.message("placeholder"), value);
         this.<HomeForms.Reply>sendNative(player, session, reply -> forms.send(session.player, form, reply),
+            reply -> reply.outcome() != HomeForms.Outcome.CLOSED,
             (online, reply) -> formResult(online, session, reply), () -> {
                 forget(session);
                 send(player, session.config, config.message("unavailable"));
@@ -369,7 +371,7 @@ public final class HomeMenus {
     }
 
     private <T> void sendNative(Player player, Session session, Predicate<Consumer<T>> deliver,
-        BiConsumer<Player, T> action, Runnable fallback) {
+        Predicate<T> submitted, BiConsumer<Player, T> action, Runnable fallback) {
         UUID token = UUID.randomUUID();
         session.prompt = token;
         var handle = new WeakReference<>(player);
@@ -384,7 +386,11 @@ public final class HomeMenus {
                     if (online == null || !live(session) || !token.equals(session.prompt)) return;
                     session.formReply = null;
                     session.prompt = null;
-                    if (nanoTime.getAsLong() - session.promptDeadline >= 0) { forget(session); return; }
+                    if (nanoTime.getAsLong() - session.promptDeadline >= 0) {
+                        forget(session);
+                        if (submitted.test(reply)) message(online, session.config, "form-expired");
+                        return;
+                    }
                     action.accept(online, reply);
                 }, () -> forget(session)) == null) forget(session);
             } catch (RuntimeException rejected) {
@@ -432,7 +438,7 @@ public final class HomeMenus {
                 return;
             }
             feedback(online, session, "set", name, result);
-            if (result == HomeResultStatus.SUCCESS && !session.viewReplaced && online.hasPermission(Permissions.HOME_LIST)) {
+            if (result.saved() && !session.viewReplaced && online.hasPermission(Permissions.HOME_LIST)) {
                 readList(online, session, 1);
             } else forget(session);
         });
