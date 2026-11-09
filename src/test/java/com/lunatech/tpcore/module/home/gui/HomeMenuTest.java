@@ -528,7 +528,7 @@ class HomeMenuTest {
         HomeMenuHolder holder() { return (HomeMenuHolder) top.getHolder(false); }
         void enablePricing() {
             config = spy(config);
-            doReturn(new HomeEconomyConfig(true, "4.50", "8.25", 256, 512, Map.of())).when(config).economy();
+            doReturn(new HomeEconomyConfig(true, "4.50", "8.25", 256, 512, Set.of(), Map.of())).when(config).economy();
         }
         Material materialAt(int slot) { return materials.get(slots.get(top).get(slot)); }
         HomePage.Entry entry(int index) {

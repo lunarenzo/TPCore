@@ -47,6 +47,7 @@ class HomeConfigurationTest {
         assertTrue(existing.gui().bedrock().enabled());
         assertFalse(existing.economy().enabled());
         assertEquals(0, existing.economy().cost(true).signum());
+        assertTrue(existing.economy().legacyAsyncProviders().isEmpty());
         Files.writeString(path, legacy + "gui:\n  enabled: false\n  icons:\n    home:\n      name: My custom home\n");
         var customized = configManager.loadModuleConfig("home", HomeConfig.class, HomeConfig.createDefault(), false);
         assertFalse(customized.gui().enabled());
@@ -65,11 +66,12 @@ class HomeConfigurationTest {
         assertTrue(DefaultHomeService.restricted("allowed", invalid));
         assertTrue(DefaultHomeService.restricted("other", invalid));
 
-        Files.writeString(path, "economy:\n  enabled: true\n  teleport-cost: '1.25'\n");
+        Files.writeString(path, "economy:\n  enabled: true\n  teleport-cost: '1.25'\n  legacy-async-providers: [TestBank/test.Bank]\n");
         var priced = configManager.tryLoadModuleConfig("home", HomeConfig.class, HomeConfig.createDefault(), false);
         assertEquals(new BigDecimal("1.25"), priced.economy().cost(false));
         assertEquals(0, priced.economy().cost(true).signum());
         assertEquals(256, priced.economy().maxUnresolvedPayments());
+        assertTrue(priced.economy().legacyAsyncProviders().contains("TestBank/test.Bank"));
         Files.writeString(path, "economy:\n  enabled: true\n  teleport-cost: '-1.00'\n");
         assertThrows(Exception.class, () -> configManager.tryLoadModuleConfig("home", HomeConfig.class, HomeConfig.createDefault(), false));
     }

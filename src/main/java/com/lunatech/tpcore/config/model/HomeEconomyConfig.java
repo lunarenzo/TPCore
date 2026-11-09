@@ -2,11 +2,12 @@ package com.lunatech.tpcore.config.model;
 
 import java.math.BigDecimal;
 import java.util.Map;
+import java.util.Set;
 import org.spongepowered.configurate.objectmapping.ConfigSerializable;
 
 @ConfigSerializable
 public record HomeEconomyConfig(boolean enabled, String teleportCost, String createCost,
-    int maxUnresolvedPayments, int paymentHistoryLimit, Map<String, String> messages) {
+    int maxUnresolvedPayments, int paymentHistoryLimit, Set<String> legacyAsyncProviders, Map<String, String> messages) {
 
     private static final Map<String, String> DEFAULT_MESSAGES = Map.ofEntries(
         Map.entry("fee", "<gray>Home fee: <gold><amount></gold>.</gray>"),
@@ -28,6 +29,11 @@ public record HomeEconomyConfig(boolean enabled, String teleportCost, String cre
         if (maxUnresolvedPayments < 1 || maxUnresolvedPayments > 4096 || paymentHistoryLimit < 1 || paymentHistoryLimit > 4096)
             throw new IllegalArgumentException("Home payment limits must be between 1 and 4096");
         messages = messages == null ? Map.of() : Map.copyOf(messages);
+        legacyAsyncProviders = legacyAsyncProviders == null ? Set.of() : Set.copyOf(legacyAsyncProviders);
+        for (String provider : legacyAsyncProviders) {
+            if (!provider.matches("[^/\\s]+/[^/\\s]+"))
+                throw new IllegalArgumentException("Home legacy economy providers must use PluginName/provider.class.Name");
+        }
     }
 
     private static String validate(String amount) {
@@ -43,6 +49,6 @@ public record HomeEconomyConfig(boolean enabled, String teleportCost, String cre
     public String message(String key) { return messages.getOrDefault(key, DEFAULT_MESSAGES.get(key)); }
 
     public static HomeEconomyConfig createDefault() {
-        return new HomeEconomyConfig(false, "0.00", "0.00", 256, 512, Map.of());
+        return new HomeEconomyConfig(false, "0.00", "0.00", 256, 512, Set.of(), Map.of());
     }
 }

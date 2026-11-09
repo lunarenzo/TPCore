@@ -128,6 +128,10 @@ economy:
   create-cost: "0.00"
   max-unresolved-payments: 256
   payment-history-limit: 512
+  # Home prefers native async VaultUnlocked. For classic Vault, add the exact
+  # PluginName/provider.class.Name reported by Home in the server log.
+  # Only list providers whose balance, debit and refund calls support worker-thread use.
+  legacy-async-providers: []
   messages:
     fee: "<gray>Home fee: <gold><amount></gold>.</gray>"
     menu-fee: "Fee: <amount>"

@@ -49,6 +49,7 @@ public final class HomeEconomy {
     private final Map<UUID, Attempt> active;
     private volatile boolean closed;
     private VaultHomeAdapter adapter;
+    private String warnedLegacy;
 
     public HomeEconomy(Plugin plugin, HomeRepository repository, BankLane lane) {
         this(plugin, repository, lane, null);
@@ -59,14 +60,30 @@ public final class HomeEconomy {
         this.repository = repository;
         executor = lane.io;
         active = lane.active;
-        this.provider = provider == null ? this::discover : provider;
+        this.provider = provider;
     }
 
-    private synchronized Bank discover() {
+    private synchronized Bank discover(HomeEconomyConfig config, int timeoutSeconds) {
         try {
             if (adapter == null) adapter = new VaultHomeAdapter(plugin.getClass().getClassLoader());
-            return adapter.provider();
+            Bank nativeBank = adapter.provider();
+            if (nativeBank != null) return nativeBank;
         } catch (ReflectiveOperationException | LinkageError | RuntimeException unavailable) {
+            // Classic Vault does not export the native async API.
+        }
+        try {
+            var legacy = LegacyVaultHomeAdapter.discover(plugin, executor, timeoutSeconds);
+            if (legacy == null) return null;
+            String identity = legacy.identity();
+            if (config.legacyAsyncProviders().contains(identity)) return legacy;
+            if (!identity.equals(warnedLegacy)) {
+                warnedLegacy = identity;
+                plugin.getSLF4JLogger().warn(
+                    "Home found legacy Vault provider '{}'. Allow it under economy.legacy-async-providers only if its economy calls support worker-thread use.",
+                    identity);
+            }
+            return null;
+        } catch (LinkageError | RuntimeException unavailable) {
             return null;
         }
     }
@@ -82,7 +99,7 @@ public final class HomeEconomy {
     }
 
     public Attempt charge(UUID player, String home, Action action, BigDecimal cost, HomeConfig config, Consumer<BigDecimal> refunded) {
-        var attempt = new Attempt(player, home, action, cost, config.economy(), refunded);
+        var attempt = new Attempt(player, home, action, cost, config.economy(), config.runtime().timeoutSeconds(), refunded);
         synchronized (active) {
             if (active.containsKey(player)) {
                 attempt.ready.complete(HomeResultStatus.PAYMENT_PENDING);
@@ -128,6 +145,7 @@ public final class HomeEconomy {
         private final Action action;
         private final BigDecimal cost;
         private final HomeEconomyConfig config;
+        private final int timeoutSeconds;
         private final Consumer<BigDecimal> refunded;
         private final State debitedState;
         private final CompletableFuture<HomeResultStatus> ready = new CompletableFuture<>();
@@ -136,8 +154,10 @@ public final class HomeEconomy {
         private volatile Bank bank;
         private volatile BigDecimal debit;
 
-        private Attempt(UUID player, String home, Action action, BigDecimal cost, HomeEconomyConfig config, Consumer<BigDecimal> refunded) {
+        private Attempt(UUID player, String home, Action action, BigDecimal cost, HomeEconomyConfig config, int timeoutSeconds,
+            Consumer<BigDecimal> refunded) {
             this.player = player; this.home = home; this.action = action; this.cost = cost; this.config = config; this.refunded = refunded;
+            this.timeoutSeconds = timeoutSeconds;
             debitedState = action == Action.CREATE ? State.DEBITED : State.TELEPORT_PENDING;
         }
 
@@ -152,7 +172,7 @@ public final class HomeEconomy {
         }
 
         private void start() {
-            work(provider).whenComplete((selected, failure) -> {
+            work(() -> provider == null ? discover(config, timeoutSeconds) : provider.get()).whenComplete((selected, failure) -> {
                 if (failure != null || selected == null || closed || decision.get() == Decision.ABORTED) {
                     fail(HomeResultStatus.ECONOMY_UNAVAILABLE);
                     return;
