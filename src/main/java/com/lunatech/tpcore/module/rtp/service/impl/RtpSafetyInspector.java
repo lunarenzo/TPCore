@@ -219,13 +219,6 @@ public final class RtpSafetyInspector {
     }
 
     private boolean isBiomeBlacklisted(String biomeKey, RtpWorldConfig config) {
-        if (biomeKey == null || biomeKey.isEmpty()) return !config.biomeWhitelist().isEmpty();
-        if (!config.biomeWhitelist().isEmpty() && config.biomeWhitelist().stream().noneMatch(value -> biomeKey.equalsIgnoreCase(value))) return true;
-        for (String blacklisted : config.biomeBlacklist()) {
-            if (biomeKey.contains(blacklisted.toUpperCase())) {
-                return true;
-            }
-        }
-        return false;
+        return !config.allowsBiome(biomeKey);
     }
 }

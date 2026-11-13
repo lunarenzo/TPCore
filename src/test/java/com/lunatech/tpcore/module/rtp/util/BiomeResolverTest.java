@@ -22,4 +22,9 @@ final class BiomeResolverTest {
         String result = BiomeResolver.getBiomeKey(mockBlock);
         Assertions.assertNotNull(result);
     }
+    @Test void preservesCustomNamespacesInsteadOfMatchingVanillaBiomeNames() {
+        Assertions.assertEquals("PLAINS", BiomeResolver.normalizeKey("minecraft:plains"));
+        Assertions.assertEquals("CUSTOM:PLAINS", BiomeResolver.normalizeKey("custom:plains"));
+    }
+
 }

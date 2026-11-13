@@ -30,6 +30,10 @@ dependencies:
       join-classpath: true
 
 permissions:
+  tpcore.rtp.bypass.cost:
+    default: false
+  tpcore.rtp.admin.payments:
+    default: op
   tpcore.home.use:
     default: true
   tpcore.home.set:

@@ -1,6 +1,8 @@
 package com.lunatech.tpcore.module.rtp.command;
 
 import com.lunatech.tpcore.constant.Permissions;
+import com.lunatech.tpcore.module.rtp.economy.RtpEconomy;
+import com.lunatech.tpcore.module.rtp.repository.impl.SqliteRtpPaymentRepository;
 import com.lunatech.tpcore.module.rtp.config.RtpConfig;
 import com.lunatech.tpcore.module.rtp.service.RtpService;
 import com.mojang.brigadier.Command;
@@ -32,6 +34,8 @@ public final class RtpCommandRegistry {
     private final Supplier<RtpService> rtpServiceSupplier;
     private final Supplier<RtpConfig> configSupplier;
     private final BooleanSupplier reloadAction;
+    private final Supplier<SqliteRtpPaymentRepository> paymentRepository;
+    private final Supplier<RtpEconomy> economy;
     private final AtomicBoolean reloading = new AtomicBoolean();
     private final MiniMessage miniMessage = MiniMessage.miniMessage();
 
@@ -39,8 +43,9 @@ public final class RtpCommandRegistry {
         JavaPlugin plugin,
         Supplier<RtpService> rtpServiceSupplier,
         Supplier<RtpConfig> configSupplier,
-        BooleanSupplier reloadAction
+        BooleanSupplier reloadAction, Supplier<SqliteRtpPaymentRepository> paymentRepository, Supplier<RtpEconomy> economy
     ) {
+        this.paymentRepository = paymentRepository; this.economy = economy;
         this.plugin = Objects.requireNonNull(plugin, "plugin cannot be null");
         this.rtpServiceSupplier = Objects.requireNonNull(rtpServiceSupplier, "rtpServiceSupplier cannot be null");
         this.configSupplier = Objects.requireNonNull(configSupplier, "configSupplier cannot be null");
@@ -50,6 +55,7 @@ public final class RtpCommandRegistry {
     public void registerAll() {
         this.plugin.getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS, event -> {
             final Commands commands = event.registrar();
+            new RtpPaymentCommands(plugin, configSupplier, paymentRepository, economy).register(commands);
 
             commands.register(
                 Commands.literal("rtp")

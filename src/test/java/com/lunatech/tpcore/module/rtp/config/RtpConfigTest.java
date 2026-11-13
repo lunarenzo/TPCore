@@ -59,4 +59,20 @@ final class RtpConfigTest {
         Assertions.assertSame(initial, configs.getActiveConfig());
     }
 
+    @Test void biomeWhitelistIsExactNormalizedAndCannotOverrideTheBlacklist() {
+        var policy = new RtpWorldConfig("world", true, 0, 1000, 0, 0, "CIRCLE", List.of("OCEAN"),
+            List.of(" minecraft:plains ", "ocean"), 4, 0, 0, 0, false);
+        Assertions.assertTrue(policy.allowsBiome("PLAINS"));
+        Assertions.assertTrue(policy.allowsBiome("minecraft:plains"));
+        Assertions.assertFalse(policy.allowsBiome("custom:plains"));
+        Assertions.assertFalse(policy.allowsBiome("SUNFLOWER_PLAINS"));
+        Assertions.assertFalse(policy.allowsBiome("OCEAN"));
+        Assertions.assertFalse(policy.allowsBiome(""));
+    }
+    @Test void pricesPreserveDecimalsAndRejectInvalidValues() {
+        var policy = new RtpWorldConfig("world", true, 0, 1000, 0, 0, "CIRCLE", List.of(), List.of(), 4, 0, 0, "0.001", false, false);
+        Assertions.assertEquals("0.001", policy.price().toPlainString());
+        Assertions.assertThrows(IllegalArgumentException.class, () -> new RtpWorldConfig("world", true, 0, 1000, 0, 0, "CIRCLE", List.of(), List.of(), 4, 0, 0, "-1", false, false));
+    }
+
 }

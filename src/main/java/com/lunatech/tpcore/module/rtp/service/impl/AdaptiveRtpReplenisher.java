@@ -4,7 +4,6 @@ import com.lunatech.tpcore.module.rtp.cache.impl.LockFreeCandidateBuffer;
 import com.lunatech.tpcore.module.rtp.config.RtpConfig;
 import com.lunatech.tpcore.module.rtp.config.RtpConfigManager;
 import com.lunatech.tpcore.module.rtp.config.RtpWorldConfig;
-import com.lunatech.tpcore.module.rtp.index.RoaringRegionIndex;
 import com.lunatech.tpcore.module.rtp.model.RtpCandidate;
 import com.lunatech.tpcore.module.rtp.repository.RtpCacheRepository;
 import com.lunatech.tpcore.module.rtp.util.PackedLocation;
@@ -33,11 +32,11 @@ public final class AdaptiveRtpReplenisher {
     private final RtpConfigManager configManager;
     private final RtpSafetyInspector safetyInspector;
     private final RtpCacheRepository repository;
-    private final RoaringRegionIndex spatialIndex;
     private final Logger logger;
 
     private final Map<UUID, LockFreeCandidateBuffer> bufferMap = new ConcurrentHashMap<>();
     private final Map<UUID, Long> lastDemandMap = new ConcurrentHashMap<>();
+    private final Map<UUID, LockFreeCandidateBuffer> restoring = new ConcurrentHashMap<>();
     private final Map<UUID, AtomicBoolean> generatingMap = new ConcurrentHashMap<>();
     private ScheduledTask task;
     private volatile boolean stopped;
@@ -53,14 +52,12 @@ public final class AdaptiveRtpReplenisher {
         RtpConfigManager configManager,
         RtpSafetyInspector safetyInspector,
         RtpCacheRepository repository,
-        RoaringRegionIndex spatialIndex,
         Logger logger
     ) {
         this.plugin = Objects.requireNonNull(plugin, "plugin cannot be null");
         this.configManager = Objects.requireNonNull(configManager, "configManager cannot be null");
         this.safetyInspector = Objects.requireNonNull(safetyInspector, "safetyInspector cannot be null");
         this.repository = Objects.requireNonNull(repository, "repository cannot be null");
-        this.spatialIndex = Objects.requireNonNull(spatialIndex, "spatialIndex cannot be null");
         this.logger = Objects.requireNonNull(logger, "logger cannot be null");
     }
 
@@ -76,7 +73,7 @@ public final class AdaptiveRtpReplenisher {
     public synchronized void stop() {
         stopped = true;
         if (task != null) { task.cancel(); task = null; }
-        bufferMap.clear(); lastDemandMap.clear(); generatingMap.clear(); spatialIndex.clear();
+        bufferMap.clear(); lastDemandMap.clear(); generatingMap.clear(); restoring.clear();
     }
 
     public RtpCandidate popCandidate(World world) {
@@ -131,7 +128,7 @@ public final class AdaptiveRtpReplenisher {
 
         var worlds = Bukkit.getWorlds();
         var ids = worlds.stream().map(World::getUID).collect(Collectors.toSet());
-        bufferMap.keySet().retainAll(ids); lastDemandMap.keySet().retainAll(ids); generatingMap.keySet().retainAll(ids);
+        bufferMap.keySet().retainAll(ids); lastDemandMap.keySet().retainAll(ids); generatingMap.keySet().retainAll(ids); restoring.keySet().retainAll(ids);
         for (World world : worlds) {
             RtpWorldConfig worldConfig = config.worldConfigs().get(world.getName().toLowerCase());
             if (worldConfig == null || !worldConfig.enabled()) {
@@ -140,16 +137,21 @@ public final class AdaptiveRtpReplenisher {
 
             UUID worldUuid = world.getUID();
             int capacity = Integer.highestOneBit(config.bufferCapacity() - 1) << 1;
-            LockFreeCandidateBuffer buffer = this.bufferMap.compute(worldUuid, (key, old) -> {
-                if (old != null && old.capacity() == capacity) return old;
+            LockFreeCandidateBuffer buffer = bufferMap.get(worldUuid);
+            if (buffer == null || buffer.capacity() != capacity) {
                 var replacement = new LockFreeCandidateBuffer(config.bufferCapacity());
-                repository.loadPackedLocations(key).whenComplete((saved, error) -> {
-                    if (error != null) { logger.warn("RTP cache restore failed for {}", key, error); return; }
-                    if (!stopped && bufferMap.get(key) == replacement)
-                        for (long packed : saved) if (!replacement.offer(packed)) break;
+                bufferMap.put(worldUuid, replacement);
+                restoring.put(worldUuid, replacement);
+                repository.loadPackedLocations(worldUuid).whenComplete((saved, error) -> {
+                    try {
+                        if (error != null) { logger.warn("RTP cache restore failed for {}", worldUuid, error); return; }
+                        if (!stopped && bufferMap.get(worldUuid) == replacement)
+                            for (long packed : saved) if (!replacement.offer(packed)) break;
+                    } finally { restoring.remove(worldUuid, replacement); }
                 });
-                return replacement;
-            });
+                buffer = replacement;
+            }
+            if (restoring.containsKey(worldUuid)) continue;
 
             Long lastDemand = this.lastDemandMap.get(worldUuid);
             boolean isDemandFresh = lastDemand != null && (System.currentTimeMillis() - lastDemand) <= demandWindowMs;

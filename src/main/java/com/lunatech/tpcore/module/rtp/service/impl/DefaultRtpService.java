@@ -1,6 +1,9 @@
 package com.lunatech.tpcore.module.rtp.service.impl;
 
 import com.lunatech.tpcore.constant.Permissions;
+import com.lunatech.tpcore.module.rtp.economy.RtpEconomy;
+import com.lunatech.tpcore.module.rtp.economy.RtpPaymentStatus;
+import java.math.BigDecimal;
 import com.lunatech.tpcore.module.rtp.config.RtpConfig;
 import com.lunatech.tpcore.module.rtp.config.RtpWorldConfig;
 import com.lunatech.tpcore.module.rtp.model.RtpCandidate;
@@ -31,6 +34,7 @@ public final class DefaultRtpService implements RtpService {
     private final AdaptiveRtpReplenisher replenisher;
     private final RtpSafetyInspector safetyInspector;
     private final RtpChunkTicketManager ticketManager;
+    private final RtpEconomy economy;
     private final MiniMessage miniMessage = MiniMessage.miniMessage();
     private final Map<UUID, Long> cooldownMap;
     private final Map<UUID, Request> requests = new ConcurrentHashMap<>();
@@ -46,6 +50,8 @@ public final class DefaultRtpService implements RtpService {
         final CompletableFuture<Void> deadline = new CompletableFuture<>();
         volatile ScheduledTask warmup;
         volatile boolean dispatched, cancelled;
+        BigDecimal fee = BigDecimal.ZERO;
+        volatile RtpEconomy.Attempt payment;
         Request(Player player, World world, RtpWorldConfig policy, boolean otherWorld) {
             this.player = player.getUniqueId(); this.source = player.getWorld().getUID();
             this.world = world.getUID(); this.worldName = world.getName(); this.policy = policy;
@@ -54,7 +60,8 @@ public final class DefaultRtpService implements RtpService {
     }
 
     public DefaultRtpService(JavaPlugin plugin, Supplier<RtpConfig> configSupplier,
-        AdaptiveRtpReplenisher replenisher, RtpSafetyInspector safetyInspector, RtpChunkTicketManager ticketManager, Map<UUID, Long> cooldowns) {
+        AdaptiveRtpReplenisher replenisher, RtpSafetyInspector safetyInspector, RtpChunkTicketManager ticketManager, Map<UUID, Long> cooldowns, RtpEconomy economy) {
+        this.economy = economy;
         this.cooldownMap = cooldowns;
         this.plugin = plugin; this.configSupplier = configSupplier; this.replenisher = replenisher;
         this.safetyInspector = safetyInspector; this.ticketManager = ticketManager;
@@ -85,7 +92,9 @@ public final class DefaultRtpService implements RtpService {
                 return reject(player, config.messages().busy());
             requests.put(request.player, request);
         }
+        request.fee = config.economy().enabled() && !player.hasPermission(Permissions.RTP_BYPASS_COST) ? policy.price() : BigDecimal.ZERO;
         request.result.whenComplete((value, error) -> {
+            if (!request.dispatched && request.payment != null) request.payment.abort();
             request.deadline.complete(null);
             if (request.warmup != null) request.warmup.cancel();
             requests.remove(request.player, request);
@@ -97,7 +106,7 @@ public final class DefaultRtpService implements RtpService {
                     request.cancelled = true;
                     if (request.dispatched) plugin.getSLF4JLogger().warn("RTP arrival unconfirmed: player={}, world={}", request.player, request.world);
                     owner(request, () -> send(request, request.dispatched ? configSupplier.get().messages().outcomeUnknown()
-                        : configSupplier.get().messages().timedOut()));
+                        : request.payment != null ? configSupplier.get().economy().message("payment-pending") : configSupplier.get().messages().timedOut()));
                     request.result.complete(false);
                 }
             }
@@ -137,7 +146,7 @@ public final class DefaultRtpService implements RtpService {
                 .whenComplete((safe, error) -> {
                     if (closed || request.result.isDone()) return;
                     if (error != null || safe == null) search(request, world, attempt + 1);
-                    else owner(request, () -> depart(request, world, safe));
+                    else owner(request, () -> fund(request, world, safe));
                 });
         } catch (RuntimeException rejected) { request.result.complete(false); }
     }
@@ -166,6 +175,35 @@ public final class DefaultRtpService implements RtpService {
         return new double[]{policy.centerX() + x, policy.centerZ() + z};
     }
 
+    private void fund(Request request, World world, RtpCandidate candidate) {
+        synchronized (request) {
+            if (closed || request.cancelled || request.result.isDone()) return;
+            if (request.fee.signum() == 0) { depart(request, world, candidate); return; }
+            var player = request.handle.get();
+            if (player == null || !player.isOnline() || !player.hasPermission(Permissions.RTP_USE)
+                || (request.otherWorld && !player.hasPermission(Permissions.RTP_WORLD))) { request.result.complete(false); return; }
+            if (economy == null) { send(request, configSupplier.get().economy().message("economy-unavailable")); request.result.complete(false); return; }
+            send(request, configSupplier.get().economy().message("fee"), Placeholder.unparsed("amount", request.fee.toPlainString()));
+            request.payment = economy.charge(request.player, request.worldName, request.fee, configSupplier.get(), amount ->
+                owner(request, () -> send(request, configSupplier.get().economy().message("payment-refunded"),
+                    Placeholder.unparsed("amount", amount.toPlainString()))));
+            plugin.getSLF4JLogger().debug("RTP funding attempt: payment={}, player={}, world={}", request.payment.id(), request.player, request.world);
+            request.payment.ready().whenComplete((status, error) -> owner(request, () -> {
+                if (closed || request.result.isDone()) { request.payment.abort(); return; }
+                if (error != null || status != RtpPaymentStatus.SUCCESS) {
+                    String key = status == null ? "economy-unavailable" : status.name().toLowerCase(Locale.ROOT).replace('_', '-');
+                    send(request, configSupplier.get().economy().message(key)); request.result.complete(false); return;
+                }
+                // Payment can take time. Inspect again after funding before attempting departure.
+                safetyInspector.inspectCandidate(world, request.policy, (int) Math.floor(candidate.x()), (int) Math.floor(candidate.z()),
+                    configSupplier.get().runtime().generateChunks()).whenComplete((fresh, failure) -> owner(request, () -> {
+                        if (failure != null || fresh == null) { send(request, configSupplier.get().messages().teleportFailed()); request.result.complete(false); return; }
+                        depart(request, world, fresh);
+                    }));
+            }));
+        }
+    }
+
     private void depart(Request request, World world, RtpCandidate candidate) {
         var player = request.handle.get();
         var config = configSupplier.get();
@@ -180,11 +218,15 @@ public final class DefaultRtpService implements RtpService {
             if (!safetyInspector.reserveDispatch(request.player)) {
                 send(request, config.messages().busy()); request.result.complete(false); return;
             }
+            if (request.payment != null && !request.payment.claimEffect()) {
+                safetyInspector.releaseDispatch(request.player); request.result.complete(false); return;
+            }
             request.dispatched = true;
             try {
                 if (current.useChunkTickets()) ticketManager.addCandidateTickets(world, PackedLocation.fromCandidate(candidate));
                 var destination = new Location(world, candidate.x(), candidate.y(), candidate.z(), candidate.yaw(), candidate.pitch());
                 player.teleportAsync(destination, TeleportCause.PLUGIN).whenComplete((arrived, error) -> {
+                    if (request.payment != null) request.payment.travelOutcome(arrived, error);
                     if (request.result.isDone()) plugin.getSLF4JLogger().info("Late RTP outcome: player={}, world={}, arrived={}, error={}",
                         request.player, request.world, arrived, error == null ? "none" : error.toString());
                     owner(request, () -> {
@@ -195,8 +237,10 @@ public final class DefaultRtpService implements RtpService {
                                     cooldownMap.put(request.player, System.nanoTime() + TimeUnit.SECONDS.toNanos(current.cooldownSeconds()));
                             }
                         }
-                        if (!request.result.isDone() && !closed) send(request, Boolean.TRUE.equals(arrived)
-                            ? config.messages().teleportSuccess() : config.messages().teleportFailed(),
+                        boolean unknown = error != null || arrived == null;
+                        String feedback = unknown ? (request.payment != null ? config.economy().message("payment-pending") : config.messages().outcomeUnknown())
+                            : Boolean.TRUE.equals(arrived) ? config.messages().teleportSuccess() : config.messages().teleportFailed();
+                        if (!request.result.isDone() && !closed) send(request, feedback,
                             Placeholder.unparsed("x", Integer.toString((int) Math.floor(candidate.x()))),
                             Placeholder.unparsed("y", Integer.toString((int) candidate.y())),
                             Placeholder.unparsed("z", Integer.toString((int) Math.floor(candidate.z()))),
@@ -205,6 +249,7 @@ public final class DefaultRtpService implements RtpService {
                     }, () -> safetyInspector.releaseDispatch(request.player));
                 });
             } catch (RuntimeException rejected) {
+                if (request.payment != null) request.payment.travelOutcome(null, rejected);
                 safetyInspector.releaseDispatch(request.player); request.result.complete(false);
             }
         }

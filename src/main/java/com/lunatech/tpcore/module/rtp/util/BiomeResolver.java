@@ -3,6 +3,7 @@ package com.lunatech.tpcore.module.rtp.util;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.reflect.Method;
+import java.util.Locale;
 import org.bukkit.block.Block;
 
 /**
@@ -15,13 +16,11 @@ public final class BiomeResolver {
 
     private static final MethodHandle GET_BIOME_HANDLE;
     private static final MethodHandle GET_KEY_HANDLE;
-    private static final MethodHandle GET_KEY_STRING_HANDLE;
     private static final MethodHandle ENUM_NAME_HANDLE;
 
     static {
         MethodHandle getBiome = null;
         MethodHandle getKey = null;
-        MethodHandle getKeyString = null;
         MethodHandle enumName = null;
 
         try {
@@ -32,9 +31,6 @@ public final class BiomeResolver {
             Method getKeyMethod = keyedClass.getMethod("getKey");
             getKey = MethodHandles.lookup().unreflect(getKeyMethod);
 
-            Class<?> namespacedKeyClass = Class.forName("org.bukkit.NamespacedKey");
-            Method getKeyStringMethod = namespacedKeyClass.getMethod("getKey");
-            getKeyString = MethodHandles.lookup().unreflect(getKeyStringMethod);
         } catch (Throwable ignored) {
         }
 
@@ -46,15 +42,20 @@ public final class BiomeResolver {
 
         GET_BIOME_HANDLE = getBiome;
         GET_KEY_HANDLE = getKey;
-        GET_KEY_STRING_HANDLE = getKeyString;
         ENUM_NAME_HANDLE = enumName;
     }
 
     private BiomeResolver() {}
 
+    static String normalizeKey(String raw) {
+        if (raw == null) return "";
+        String key = raw.toUpperCase(Locale.ROOT);
+        return key.startsWith("MINECRAFT:") ? key.substring(10) : key;
+    }
+
     /**
      * Resolves the upper-case key name of the biome for the target block.
-     * Guaranteed cross-version safe on Paper 1.20.6, 1.21.x, and 26.x.
+     * Uses runtime capabilities; unavailable keys are rejected by configured filters.
      *
      * @param block target block
      * @return uppercase biome key (e.g., "PLAINS", "OCEAN") or empty string on failure
@@ -71,14 +72,12 @@ public final class BiomeResolver {
             }
 
             // Try Keyed (1.21+ / modern Paper)
-            if (GET_KEY_HANDLE != null && GET_KEY_STRING_HANDLE != null) {
+            if (GET_KEY_HANDLE != null) {
                 try {
                     Object keyObj = GET_KEY_HANDLE.invoke(biomeObj);
                     if (keyObj != null) {
-                        Object keyStr = GET_KEY_STRING_HANDLE.invoke(keyObj);
-                        if (keyStr instanceof String str && !str.isEmpty()) {
-                            return str.toUpperCase();
-                        }
+                        String key = normalizeKey(keyObj.toString());
+                        if (!key.isEmpty()) return key;
                     }
                 } catch (Throwable ignored) {
                 }
@@ -89,13 +88,13 @@ public final class BiomeResolver {
                 try {
                     Object nameObj = ENUM_NAME_HANDLE.invoke(biomeObj);
                     if (nameObj instanceof String nameStr && !nameStr.isEmpty()) {
-                        return nameStr.toUpperCase();
+                        return normalizeKey(nameStr);
                     }
                 } catch (Throwable ignored) {
                 }
             }
 
-            return biomeObj.toString().toUpperCase();
+            return normalizeKey(biomeObj.toString());
         } catch (Throwable ignored) {
             return "";
         }

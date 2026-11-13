@@ -1,6 +1,8 @@
 package com.lunatech.tpcore.module.rtp.service.impl;
 
 import com.lunatech.tpcore.module.rtp.config.RtpConfig;
+import com.lunatech.tpcore.module.rtp.config.RtpWorldConfig;
+import java.util.List;
 import io.papermc.paper.threadedregions.scheduler.RegionScheduler;
 import java.util.ArrayDeque;
 import java.util.UUID;
@@ -43,7 +45,8 @@ class RtpSafetyInspectorTest {
         var air = mock(Block.class); when(air.getType()).thenReturn(airMaterial);
         when(chunk.getBlock(anyInt(), anyInt(), anyInt())).thenAnswer(call -> ((int) call.getArgument(1)) == 64 ? solid : air);
         var inspector = new RtpSafetyInspector(mock(Plugin.class));
-        var result = inspector.inspectCandidate(world, RtpConfig.createDefault().worldConfigs().get("world"), 200, 8, false);
+        var policy = new RtpWorldConfig("world", true, 100, 5000, 0, 0, "CIRCLE", List.of(), List.of(), 30, 0, 0, 0, false);
+        var result = inspector.inspectCandidate(world, policy, 200, 8, false);
         assertFalse(result.isDone()); verifyNoInteractions(chunk);
         queue.remove().run(); assertNotNull(result.join());
     }

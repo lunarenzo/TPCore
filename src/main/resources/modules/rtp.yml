@@ -22,13 +22,16 @@ world-configs:
       - "DEEP_COLD_OCEAN"
       - "FROZEN_OCEAN"
       - "DEEP_FROZEN_OCEAN"
+    # Exact vanilla biome names (PLAINS or minecraft:plains). Empty allows any biome not blacklisted.
+    # The blacklist wins when a biome appears in both lists.
     biome-whitelist: []
     cooldown-seconds: 60
     warmup-seconds: 0
     max-attempts: 30
     allow-mounted: false
-    # Reserved setting: RTP economy is not implemented; changing this does not charge players.
-    cost: 0.0
+    # Charged in the provider default currency only when economy.enabled is true.
+    # Quoted decimals preserve precision. The exact debit is refunded on confirmed failure.
+    cost: "0.00"
     # Retain already-loaded chunks in the destination's 3x3 area for 100 ticks.
     # Tickets are bounded, shared by overlapping trips, and changed on each chunk's owner.
     # This does not synchronously load missing neighboring chunks; teleportAsync loads the destination.
@@ -65,3 +68,38 @@ runtime:
   storage-queue-capacity: 64
   cache-retention-per-world: 64
   cache-max-age-minutes: 60
+
+# Positive world costs require an available provider. Free/bypassed travel never queries it.
+# Native VaultUnlocked AsyncEconomy is preferred. Classic Vault providers must be explicitly
+# listed below only after verifying that their calls support worker-thread execution.
+economy:
+  enabled: false
+  max-unresolved-payments: 256
+  payment-history-limit: 512
+  settlement-drain-seconds: 10
+  legacy-async-providers: []
+  messages:
+    fee: "<gray>RTP fee: <gold><amount></gold>.</gray>"
+    economy-unavailable: "<red>RTP payments are unavailable.</red>"
+    insufficient-funds: "<red>You do not have enough funds for this RTP action.</red>"
+    payment-rejected: "<red>The economy provider rejected your RTP payment.</red>"
+    payment-pending: "<yellow>The payment outcome is pending. Contact staff if it does not resolve.</yellow>"
+    payment-refunded: "<yellow>Your RTP fee of <gold><amount></gold> was refunded.</yellow>"
+    payment-not-found: "<yellow>No matching RTP payment was found.</yellow>"
+    payment-acknowledged: "<green>Payment <id> marked as reconciled.</green>"
+    payment-ack-denied: "<yellow>Only an unresolved payment without active work can be acknowledged.</yellow>"
+    payment-circuit: "<gray>RTP payment circuit: <status></gray>"
+    payment-circuit-changed: "<yellow>RTP payment circuit action accepted: <accepted>. Inspect /rtppayments circuit.</yellow>"
+    payment-evidence: "<gray>Evidence: <evidence></gray>"
+    evidence-debit-pending: "Withdrawal intent persisted. A withdrawal may have started. No final debit receipt is recorded."
+    evidence-debit-unknown: "Withdrawal failed or its outcome could not be established. Check provider debit history."
+    evidence-teleport-pending: "Debit recorded. RTP travel was prepared or dispatched. Await the arrival result."
+    evidence-teleport-unknown: "Debit recorded, but arrival outcome is unknown. Check the player's travel before refunding."
+    evidence-refund-pending: "Refund intent recorded. A refund may have started. Check provider credit history."
+    evidence-refund-unknown: "Refund outcome is unknown or incomplete. The recorded refund is the observed credit, if available."
+    evidence-rejected: "Payment was rejected before a confirmed debit."
+    evidence-kept: "RTP action completed and the recorded debit was kept."
+    evidence-refunded: "The provider confirmed the exact refund."
+    evidence-acknowledged: "Staff independently reconciled and acknowledged this entry."
+    payment-row: "<gray><id> | <player> | <action> <world> | <state> | <amount></gray>"
+    payment-detail: "<gray>Provider: <provider> | Debit: <debit> | Refund: <refund> | Updated: <updated> | Reconciled by: <operator></gray>"

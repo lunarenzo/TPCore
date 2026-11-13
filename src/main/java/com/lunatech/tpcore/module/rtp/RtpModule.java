@@ -5,7 +5,8 @@ import com.lunatech.tpcore.config.ReloadableModule;
 import com.lunatech.tpcore.module.rtp.command.RtpCommandRegistry;
 import com.lunatech.tpcore.module.rtp.config.RtpConfig;
 import com.lunatech.tpcore.module.rtp.config.RtpConfigManager;
-import com.lunatech.tpcore.module.rtp.index.RoaringRegionIndex;
+import com.lunatech.tpcore.module.rtp.economy.RtpEconomy;
+import com.lunatech.tpcore.module.rtp.repository.impl.SqliteRtpPaymentRepository;
 import com.lunatech.tpcore.module.rtp.listener.RtpPredictiveJoinListener;
 import com.lunatech.tpcore.module.rtp.repository.RtpCacheRepository;
 import com.lunatech.tpcore.module.rtp.repository.impl.SqliteRtpCacheRepository;
@@ -31,6 +32,9 @@ public final class RtpModule implements ReloadableModule {
     private volatile RtpConfig config = RtpConfig.createDefault();
     private volatile RtpService service;
     private RtpCacheRepository repository;
+    private SqliteRtpPaymentRepository payments;
+    private RtpEconomy economy;
+    private final RtpEconomy.BankLane bankLane = new RtpEconomy.BankLane();
     private AdaptiveRtpReplenisher replenisher;
     private final RtpChunkTicketManager tickets;
     private final Map<UUID, Long> cooldowns = new ConcurrentHashMap<>();
@@ -63,7 +67,7 @@ public final class RtpModule implements ReloadableModule {
         if (active) return;
         active = true;
         if (!registered) {
-            new RtpCommandRegistry(plugin, this::getService, () -> config, this::reloadConfig).registerAll();
+            new RtpCommandRegistry(plugin, this::getService, () -> config, this::reloadConfig, () -> payments, () -> economy).registerAll();
             registered = true;
         }
         long epoch = ++generation;
@@ -83,11 +87,19 @@ public final class RtpModule implements ReloadableModule {
             var opened = new SqliteRtpCacheRepository(new File(plugin.getDataFolder(), "rtp_cache.db"), plugin.getSLF4JLogger(),
                 runtime.storageQueueCapacity(), runtime.cacheRetentionPerWorld(), runtime.cacheMaxAgeMinutes());
             repository = opened;
-            opened.initialize().whenComplete((ready, error) -> global(() -> {
-                if (error != null) { plugin.getSLF4JLogger().error("RTP storage initialization failed", error); opened.close(); return; }
-                if (!active || epoch != generation) { opened.close(); return; }
-                replenisher = new AdaptiveRtpReplenisher(plugin, configs, inspector, opened, new RoaringRegionIndex(), plugin.getSLF4JLogger());
-                service = new DefaultRtpService(plugin, () -> config, replenisher, inspector, tickets, cooldowns);
+            var journal = new SqliteRtpPaymentRepository(plugin.getDataFolder().toPath().resolve("rtp_payments.db"), plugin.getSLF4JLogger(), config.economy().settlementDrainSeconds());
+            payments = journal;
+            var journalReady = journal.initialize().handle((ready, journalFailure) -> {
+                if (journalFailure != null) plugin.getSLF4JLogger().error("RTP payment journal unavailable; positive fees will be denied", journalFailure);
+                return journalFailure == null;
+            });
+            opened.initialize().thenCombine(journalReady, (ignoredReady, paymentReady) -> paymentReady).whenComplete((paymentReady, error) -> global(() -> {
+                if (error != null) { plugin.getSLF4JLogger().error("RTP storage initialization failed", error); opened.close(); journal.close(); return; }
+                if (!active || epoch != generation) { opened.close(); journal.close(); return; }
+                replenisher = new AdaptiveRtpReplenisher(plugin, configs, inspector, opened, plugin.getSLF4JLogger());
+                if (Boolean.TRUE.equals(paymentReady)) economy = new RtpEconomy(plugin, journal, bankLane);
+                else { journal.close(); payments = null; economy = null; }
+                service = new DefaultRtpService(plugin, () -> config, replenisher, inspector, tickets, cooldowns, economy);
                 listener = new RtpPredictiveJoinListener(this::getService);
                 plugin.getServer().getPluginManager().registerEvents(listener, plugin);
                 replenisher.start();
@@ -103,8 +115,16 @@ public final class RtpModule implements ReloadableModule {
         if (listener != null) { HandlerList.unregisterAll(listener); listener = null; }
         if (replenisher != null) { replenisher.stop(); replenisher = null; }
         tickets.clear();
-        if (repository != null) { stopped = repository.close(); repository = null; }
+        CompletableFuture<Void> journalClosed = CompletableFuture.completedFuture(null);
+        if (payments != null) {
+            var journal = payments;
+            var drain = economy == null ? CompletableFuture.<Void>completedFuture(null) : economy.close(config.economy().settlementDrainSeconds());
+            journal.settlementDrain(drain);
+            journalClosed = journal.close(); payments = null; economy = null;
+        }
+        if (repository != null) { stopped = CompletableFuture.allOf(repository.close(), journalClosed); repository = null; }
+        else stopped = CompletableFuture.allOf(stopped, journalClosed);
     }
-    public void disable() { active = false; generation++; stop(); tickets.close(); cooldowns.clear(); }
+    public void disable() { active = false; generation++; stop(); tickets.close(); cooldowns.clear(); stopped.whenComplete((value, failure) -> bankLane.close()); }
     public RtpService getService() { return service; }
 }

@@ -14,7 +14,8 @@ public record RtpConfig(
     int demandWindowMinutes,
     Map<String, RtpWorldConfig> worldConfigs,
     RtpMessages messages,
-    Runtime runtime
+    Runtime runtime,
+    RtpEconomyConfig economy
 ) {
     @ConfigSerializable
     public record Runtime(int maxRequests, int timeoutSeconds, int maxCooldowns, boolean generateChunks,
@@ -30,13 +31,19 @@ public record RtpConfig(
 
     public RtpConfig(boolean enabled, int bufferCapacity, double maxMsptThreshold, int demandWindowMinutes,
                      Map<String, RtpWorldConfig> worldConfigs, RtpMessages messages) {
-        this(enabled, bufferCapacity, maxMsptThreshold, demandWindowMinutes, worldConfigs, messages, Runtime.defaults());
+        this(enabled, bufferCapacity, maxMsptThreshold, demandWindowMinutes, worldConfigs, messages, Runtime.defaults(), RtpEconomyConfig.createDefault());
+    }
+
+    public RtpConfig(boolean enabled, int bufferCapacity, double maxMsptThreshold, int demandWindowMinutes,
+                     Map<String, RtpWorldConfig> worldConfigs, RtpMessages messages, Runtime runtime) {
+        this(enabled, bufferCapacity, maxMsptThreshold, demandWindowMinutes, worldConfigs, messages, runtime, RtpEconomyConfig.createDefault());
     }
 
     public RtpConfig {
         if (bufferCapacity < 2 || bufferCapacity > 32 || !Double.isFinite(maxMsptThreshold) || maxMsptThreshold < 1
             || demandWindowMinutes < 1 || demandWindowMinutes > 1440 || (worldConfigs != null && worldConfigs.size() > 64))
             throw new IllegalArgumentException("Invalid RTP configuration bounds");
+        economy = economy == null ? RtpEconomyConfig.createDefault() : economy;
         runtime = runtime == null ? Runtime.defaults() : runtime;
         var normalized = new HashMap<String, RtpWorldConfig>();
         if (worldConfigs != null) worldConfigs.forEach((name, policy) -> {

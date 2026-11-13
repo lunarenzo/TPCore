@@ -1,6 +1,11 @@
 package com.lunatech.tpcore.module.rtp.service.impl;
 
 import com.lunatech.tpcore.constant.Permissions;
+import com.lunatech.tpcore.module.rtp.economy.RtpEconomy;
+import com.lunatech.tpcore.module.rtp.economy.RtpPaymentStatus;
+import com.lunatech.tpcore.module.rtp.config.RtpEconomyConfig;
+import java.math.BigDecimal;
+import java.util.Set;
 import com.lunatech.tpcore.module.rtp.config.RtpConfig;
 import com.lunatech.tpcore.module.rtp.config.RtpWorldConfig;
 import com.lunatech.tpcore.module.rtp.model.RtpCandidate;
@@ -131,7 +136,7 @@ final class DefaultRtpServiceSimulationTest {
             configSupplier,
             this.replenisher,
             this.safetyInspector,
-            this.ticketManager, new ConcurrentHashMap<>()
+            this.ticketManager, new ConcurrentHashMap<>(), null
         );
     }
 
@@ -287,7 +292,7 @@ final class DefaultRtpServiceSimulationTest {
             supplier,
             this.replenisher,
             this.safetyInspector,
-            this.ticketManager, new ConcurrentHashMap<>()
+            this.ticketManager, new ConcurrentHashMap<>(), null
         );
 
         RtpCandidate candidate = new RtpCandidate(100.0, 64.0, 100.0, 0f, 0f, this.worldUuid, System.currentTimeMillis());
@@ -373,6 +378,80 @@ final class DefaultRtpServiceSimulationTest {
         nativeResult.complete(true);
         Assertions.assertTrue(rtpService.getRemainingCooldownSeconds(playerUuid) > 0);
         Mockito.verify(safetyInspector).releaseDispatch(playerUuid);
+    }
+
+    @Test void searchUsesTheConfiguredAttemptLimit() throws Exception {
+        var policy = new RtpWorldConfig("world", true, 100, 5000, 0, 0, "CIRCLE", List.of(), List.of(), 3, 0, 0, 0, false);
+        rtpConfig = new RtpConfig(true, 20, 45, 15, Map.of("world", policy), rtpConfig.messages());
+        Mockito.when(replenisher.popCandidate(world)).thenReturn(null);
+        Mockito.when(safetyInspector.inspectCandidate(Mockito.eq(world), Mockito.any(), Mockito.anyInt(), Mockito.anyInt(), Mockito.anyBoolean()))
+            .thenReturn(CompletableFuture.completedFuture(null));
+        Assertions.assertFalse(rtpService.executeRtp(player).get(2, TimeUnit.SECONDS));
+        Mockito.verify(safetyInspector, Mockito.times(3)).inspectCandidate(Mockito.eq(world), Mockito.any(), Mockito.anyInt(), Mockito.anyInt(), Mockito.anyBoolean());
+    }
+
+    private RtpEconomy paidService() {
+        var policy = new RtpWorldConfig("world", true, 100, 5000, 0, 0, "CIRCLE", List.of(), List.of(), 3, 0, 0, "0.001", false, false);
+        var pricing = new RtpEconomyConfig(true, 256, 512, 10, Set.of(), Map.of());
+        rtpConfig = new RtpConfig(true, 20, 45, 15, Map.of("world", policy), rtpConfig.messages(), rtpConfig.runtime(), pricing);
+        var bank = Mockito.mock(RtpEconomy.class);
+        rtpService = new DefaultRtpService(plugin, () -> rtpConfig, replenisher, safetyInspector, ticketManager, new ConcurrentHashMap<>(), bank);
+        return bank;
+    }
+    private RtpEconomy.Attempt payment(RtpEconomy bank, CompletableFuture<RtpPaymentStatus> ready) {
+        var payment = Mockito.mock(RtpEconomy.Attempt.class);
+        Mockito.when(payment.ready()).thenReturn(ready);
+        Mockito.when(bank.charge(Mockito.eq(playerUuid), Mockito.eq("world"), Mockito.eq(new BigDecimal("0.001")), Mockito.any(), Mockito.any())).thenReturn(payment);
+        return payment;
+    }
+    @Test void paidTravelQuotesExactPriceReinspectsAndSettlesConfirmedArrival() throws Exception {
+        var bank = paidService();
+        var payment = payment(bank, CompletableFuture.completedFuture(RtpPaymentStatus.SUCCESS));
+        Mockito.when(payment.claimEffect()).thenReturn(true);
+        pendingInspection(CompletableFuture.completedFuture(safe()));
+        Mockito.when(player.teleportAsync(Mockito.any(), Mockito.any(TeleportCause.class))).thenReturn(CompletableFuture.completedFuture(true));
+        Assertions.assertTrue(rtpService.executeRtp(player).get(2, TimeUnit.SECONDS));
+        Mockito.verify(safetyInspector, Mockito.times(2)).inspectCandidate(Mockito.eq(world), Mockito.any(), Mockito.anyInt(), Mockito.anyInt(), Mockito.anyBoolean());
+        Mockito.verify(payment).travelOutcome(true, null);
+        var messages = ArgumentCaptor.forClass(Component.class);
+        Mockito.verify(player, Mockito.atLeastOnce()).sendMessage(messages.capture());
+        Assertions.assertTrue(messages.getAllValues().stream().anyMatch(message -> message.toString().contains("0.001")));
+    }
+    @Test void unsafeDestinationAfterFundingAbortsWithoutDispatching() throws Exception {
+        var bank = paidService(); var payment = payment(bank, CompletableFuture.completedFuture(RtpPaymentStatus.SUCCESS));
+        Mockito.when(replenisher.popCandidate(world)).thenReturn(safe());
+        Mockito.when(safetyInspector.inspectCandidate(Mockito.eq(world), Mockito.any(), Mockito.anyInt(), Mockito.anyInt(), Mockito.anyBoolean()))
+            .thenReturn(CompletableFuture.completedFuture(safe()), CompletableFuture.completedFuture(null));
+        Assertions.assertFalse(rtpService.executeRtp(player).get(2, TimeUnit.SECONDS));
+        Mockito.verify(payment).abort();
+        Mockito.verify(player, Mockito.never()).teleportAsync(Mockito.any(), Mockito.any(TeleportCause.class));
+    }
+    @Test void insufficientFundsDoesNotDispatchOrReinspect() throws Exception {
+        var bank = paidService(); payment(bank, CompletableFuture.completedFuture(RtpPaymentStatus.INSUFFICIENT_FUNDS));
+        pendingInspection(CompletableFuture.completedFuture(safe()));
+        Assertions.assertFalse(rtpService.executeRtp(player).get(2, TimeUnit.SECONDS));
+        Mockito.verify(player, Mockito.never()).teleportAsync(Mockito.any(), Mockito.any(TeleportCause.class));
+        Mockito.verify(safetyInspector).inspectCandidate(Mockito.eq(world), Mockito.any(), Mockito.anyInt(), Mockito.anyInt(), Mockito.anyBoolean());
+    }
+    @Test void costBypassNeverQueriesTheEconomy() throws Exception {
+        var bank = paidService(); Mockito.lenient().when(player.hasPermission(Permissions.RTP_BYPASS_COST)).thenReturn(true);
+        pendingInspection(CompletableFuture.completedFuture(safe()));
+        Mockito.when(player.teleportAsync(Mockito.any(), Mockito.any(TeleportCause.class))).thenReturn(CompletableFuture.completedFuture(true));
+        Assertions.assertTrue(rtpService.executeRtp(player).get(2, TimeUnit.SECONDS));
+        Mockito.verifyNoInteractions(bank);
+    }
+
+    @Test void exceptionalPaidArrivalIsReportedAsPendingAndPassedToReconciliation() throws Exception {
+        var bank = paidService(); var payment = payment(bank, CompletableFuture.completedFuture(RtpPaymentStatus.SUCCESS));
+        Mockito.when(payment.claimEffect()).thenReturn(true);
+        pendingInspection(CompletableFuture.completedFuture(safe()));
+        var problem = new IllegalStateException("native outcome unknown");
+        Mockito.when(player.teleportAsync(Mockito.any(), Mockito.any(TeleportCause.class))).thenReturn(CompletableFuture.failedFuture(problem));
+        Assertions.assertFalse(rtpService.executeRtp(player).get(2, TimeUnit.SECONDS));
+        Mockito.verify(payment).travelOutcome(null, problem);
+        var messages = ArgumentCaptor.forClass(Component.class);
+        Mockito.verify(player, Mockito.atLeastOnce()).sendMessage(messages.capture());
+        Assertions.assertTrue(messages.getAllValues().stream().anyMatch(message -> message.toString().contains("payment outcome is pending")));
     }
 
 }
