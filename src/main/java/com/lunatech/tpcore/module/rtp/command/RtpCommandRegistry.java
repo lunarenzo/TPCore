@@ -7,9 +7,12 @@ import com.mojang.brigadier.Command;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import io.papermc.paper.command.brigadier.Commands;
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
+import java.lang.ref.WeakReference;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Supplier;
+import java.util.function.BooleanSupplier;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
@@ -28,14 +31,15 @@ public final class RtpCommandRegistry {
     private final JavaPlugin plugin;
     private final Supplier<RtpService> rtpServiceSupplier;
     private final Supplier<RtpConfig> configSupplier;
-    private final Runnable reloadAction;
+    private final BooleanSupplier reloadAction;
+    private final AtomicBoolean reloading = new AtomicBoolean();
     private final MiniMessage miniMessage = MiniMessage.miniMessage();
 
     public RtpCommandRegistry(
         JavaPlugin plugin,
         Supplier<RtpService> rtpServiceSupplier,
         Supplier<RtpConfig> configSupplier,
-        Runnable reloadAction
+        BooleanSupplier reloadAction
     ) {
         this.plugin = Objects.requireNonNull(plugin, "plugin cannot be null");
         this.rtpServiceSupplier = Objects.requireNonNull(rtpServiceSupplier, "rtpServiceSupplier cannot be null");
@@ -122,8 +126,29 @@ public final class RtpCommandRegistry {
     }
 
     private int executeReload(CommandSender sender) {
-        this.reloadAction.run();
-        sender.sendMessage(this.miniMessage.deserialize(this.configSupplier.get().messages().prefix() + this.configSupplier.get().messages().reloadSuccess()));
+        if (!reloading.compareAndSet(false, true)) {
+            sender.sendMessage(miniMessage.deserialize(configSupplier.get().messages().prefix() + configSupplier.get().messages().busy()));
+            return Command.SINGLE_SUCCESS;
+        }
+        var handle = new WeakReference<>(sender);
+        Thread.ofVirtual().name("tpcore-rtp-config-reload").start(() -> {
+            boolean success;
+            try { success = reloadAction.getAsBoolean(); }
+            catch (RuntimeException failure) { success = false; }
+            finally { reloading.set(false); }
+            var messages = configSupplier.get().messages();
+            var message = miniMessage.deserialize(messages.prefix() + (success ? messages.reloadSuccess() : messages.reloadFailed()));
+            var target = handle.get();
+            if (target == null) return;
+            try {
+                if (target instanceof Player player) player.getScheduler().run(plugin, task -> {
+                    var online = handle.get(); if (online != null) online.sendMessage(message);
+                }, null);
+                else Bukkit.getGlobalRegionScheduler().execute(plugin, () -> {
+                    var console = handle.get(); if (console != null) console.sendMessage(message);
+                });
+            } catch (RuntimeException retired) { plugin.getSLF4JLogger().debug("RTP reload response target retired", retired); }
+        });
         return Command.SINGLE_SUCCESS;
     }
 

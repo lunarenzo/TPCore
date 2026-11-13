@@ -14,6 +14,7 @@ import org.bukkit.event.player.PlayerChangedWorldEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerTeleportEvent;
 
 /**
  * Predictive event listener that manages RTP buffer replenishment on player join
@@ -39,7 +40,7 @@ public final class RtpPredictiveJoinListener implements Listener {
     public void onPlayerQuit(PlayerQuitEvent event) {
         RtpService service = this.rtpServiceSupplier.get();
         if (service != null) {
-            service.cancelWarmup(event.getPlayer().getUniqueId());
+            service.playerQuit(event.getPlayer().getUniqueId());
         }
     }
 
@@ -74,6 +75,13 @@ public final class RtpPredictiveJoinListener implements Listener {
                 service.cancelWarmup(player.getUniqueId());
             }
         }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onPlayerTeleport(PlayerTeleportEvent event) {
+        var service = rtpServiceSupplier.get();
+        if (service != null && service.isWarmingUp(event.getPlayer().getUniqueId()))
+            service.cancelWarmup(event.getPlayer().getUniqueId());
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)

@@ -59,6 +59,8 @@ public interface RtpService {
      */
     void cancelWarmup(UUID playerUniqueId);
 
+    default void playerQuit(UUID playerUniqueId) { cancelWarmup(playerUniqueId); }
+
     /**
      * Triggers buffer prefetching and queue health replenishment for all active worlds.
      */

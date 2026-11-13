@@ -5,11 +5,14 @@ import com.lunatech.tpcore.module.rtp.config.RtpConfig;
 import com.lunatech.tpcore.module.rtp.config.RtpWorldConfig;
 import com.lunatech.tpcore.module.rtp.model.RtpCandidate;
 import io.papermc.paper.threadedregions.scheduler.EntityScheduler;
+import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
+import java.util.concurrent.TimeUnit;
 import io.papermc.paper.threadedregions.scheduler.RegionScheduler;
 import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -21,6 +24,7 @@ import org.bukkit.World;
 import org.bukkit.entity.Player;
 import org.bukkit.event.player.PlayerTeleportEvent.TeleportCause;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.slf4j.LoggerFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -70,6 +74,7 @@ final class DefaultRtpServiceSimulationTest {
     @BeforeEach
     void setUp() throws Exception {
         setBukkitServer(this.server);
+        Mockito.lenient().when(plugin.getSLF4JLogger()).thenReturn(LoggerFactory.getLogger(getClass()));
         Mockito.lenient().when(this.server.getRegionScheduler()).thenReturn(this.regionScheduler);
         Mockito.lenient().when(this.player.getUniqueId()).thenReturn(this.playerUuid);
         Mockito.lenient().when(this.player.getWorld()).thenReturn(this.world);
@@ -78,6 +83,8 @@ final class DefaultRtpServiceSimulationTest {
         Mockito.lenient().when(this.player.getScheduler()).thenReturn(this.entityScheduler);
         Mockito.lenient().when(this.world.getName()).thenReturn("world");
         Mockito.lenient().when(this.world.getUID()).thenReturn(this.worldUuid);
+
+        Mockito.lenient().when(this.safetyInspector.reserveDispatch(Mockito.any())).thenReturn(true);
 
         // Immediately execute task passed to EntityScheduler.run
         Mockito.lenient().when(this.entityScheduler.run(
@@ -89,7 +96,7 @@ final class DefaultRtpServiceSimulationTest {
             if (task != null) {
                 task.accept(null);
             }
-            return null;
+            return Mockito.mock(ScheduledTask.class);
         });
 
         RtpWorldConfig worldConfig = new RtpWorldConfig(
@@ -124,7 +131,7 @@ final class DefaultRtpServiceSimulationTest {
             configSupplier,
             this.replenisher,
             this.safetyInspector,
-            this.ticketManager
+            this.ticketManager, new ConcurrentHashMap<>()
         );
     }
 
@@ -280,7 +287,7 @@ final class DefaultRtpServiceSimulationTest {
             supplier,
             this.replenisher,
             this.safetyInspector,
-            this.ticketManager
+            this.ticketManager, new ConcurrentHashMap<>()
         );
 
         RtpCandidate candidate = new RtpCandidate(100.0, 64.0, 100.0, 0f, 0f, this.worldUuid, System.currentTimeMillis());
@@ -306,4 +313,66 @@ final class DefaultRtpServiceSimulationTest {
         // Verify player received cooldown message
         Mockito.verify(this.player, Mockito.atLeastOnce()).sendMessage(Mockito.any(Component.class));
     }
+    private RtpCandidate safe() { return new RtpCandidate(250.5, 70, -150.5, 0, 0, worldUuid, 0); }
+    private void pendingInspection(CompletableFuture<RtpCandidate> inspection) {
+        Mockito.when(replenisher.popCandidate(world)).thenReturn(safe());
+        Mockito.when(safetyInspector.inspectCandidate(Mockito.eq(world), Mockito.any(), Mockito.anyInt(), Mockito.anyInt(), Mockito.anyBoolean()))
+            .thenReturn(inspection);
+    }
+    @Test void duplicateRequestsAndCancellationCannotDispatchALateSearch() {
+        var pending = new CompletableFuture<RtpCandidate>(); pendingInspection(pending);
+        var first = rtpService.executeRtp(player);
+        Assertions.assertFalse(rtpService.executeRtp(player).join());
+        rtpService.cancelWarmup(playerUuid);
+        Assertions.assertFalse(first.join());
+        pending.complete(safe());
+        Mockito.verify(player, Mockito.never()).teleportAsync(Mockito.any(), Mockito.any(TeleportCause.class));
+    }
+    @Test void shutdownCannotDispatchALateSearch() {
+        var pending = new CompletableFuture<RtpCandidate>(); pendingInspection(pending);
+        var first = rtpService.executeRtp(player); rtpService.shutdown(); pending.complete(safe());
+        Assertions.assertFalse(first.join());
+        Mockito.verify(player, Mockito.never()).teleportAsync(Mockito.any(), Mockito.any(TeleportCause.class));
+    }
+    @Test void revokedPermissionIsCheckedAtDeparture() {
+        var pending = new CompletableFuture<RtpCandidate>(); pendingInspection(pending);
+        var first = rtpService.executeRtp(player);
+        Mockito.when(player.hasPermission(Permissions.RTP_USE)).thenReturn(false);
+        pending.complete(safe()); Assertions.assertFalse(first.join());
+        Mockito.verify(player, Mockito.never()).teleportAsync(Mockito.any(), Mockito.any(TeleportCause.class));
+    }
+    @Test void exceptionalNativeTeleportCompletesAndReleasesItsReservation() throws Exception {
+        pendingInspection(CompletableFuture.completedFuture(safe()));
+        Mockito.when(player.teleportAsync(Mockito.any(), Mockito.any(TeleportCause.class)))
+            .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("native failure")));
+        Assertions.assertFalse(rtpService.executeRtp(player).get(2, TimeUnit.SECONDS));
+        Mockito.verify(safetyInspector).releaseDispatch(playerUuid);
+    }
+    @Test void retiredEntitySchedulerCompletesTheRequest() throws Exception {
+        pendingInspection(CompletableFuture.completedFuture(safe()));
+        Mockito.when(entityScheduler.run(Mockito.any(), Mockito.any(), Mockito.any())).thenReturn(null);
+        Assertions.assertFalse(rtpService.executeRtp(player).get(2, TimeUnit.SECONDS));
+    }
+    @Test void aSearchTimeoutDoesNotDispatchItsLateCandidate() throws Exception {
+        var runtime = new RtpConfig.Runtime(16, 1, 2048, true, 64, 64, 60);
+        rtpConfig = new RtpConfig(true, 20, 45, 15, rtpConfig.worldConfigs(), rtpConfig.messages(), runtime);
+        var pending = new CompletableFuture<RtpCandidate>(); pendingInspection(pending);
+        Assertions.assertFalse(rtpService.executeRtp(player).get(3, TimeUnit.SECONDS));
+        pending.complete(safe());
+        Mockito.verify(player, Mockito.never()).teleportAsync(Mockito.any(), Mockito.any(TeleportCause.class));
+    }
+    @Test void lateArrivalStillStartsCooldownAfterThePlayerDeadline() throws Exception {
+        var prior = rtpConfig.worldConfigs().get("world");
+        var policy = new RtpWorldConfig("world", true, 100, 5000, 0, 0, "CIRCLE", List.of(), List.of(), 30, 60, 0, 0, false);
+        rtpConfig = new RtpConfig(true, 20, 45, 15, Map.of("world", policy), rtpConfig.messages(),
+            new RtpConfig.Runtime(16, 1, 2048, true, 64, 64, 60));
+        pendingInspection(CompletableFuture.completedFuture(safe()));
+        var nativeResult = new CompletableFuture<Boolean>();
+        Mockito.when(player.teleportAsync(Mockito.any(), Mockito.any(TeleportCause.class))).thenReturn(nativeResult);
+        Assertions.assertFalse(rtpService.executeRtp(player).get(3, TimeUnit.SECONDS));
+        nativeResult.complete(true);
+        Assertions.assertTrue(rtpService.getRemainingCooldownSeconds(playerUuid) > 0);
+        Mockito.verify(safetyInspector).releaseDispatch(playerUuid);
+    }
+
 }

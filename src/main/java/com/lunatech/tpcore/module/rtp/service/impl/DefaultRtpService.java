@@ -7,374 +7,260 @@ import com.lunatech.tpcore.module.rtp.model.RtpCandidate;
 import com.lunatech.tpcore.module.rtp.service.RtpService;
 import com.lunatech.tpcore.module.rtp.util.PackedLocation;
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
+import java.lang.ref.WeakReference;
 import java.util.Map;
-import java.util.Objects;
+import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
-import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
-import org.bukkit.Bukkit;
-import org.bukkit.Location;
+import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
 import org.bukkit.World;
+import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.event.player.PlayerTeleportEvent.TeleportCause;
 import org.bukkit.plugin.java.JavaPlugin;
 
-/**
- * Core implementation of RtpService providing O(1) candidate popping,
- * inner-ring chunk preloading, Folia-safe safety inspection, and teleportation.
- */
 public final class DefaultRtpService implements RtpService {
-
     private final JavaPlugin plugin;
     private final Supplier<RtpConfig> configSupplier;
     private final AdaptiveRtpReplenisher replenisher;
     private final RtpSafetyInspector safetyInspector;
     private final RtpChunkTicketManager ticketManager;
     private final MiniMessage miniMessage = MiniMessage.miniMessage();
+    private final Map<UUID, Long> cooldownMap;
+    private final Map<UUID, Request> requests = new ConcurrentHashMap<>();
+    private volatile boolean closed;
 
-    private record WarmupSession(ScheduledTask task, CompletableFuture<Boolean> future) {}
-
-    private final Map<UUID, Long> cooldownMap = new ConcurrentHashMap<>();
-    private final Map<UUID, WarmupSession> warmupTasks = new ConcurrentHashMap<>();
-
-    public DefaultRtpService(
-        JavaPlugin plugin,
-        Supplier<RtpConfig> configSupplier,
-        AdaptiveRtpReplenisher replenisher,
-        RtpSafetyInspector safetyInspector,
-        RtpChunkTicketManager ticketManager
-    ) {
-        this.plugin = Objects.requireNonNull(plugin, "plugin cannot be null");
-        this.configSupplier = Objects.requireNonNull(configSupplier, "configSupplier cannot be null");
-        this.replenisher = Objects.requireNonNull(replenisher, "replenisher cannot be null");
-        this.safetyInspector = Objects.requireNonNull(safetyInspector, "safetyInspector cannot be null");
-        this.ticketManager = Objects.requireNonNull(ticketManager, "ticketManager cannot be null");
+    private static final class Request {
+        final UUID player, world, source;
+        final String worldName;
+        final WeakReference<Player> handle;
+        final RtpWorldConfig policy;
+        final boolean otherWorld;
+        final CompletableFuture<Boolean> result = new CompletableFuture<>();
+        final CompletableFuture<Void> deadline = new CompletableFuture<>();
+        volatile ScheduledTask warmup;
+        volatile boolean dispatched, cancelled;
+        Request(Player player, World world, RtpWorldConfig policy, boolean otherWorld) {
+            this.player = player.getUniqueId(); this.source = player.getWorld().getUID();
+            this.world = world.getUID(); this.worldName = world.getName(); this.policy = policy;
+            this.handle = new WeakReference<>(player); this.otherWorld = otherWorld;
+        }
     }
 
-    @Override
-    public CompletableFuture<Boolean> executeRtp(Player player) {
-        return executeRtp(player, player.getWorld());
+    public DefaultRtpService(JavaPlugin plugin, Supplier<RtpConfig> configSupplier,
+        AdaptiveRtpReplenisher replenisher, RtpSafetyInspector safetyInspector, RtpChunkTicketManager ticketManager, Map<UUID, Long> cooldowns) {
+        this.cooldownMap = cooldowns;
+        this.plugin = plugin; this.configSupplier = configSupplier; this.replenisher = replenisher;
+        this.safetyInspector = safetyInspector; this.ticketManager = ticketManager;
     }
 
-    @Override
-    public CompletableFuture<Boolean> executeRtp(Player player, World targetWorld) {
-        if (player == null || !player.isOnline()) {
-            return CompletableFuture.completedFuture(false);
-        }
+    @Override public CompletableFuture<Boolean> executeRtp(Player player) { return start(player, player.getWorld(), false); }
+    @Override public CompletableFuture<Boolean> executeRtp(Player player, World world) { return start(player, world, true); }
 
-        World world = targetWorld != null ? targetWorld : player.getWorld();
-        RtpConfig config = this.configSupplier.get();
-
-        if (!config.enabled()) {
-            sendMessage(player, config.messages().disabled());
-            return CompletableFuture.completedFuture(false);
-        }
-
-        if (!player.hasPermission(Permissions.RTP_USE)) {
-            sendMessage(player, config.messages().noPermission());
-            return CompletableFuture.completedFuture(false);
-        }
-
-        RtpWorldConfig worldConfig = config.worldConfigs().get(world.getName().toLowerCase());
-        if (worldConfig == null || !worldConfig.enabled()) {
-            sendMessage(player, config.messages().worldDisabled(), Placeholder.unparsed("world", world.getName()));
-            return CompletableFuture.completedFuture(false);
-        }
-
-        // Check Mounted / Vehicle State
+    private CompletableFuture<Boolean> start(Player player, World world, boolean otherWorld) {
+        var config = configSupplier.get();
+        if (closed || !config.enabled()) return reject(player, config.messages().disabled());
+        if (!player.hasPermission(Permissions.RTP_USE) || (otherWorld && !player.hasPermission(Permissions.RTP_WORLD)))
+            return reject(player, config.messages().noPermission());
+        var policy = config.worldConfigs().get(world.getName().toLowerCase(Locale.ROOT));
+        if (policy == null || !policy.enabled()) return reject(player, config.messages().worldDisabled(), Placeholder.unparsed("world", world.getName()));
         if (player.isInsideVehicle()) {
-            if (!worldConfig.allowMounted()) {
-                sendMessage(player, config.messages().cannotUseMounted());
-                return CompletableFuture.completedFuture(false);
-            }
+            if (!policy.allowMounted()) return reject(player, config.messages().cannotUseMounted());
             player.leaveVehicle();
         }
-
-        // Check Cooldown
-        UUID uuid = player.getUniqueId();
-        if (!player.hasPermission(Permissions.RTP_BYPASS_COOLDOWN)) {
-            long remainingSec = getRemainingCooldownSeconds(uuid);
-            if (remainingSec > 0) {
-                sendMessage(
-                    player,
-                    config.messages().cooldownActive(),
-                    Placeholder.unparsed("seconds", String.valueOf(remainingSec))
-                );
-                return CompletableFuture.completedFuture(false);
-            }
+        long remaining = getRemainingCooldownSeconds(player.getUniqueId());
+        if (!player.hasPermission(Permissions.RTP_BYPASS_COOLDOWN) && remaining > 0)
+            return reject(player, config.messages().cooldownActive(), Placeholder.unparsed("seconds", Long.toString(remaining)));
+        var request = new Request(player, world, policy, otherWorld);
+        synchronized (requests) {
+            cooldownMap.entrySet().removeIf(entry -> entry.getValue() - System.nanoTime() <= 0);
+            if (closed || requests.size() >= config.runtime().maxRequests() || requests.containsKey(request.player)
+                || safetyInspector.isDispatched(request.player) || cooldownMap.size() >= config.runtime().maxCooldowns())
+                return reject(player, config.messages().busy());
+            requests.put(request.player, request);
         }
-
-        // Check Warmup
-        int warmupSeconds = worldConfig.warmupSeconds();
-        if (warmupSeconds > 0 && !player.hasPermission(Permissions.RTP_BYPASS_WARMUP)) {
-            if (isWarmingUp(uuid)) {
-                sendMessage(player, config.messages().warmupAlreadyActive());
-                return CompletableFuture.completedFuture(false);
-            }
-
-            sendMessage(
-                player,
-                config.messages().warmupStarted(),
-                Placeholder.unparsed("seconds", String.valueOf(warmupSeconds))
-            );
-
-            CompletableFuture<Boolean> warmupFuture = new CompletableFuture<>();
-
-            ScheduledTask task = player.getScheduler().runDelayed(
-                this.plugin,
-                t -> {
-                    this.warmupTasks.remove(uuid);
-                    dispatchTeleport(player, world, worldConfig, 0).thenAccept(warmupFuture::complete);
-                },
-                null,
-                warmupSeconds * 20L
-            );
-
-            if (task != null) {
-                this.warmupTasks.put(uuid, new WarmupSession(task, warmupFuture));
-                return warmupFuture;
-            }
-        }
-
-        return dispatchTeleport(player, world, worldConfig, 0);
-    }
-
-    private CompletableFuture<Boolean> dispatchTeleport(
-        Player player,
-        World world,
-        RtpWorldConfig worldConfig,
-        int attempt
-    ) {
-        if (player == null || !player.isOnline()) {
-            return CompletableFuture.completedFuture(false);
-        }
-
-        if (attempt >= 5) {
-            return executeOnDemandRtp(player, world, worldConfig, 0);
-        }
-
-        RtpCandidate candidate = this.replenisher.popCandidate(world);
-
-        if (candidate == null) {
-            this.replenisher.recordDemand(world);
-            return executeOnDemandRtp(player, world, worldConfig, 0);
-        }
-
-        int blockX = (int) Math.floor(candidate.x());
-        int blockZ = (int) Math.floor(candidate.z());
-
-        return this.safetyInspector.inspectCandidate(world, worldConfig, blockX, blockZ, true)
-            .exceptionally(t -> null)
-            .thenCompose(safeCandidate -> {
-                if (player == null || !player.isOnline()) {
-                    return CompletableFuture.completedFuture(false);
-                }
-
-                if (safeCandidate == null) {
-                    return dispatchTeleport(player, world, worldConfig, attempt + 1);
-                }
-
-                long safePackedLoc = PackedLocation.fromCandidate(safeCandidate);
-                return performTeleport(player, world, worldConfig, safeCandidate, safePackedLoc);
-            });
-    }
-
-    private CompletableFuture<Boolean> executeOnDemandRtp(
-        Player player,
-        World world,
-        RtpWorldConfig worldConfig,
-        int attempt
-    ) {
-        if (player == null || !player.isOnline()) {
-            return CompletableFuture.completedFuture(false);
-        }
-
-        if (attempt >= 10) {
-            sendMessage(player, this.configSupplier.get().messages().searchFailed());
-            return CompletableFuture.completedFuture(false);
-        }
-
-        ThreadLocalRandom rng = ThreadLocalRandom.current();
-        int candidateX;
-        int candidateZ;
-
-        if (worldConfig.shapeEnum() == RtpWorldConfig.Shape.SQUARE) {
-            int span = Math.max(1, worldConfig.maxRadius());
-            int inner = Math.max(0, Math.min(worldConfig.minRadius(), span - 1));
-            int dx;
-            int dz;
-            int maxAttempts = 10;
-            do {
-                dx = rng.nextInt(-span, span + 1);
-                dz = rng.nextInt(-span, span + 1);
-            } while (Math.max(Math.abs(dx), Math.abs(dz)) < inner && --maxAttempts > 0);
-            candidateX = worldConfig.centerX() + dx;
-            candidateZ = worldConfig.centerZ() + dz;
-        } else {
-            double angle = rng.nextDouble() * 2 * Math.PI;
-            double r = Math.sqrt(rng.nextDouble() * (Math.pow(worldConfig.maxRadius(), 2) - Math.pow(worldConfig.minRadius(), 2)) + Math.pow(worldConfig.minRadius(), 2));
-            candidateX = worldConfig.centerX() + (int) (r * Math.cos(angle));
-            candidateZ = worldConfig.centerZ() + (int) (r * Math.sin(angle));
-        }
-
-        return this.safetyInspector.inspectCandidate(world, worldConfig, candidateX, candidateZ, true)
-            .exceptionally(t -> null)
-            .thenCompose(safeCandidate -> {
-                if (player == null || !player.isOnline()) {
-                    return CompletableFuture.completedFuture(false);
-                }
-
-                if (safeCandidate == null) {
-                    return executeOnDemandRtp(player, world, worldConfig, attempt + 1);
-                }
-
-                long packedLoc = PackedLocation.fromCandidate(safeCandidate);
-                return performTeleport(player, world, worldConfig, safeCandidate, packedLoc);
-            });
-    }
-
-    private CompletableFuture<Boolean> performTeleport(
-        Player player,
-        World world,
-        RtpWorldConfig worldConfig,
-        RtpCandidate safeCandidate,
-        long packedLoc
-    ) {
-        CompletableFuture<Boolean> teleportFuture = new CompletableFuture<>();
-
-        player.getScheduler().run(
-            this.plugin,
-            t -> {
-                if (!player.isOnline()) {
-                    teleportFuture.complete(false);
-                    return;
-                }
-
-                if (worldConfig.useChunkTickets()) {
-                    this.ticketManager.addCandidateTickets(world, packedLoc);
-                }
-
-                Location dest = new Location(
-                    world,
-                    safeCandidate.x(),
-                    safeCandidate.y(),
-                    safeCandidate.z(),
-                    safeCandidate.yaw(),
-                    safeCandidate.pitch()
-                );
-
-                player.teleportAsync(dest, TeleportCause.PLUGIN).thenAccept(success -> {
-                    if (success) {
-                        if (worldConfig.cooldownSeconds() > 0) {
-                            this.cooldownMap.put(
-                                player.getUniqueId(),
-                                System.currentTimeMillis() + (worldConfig.cooldownSeconds() * 1000L)
-                            );
-                        }
-
-                        sendMessage(
-                            player,
-                            this.configSupplier.get().messages().teleportSuccess(),
-                            Placeholder.unparsed("x", String.valueOf(dest.getBlockX())),
-                            Placeholder.unparsed("y", String.valueOf(dest.getBlockY())),
-                            Placeholder.unparsed("z", String.valueOf(dest.getBlockZ())),
-                            Placeholder.unparsed("world", world.getName())
-                        );
-                    } else {
-                        sendMessage(player, this.configSupplier.get().messages().teleportFailed());
-                    }
-
-                    if (worldConfig.useChunkTickets()) {
-                        Bukkit.getRegionScheduler().runDelayed(
-                            this.plugin,
-                            dest,
-                            task -> this.ticketManager.removeCandidateTickets(world, packedLoc),
-                            100L
-                        );
-                    }
-
-                    teleportFuture.complete(success);
-                });
-            },
-            null
-        );
-
-        return teleportFuture;
-    }
-
-    @Override
-    public long getRemainingCooldownSeconds(UUID playerUniqueId) {
-        Long expireTime = this.cooldownMap.get(playerUniqueId);
-        if (expireTime == null) {
-            return 0;
-        }
-        long remainingMillis = expireTime - System.currentTimeMillis();
-        if (remainingMillis <= 0) {
-            this.cooldownMap.remove(playerUniqueId);
-            return 0;
-        }
-        return (remainingMillis + 999L) / 1000L;
-    }
-
-    @Override
-    public boolean isWarmingUp(UUID playerUniqueId) {
-        WarmupSession session = this.warmupTasks.get(playerUniqueId);
-        return session != null && session.task() != null && !session.task().isCancelled();
-    }
-
-    @Override
-    public boolean hasActiveWarmups() {
-        return !this.warmupTasks.isEmpty();
-    }
-
-    @Override
-    public void cancelWarmup(UUID playerUniqueId) {
-        WarmupSession session = this.warmupTasks.remove(playerUniqueId);
-        if (session != null) {
-            if (session.task() != null) {
-                session.task().cancel();
-            }
-            if (session.future() != null) {
-                session.future().complete(false);
-            }
-            Player player = this.plugin.getServer().getPlayer(playerUniqueId);
-            if (player != null && player.isOnline()) {
-                sendMessage(player, this.configSupplier.get().messages().warmupCancelled());
-            }
-        }
-    }
-
-    @Override
-    public void triggerReplenishment() {
-        for (World world : this.plugin.getServer().getWorlds()) {
-            this.replenisher.recordDemand(world);
-        }
-    }
-
-    @Override
-    public void shutdown() {
-        this.warmupTasks.values().forEach(session -> {
-            if (session.task() != null) session.task().cancel();
-            if (session.future() != null) session.future().complete(false);
+        request.result.whenComplete((value, error) -> {
+            request.deadline.complete(null);
+            if (request.warmup != null) request.warmup.cancel();
+            requests.remove(request.player, request);
         });
-        this.warmupTasks.clear();
-        this.cooldownMap.clear();
+        int warmup = player.hasPermission(Permissions.RTP_BYPASS_WARMUP) ? 0 : policy.warmupSeconds();
+        request.deadline.orTimeout(config.runtime().timeoutSeconds() + warmup * 4L, TimeUnit.SECONDS).whenComplete((ignored, error) -> {
+            if (error != null) {
+                synchronized (request) {
+                    request.cancelled = true;
+                    if (request.dispatched) plugin.getSLF4JLogger().warn("RTP arrival unconfirmed: player={}, world={}", request.player, request.world);
+                    owner(request, () -> send(request, request.dispatched ? configSupplier.get().messages().outcomeUnknown()
+                        : configSupplier.get().messages().timedOut()));
+                    request.result.complete(false);
+                }
+            }
+        });
+        if (warmup > 0) {
+            send(request, config.messages().warmupStarted(), Placeholder.unparsed("seconds", Integer.toString(warmup)));
+            try {
+                request.warmup = player.getScheduler().runDelayed(plugin, task -> search(request, world, 0),
+                    () -> request.result.complete(false), warmup * 20L);
+                if (request.warmup == null) request.result.complete(false);
+            } catch (RuntimeException rejected) { request.result.complete(false); }
+        } else search(request, world, 0);
+        return request.result;
     }
 
-    private void sendMessage(Player player, String messageFormat, net.kyori.adventure.text.minimessage.tag.resolver.TagResolver... resolvers) {
-        if (player == null || !player.isOnline()) {
+    private void search(Request request, World world, int attempt) {
+        if (closed || request.result.isDone()) return;
+        var config = configSupplier.get();
+        if (attempt >= request.policy.maxAttempts()) {
+            owner(request, () -> { send(request, config.messages().searchFailed()); request.result.complete(false); });
             return;
         }
-        if (messageFormat == null || messageFormat.isBlank()) {
-            return;
+        var candidate = replenisher.popCandidate(world);
+        int x, z;
+        if (candidate != null) { x = (int) Math.floor(candidate.x()); z = (int) Math.floor(candidate.z()); }
+        else {
+            if (replenisher.sampleHealth() == AdaptiveRtpReplenisher.HealthState.STRESSED) {
+                owner(request, () -> { send(request, config.messages().busy()); request.result.complete(false); });
+                return;
+            }
+            replenisher.recordDemand(world);
+            double[] point = randomPoint(request.policy);
+            x = (int) Math.floor(point[0]); z = (int) Math.floor(point[1]);
         }
-        String prefix = this.configSupplier.get().messages().prefix();
-        Component messageComponent = this.miniMessage.deserialize(prefix + messageFormat, resolvers);
-        player.sendMessage(messageComponent);
+        try {
+            safetyInspector.inspectCandidate(world, request.policy, x, z, config.runtime().generateChunks())
+                .whenComplete((safe, error) -> {
+                    if (closed || request.result.isDone()) return;
+                    if (error != null || safe == null) search(request, world, attempt + 1);
+                    else owner(request, () -> depart(request, world, safe));
+                });
+        } catch (RuntimeException rejected) { request.result.complete(false); }
+    }
+
+    public static double[] randomPoint(RtpWorldConfig policy) {
+        var rng = ThreadLocalRandom.current();
+        double x, z;
+        if (policy.shapeEnum() == RtpWorldConfig.Shape.SQUARE) {
+            // Partition the square annulus into disjoint vertical and horizontal strips.
+            double outer = policy.maxRadius(), inner = policy.minRadius();
+            double verticalArea = 4 * outer * (outer - inner);
+            double horizontalArea = 4 * inner * (outer - inner);
+            if (rng.nextDouble(verticalArea + horizontalArea) < verticalArea) {
+                x = rng.nextDouble(inner, outer) * (rng.nextBoolean() ? 1 : -1);
+                z = rng.nextDouble(-outer, outer);
+            } else {
+                x = rng.nextDouble(-inner, inner);
+                z = rng.nextDouble(inner, outer) * (rng.nextBoolean() ? 1 : -1);
+            }
+        } else {
+            double angle = rng.nextDouble() * Math.PI * 2;
+            double radius = Math.sqrt(rng.nextDouble() * ((double) policy.maxRadius() * policy.maxRadius()
+                - (double) policy.minRadius() * policy.minRadius()) + (double) policy.minRadius() * policy.minRadius());
+            x = radius * Math.cos(angle); z = radius * Math.sin(angle);
+        }
+        return new double[]{policy.centerX() + x, policy.centerZ() + z};
+    }
+
+    private void depart(Request request, World world, RtpCandidate candidate) {
+        var player = request.handle.get();
+        var config = configSupplier.get();
+        synchronized (request) {
+            if (closed || request.cancelled || request.result.isDone()) return;
+            var current = config.worldConfigs().get(request.worldName.toLowerCase(Locale.ROOT));
+            if (player == null || !player.isOnline() || !config.enabled() || !request.policy.equals(current)
+                || !request.source.equals(player.getWorld().getUID()) || !player.hasPermission(Permissions.RTP_USE)
+                || (request.otherWorld && !player.hasPermission(Permissions.RTP_WORLD)) || !candidate.worldUuid().equals(request.world)) {
+                request.result.complete(false); return;
+            }
+            if (!safetyInspector.reserveDispatch(request.player)) {
+                send(request, config.messages().busy()); request.result.complete(false); return;
+            }
+            request.dispatched = true;
+            try {
+                if (current.useChunkTickets()) ticketManager.addCandidateTickets(world, PackedLocation.fromCandidate(candidate));
+                var destination = new Location(world, candidate.x(), candidate.y(), candidate.z(), candidate.yaw(), candidate.pitch());
+                player.teleportAsync(destination, TeleportCause.PLUGIN).whenComplete((arrived, error) -> {
+                    if (request.result.isDone()) plugin.getSLF4JLogger().info("Late RTP outcome: player={}, world={}, arrived={}, error={}",
+                        request.player, request.world, arrived, error == null ? "none" : error.toString());
+                    owner(request, () -> {
+                        var online = request.handle.get();
+                        if (Boolean.TRUE.equals(arrived) && online != null && online.isOnline() && current.cooldownSeconds() > 0) {
+                            synchronized (requests) {
+                                if (cooldownMap.size() < config.runtime().maxCooldowns())
+                                    cooldownMap.put(request.player, System.nanoTime() + TimeUnit.SECONDS.toNanos(current.cooldownSeconds()));
+                            }
+                        }
+                        if (!request.result.isDone() && !closed) send(request, Boolean.TRUE.equals(arrived)
+                            ? config.messages().teleportSuccess() : config.messages().teleportFailed(),
+                            Placeholder.unparsed("x", Integer.toString((int) Math.floor(candidate.x()))),
+                            Placeholder.unparsed("y", Integer.toString((int) candidate.y())),
+                            Placeholder.unparsed("z", Integer.toString((int) Math.floor(candidate.z()))),
+                            Placeholder.unparsed("world", request.worldName));
+                        request.result.complete(Boolean.TRUE.equals(arrived));
+                    }, () -> safetyInspector.releaseDispatch(request.player));
+                });
+            } catch (RuntimeException rejected) {
+                safetyInspector.releaseDispatch(request.player); request.result.complete(false);
+            }
+        }
+    }
+
+    private void owner(Request request, Runnable action) { owner(request, action, () -> {}); }
+    private void owner(Request request, Runnable action, Runnable cleanup) {
+        var player = request.handle.get();
+        Runnable retired = () -> { cleanup.run(); request.result.complete(false); };
+        if (player == null) { retired.run(); return; }
+        try {
+            var task = player.getScheduler().run(plugin, ignored -> {
+                try { action.run(); }
+                catch (RuntimeException failure) { request.result.complete(false); }
+                finally { cleanup.run(); }
+            }, retired);
+            if (task == null) retired.run();
+        } catch (RuntimeException rejected) { retired.run(); }
+    }
+    private CompletableFuture<Boolean> reject(Player player, String message, TagResolver... tags) {
+        player.sendMessage(miniMessage.deserialize(configSupplier.get().messages().prefix() + message, tags));
+        return CompletableFuture.completedFuture(false);
+    }
+    private void send(Request request, String message, TagResolver... tags) {
+        var player = request.handle.get();
+        if (player != null && player.isOnline() && message != null)
+            player.sendMessage(miniMessage.deserialize(configSupplier.get().messages().prefix() + message, tags));
+    }
+    @Override public long getRemainingCooldownSeconds(UUID player) {
+        Long until = cooldownMap.get(player);
+        if (until == null) return 0;
+        long nanos = until - System.nanoTime();
+        if (nanos <= 0) { cooldownMap.remove(player, until); return 0; }
+        return (nanos + 999_999_999L) / 1_000_000_000L;
+    }
+    @Override public boolean isWarmingUp(UUID player) {
+        var request = requests.get(player);
+        return request != null && !request.dispatched && !request.result.isDone();
+    }
+    @Override public boolean hasActiveWarmups() { return !requests.isEmpty(); }
+    @Override public void cancelWarmup(UUID player) {
+        var request = requests.get(player);
+        if (request == null) return;
+        synchronized (request) {
+            if (request.dispatched) return;
+            request.cancelled = true;
+            send(request, configSupplier.get().messages().warmupCancelled());
+            request.result.complete(false);
+        }
+    }
+    @Override public void playerQuit(UUID player) {
+        cancelWarmup(player); cooldownMap.remove(player);
+    }
+    @Override public void triggerReplenishment() { replenisher.requestAll(); }
+    @Override public void shutdown() {
+        closed = true;
+        requests.values().forEach(request -> { synchronized (request) { request.cancelled = true; request.result.complete(false); } });
     }
 }

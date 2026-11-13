@@ -15,160 +15,96 @@ import com.lunatech.tpcore.module.rtp.service.impl.DefaultRtpService;
 import com.lunatech.tpcore.module.rtp.service.impl.RtpChunkTicketManager;
 import com.lunatech.tpcore.module.rtp.service.impl.RtpSafetyInspector;
 import java.io.File;
-import java.util.Objects;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CompletableFuture;
+import org.bukkit.Bukkit;
 import org.bukkit.event.HandlerList;
 import org.bukkit.plugin.java.JavaPlugin;
 
-/**
- * Composition root for the Quantum-RTP module.
- * Wires together candidate caching, Anvil prefiltering,
- * roaring bitset indexing, adaptive queue replenishment, and Brigadier commands.
- */
 public final class RtpModule implements ReloadableModule {
-
     private final JavaPlugin plugin;
-    private final ModularConfigManager configManager;
-    private final RtpConfigManager rtpConfigManager;
-
-    private volatile RtpConfig config;
-    private boolean isInitialized = false;
-    private boolean commandsRegistered = false;
-
+    private final RtpConfigManager configs;
+    // Survives configuration restarts: unresolved native work never gains a new quota through reload.
+    private final RtpSafetyInspector inspector;
+    private volatile RtpConfig config = RtpConfig.createDefault();
+    private volatile RtpService service;
     private RtpCacheRepository repository;
-    private RoaringRegionIndex roaringIndex;
-    private RtpSafetyInspector safetyInspector;
-    private RtpChunkTicketManager ticketManager;
     private AdaptiveRtpReplenisher replenisher;
-    private RtpService service;
-    private RtpPredictiveJoinListener eventListener;
-    private RtpCommandRegistry commandRegistry;
+    private final RtpChunkTicketManager tickets;
+    private final Map<UUID, Long> cooldowns = new ConcurrentHashMap<>();
+    private RtpPredictiveJoinListener listener;
+    private CompletableFuture<Void> stopped = CompletableFuture.completedFuture(null);
+    private long generation;
+    private boolean active, registered;
 
-    public RtpModule(JavaPlugin plugin, ModularConfigManager configManager) {
-        this.plugin = Objects.requireNonNull(plugin, "plugin cannot be null");
-        this.configManager = Objects.requireNonNull(configManager, "configManager cannot be null");
-        this.rtpConfigManager = new RtpConfigManager(configManager, plugin.getSLF4JLogger());
+    public RtpModule(JavaPlugin plugin, ModularConfigManager manager) {
+        this.plugin = plugin;
+        configs = new RtpConfigManager(manager, plugin.getSLF4JLogger());
+        inspector = new RtpSafetyInspector(plugin);
+        tickets = new RtpChunkTicketManager(plugin);
+        manager.registerModule(this);
     }
-
-    @Override
-    public String getModuleName() {
-        return "rtp";
-    }
-
-    @Override
-    public boolean reloadConfig() {
+    @Override public String getModuleName() { return "rtp"; }
+    @Override public boolean reloadConfig() {
+        var next = configs.load();
+        if (next == null) return false;
         try {
-            RtpConfig newConfig = this.rtpConfigManager.load();
-            if (newConfig != null) {
-                boolean wasEnabled = this.isInitialized;
-                boolean isEnabled = newConfig.enabled();
-                this.config = newConfig;
-
-                if (wasEnabled && !isEnabled) {
-                    disable();
-                } else if (!wasEnabled && isEnabled) {
-                    enable();
-                } else if (wasEnabled && isEnabled) {
-                    if (this.service != null) {
-                        this.service.triggerReplenishment();
-                    }
-                }
-                return true;
-            }
-        } catch (Exception e) {
-            this.plugin.getSLF4JLogger().error("Failed to reload RTP module configuration.", e);
-        }
-        return false;
+            Bukkit.getGlobalRegionScheduler().execute(plugin, () -> {
+                if (!active) return;
+                config = next;
+                restart();
+            });
+            return true;
+        } catch (RuntimeException rejected) { return false; }
     }
-
     public void enable() {
-        this.config = this.rtpConfigManager.load();
-
-        if (!this.config.enabled()) {
-            this.plugin.getSLF4JLogger().info("RTP Module is disabled in configuration. Skipping registration.");
-            return;
+        if (active) return;
+        active = true;
+        if (!registered) {
+            new RtpCommandRegistry(plugin, this::getService, () -> config, this::reloadConfig).registerAll();
+            registered = true;
         }
-
-        if (this.isInitialized) {
-            return;
-        }
-
-        File dbFile = new File(this.plugin.getDataFolder(), "rtp_cache.db");
-        this.repository = new SqliteRtpCacheRepository(dbFile, this.plugin.getSLF4JLogger());
-        this.repository.initialize().join();
-
-        this.roaringIndex = new RoaringRegionIndex();
-        this.safetyInspector = new RtpSafetyInspector(this.plugin.getDataFolder().toPath());
-        this.ticketManager = new RtpChunkTicketManager(this.plugin);
-
-        this.replenisher = new AdaptiveRtpReplenisher(
-            this.plugin,
-            this.rtpConfigManager,
-            this.safetyInspector,
-            this.repository,
-            this.roaringIndex,
-            this.plugin.getSLF4JLogger()
-        );
-        this.replenisher.start();
-
-        this.service = new DefaultRtpService(
-            this.plugin,
-            () -> this.config,
-            this.replenisher,
-            this.safetyInspector,
-            this.ticketManager
-        );
-
-        // Register predictive join listener
-        if (this.eventListener == null) {
-            this.eventListener = new RtpPredictiveJoinListener(this::getService);
-            this.plugin.getServer().getPluginManager().registerEvents(this.eventListener, this.plugin);
-        }
-
-        // Register Brigadier commands
-        if (!this.commandsRegistered) {
-            this.commandRegistry = new RtpCommandRegistry(this.plugin, this::getService, () -> this.config, this::reloadConfig);
-            this.commandRegistry.registerAll();
-            this.commandsRegistered = true;
-        }
-
-        this.configManager.registerModule(this);
-        this.isInitialized = true;
-
-        this.plugin.getSLF4JLogger().info("Quantum-RTP Module successfully enabled.");
+        long epoch = ++generation;
+        Thread.ofVirtual().name("tpcore-rtp-config-start").start(() -> {
+            var loaded = configs.load();
+            global(() -> {
+                if (active && epoch == generation && loaded != null) { config = loaded; restart(); }
+            });
+        });
     }
-
-    public void disable() {
-        if (!this.isInitialized) {
-            return;
-        }
-
-        this.configManager.unregisterModule("rtp");
-
-        if (this.eventListener != null) {
-            HandlerList.unregisterAll(this.eventListener);
-            this.eventListener = null;
-        }
-
-        if (this.replenisher != null) {
-            this.replenisher.stop();
-            this.replenisher = null;
-        }
-
-        if (this.service != null) {
-            this.service.shutdown();
-            this.service = null;
-        }
-
-        if (this.repository != null) {
-            this.repository.close().join();
-            this.repository = null;
-        }
-
-        this.isInitialized = false;
-        this.plugin.getSLF4JLogger().info("Quantum-RTP Module disabled.");
+    private void restart() {
+        long epoch = ++generation;
+        stop();
+        stopped.whenComplete((ignored, failure) -> global(() -> {
+            if (!active || epoch != generation || !config.enabled() || failure != null) return;
+            var runtime = config.runtime();
+            var opened = new SqliteRtpCacheRepository(new File(plugin.getDataFolder(), "rtp_cache.db"), plugin.getSLF4JLogger(),
+                runtime.storageQueueCapacity(), runtime.cacheRetentionPerWorld(), runtime.cacheMaxAgeMinutes());
+            repository = opened;
+            opened.initialize().whenComplete((ready, error) -> global(() -> {
+                if (error != null) { plugin.getSLF4JLogger().error("RTP storage initialization failed", error); opened.close(); return; }
+                if (!active || epoch != generation) { opened.close(); return; }
+                replenisher = new AdaptiveRtpReplenisher(plugin, configs, inspector, opened, new RoaringRegionIndex(), plugin.getSLF4JLogger());
+                service = new DefaultRtpService(plugin, () -> config, replenisher, inspector, tickets, cooldowns);
+                listener = new RtpPredictiveJoinListener(this::getService);
+                plugin.getServer().getPluginManager().registerEvents(listener, plugin);
+                replenisher.start();
+            }));
+        }));
     }
-
-    public RtpService getService() {
-        return this.service;
+    private void global(Runnable action) {
+        try { Bukkit.getGlobalRegionScheduler().execute(plugin, action); }
+        catch (RuntimeException retired) { plugin.getSLF4JLogger().warn("RTP lifecycle callback could not be scheduled", retired); }
     }
+    private void stop() {
+        if (service != null) { service.shutdown(); service = null; }
+        if (listener != null) { HandlerList.unregisterAll(listener); listener = null; }
+        if (replenisher != null) { replenisher.stop(); replenisher = null; }
+        tickets.clear();
+        if (repository != null) { stopped = repository.close(); repository = null; }
+    }
+    public void disable() { active = false; generation++; stop(); tickets.close(); cooldowns.clear(); }
+    public RtpService getService() { return service; }
 }

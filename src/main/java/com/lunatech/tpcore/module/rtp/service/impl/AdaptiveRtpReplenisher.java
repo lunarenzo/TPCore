@@ -9,15 +9,14 @@ import com.lunatech.tpcore.module.rtp.model.RtpCandidate;
 import com.lunatech.tpcore.module.rtp.repository.RtpCacheRepository;
 import com.lunatech.tpcore.module.rtp.util.PackedLocation;
 import java.util.Map;
+import java.util.Locale;
+import java.util.stream.Collectors;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.bukkit.Bukkit;
+import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 import org.bukkit.World;
 import org.bukkit.plugin.Plugin;
 import org.slf4j.Logger;
@@ -40,7 +39,14 @@ public final class AdaptiveRtpReplenisher {
     private final Map<UUID, LockFreeCandidateBuffer> bufferMap = new ConcurrentHashMap<>();
     private final Map<UUID, Long> lastDemandMap = new ConcurrentHashMap<>();
     private final Map<UUID, AtomicBoolean> generatingMap = new ConcurrentHashMap<>();
-    private ScheduledExecutorService virtualScheduler;
+    private ScheduledTask task;
+    private volatile boolean stopped;
+    public void requestAll() {
+        if (stopped) return;
+        Bukkit.getGlobalRegionScheduler().execute(plugin, () -> {
+            if (!stopped) for (World world : Bukkit.getWorlds()) recordDemand(world);
+        });
+    }
 
     public AdaptiveRtpReplenisher(
         Plugin plugin,
@@ -59,29 +65,18 @@ public final class AdaptiveRtpReplenisher {
     }
 
     public synchronized void start() {
-        if (this.virtualScheduler != null && !this.virtualScheduler.isShutdown()) {
-            return;
-        }
-
-        this.virtualScheduler = Executors.newSingleThreadScheduledExecutor(Thread.ofVirtual().factory());
-        this.virtualScheduler.scheduleAtFixedRate(this::tickReplenishAll, 3, 3, TimeUnit.SECONDS);
+        if (task != null) return;
+        stopped = false;
+        task = Bukkit.getGlobalRegionScheduler().runAtFixedRate(plugin, ignored -> {
+            try { tickReplenishAll(); }
+            catch (RuntimeException failure) { logger.warn("RTP replenishment pass failed", failure); }
+        }, 60, 60);
     }
 
     public synchronized void stop() {
-        if (this.virtualScheduler != null && !this.virtualScheduler.isShutdown()) {
-            this.virtualScheduler.shutdown();
-            try {
-                if (!this.virtualScheduler.awaitTermination(3, TimeUnit.SECONDS)) {
-                    this.virtualScheduler.shutdownNow();
-                }
-            } catch (Exception e) {
-                this.logger.error("Error stopping AdaptiveRtpReplenisher scheduler", e);
-            }
-        }
-        this.bufferMap.values().forEach(LockFreeCandidateBuffer::clear);
-        this.bufferMap.clear();
-        this.lastDemandMap.clear();
-        this.generatingMap.clear();
+        stopped = true;
+        if (task != null) { task.cancel(); task = null; }
+        bufferMap.clear(); lastDemandMap.clear(); generatingMap.clear(); spatialIndex.clear();
     }
 
     public RtpCandidate popCandidate(World world) {
@@ -105,7 +100,8 @@ public final class AdaptiveRtpReplenisher {
 
     public void recordDemand(World world) {
         if (world != null) {
-            this.lastDemandMap.put(world.getUID(), System.currentTimeMillis());
+            if (configManager.getActiveConfig().worldConfigs().containsKey(world.getName().toLowerCase(Locale.ROOT)))
+                this.lastDemandMap.put(world.getUID(), System.currentTimeMillis());
         }
     }
 
@@ -122,7 +118,7 @@ public final class AdaptiveRtpReplenisher {
 
     private void tickReplenishAll() {
         RtpConfig config = this.configManager.getActiveConfig();
-        if (!config.enabled()) {
+        if (stopped || !config.enabled()) {
             return;
         }
 
@@ -133,17 +129,27 @@ public final class AdaptiveRtpReplenisher {
 
         long demandWindowMs = config.demandWindowMinutes() * 60_000L;
 
-        for (World world : Bukkit.getWorlds()) {
+        var worlds = Bukkit.getWorlds();
+        var ids = worlds.stream().map(World::getUID).collect(Collectors.toSet());
+        bufferMap.keySet().retainAll(ids); lastDemandMap.keySet().retainAll(ids); generatingMap.keySet().retainAll(ids);
+        for (World world : worlds) {
             RtpWorldConfig worldConfig = config.worldConfigs().get(world.getName().toLowerCase());
             if (worldConfig == null || !worldConfig.enabled()) {
                 continue;
             }
 
             UUID worldUuid = world.getUID();
-            LockFreeCandidateBuffer buffer = this.bufferMap.computeIfAbsent(
-                worldUuid,
-                k -> new LockFreeCandidateBuffer(Math.min(32, Math.max(1, config.bufferCapacity())))
-            );
+            int capacity = Integer.highestOneBit(config.bufferCapacity() - 1) << 1;
+            LockFreeCandidateBuffer buffer = this.bufferMap.compute(worldUuid, (key, old) -> {
+                if (old != null && old.capacity() == capacity) return old;
+                var replacement = new LockFreeCandidateBuffer(config.bufferCapacity());
+                repository.loadPackedLocations(key).whenComplete((saved, error) -> {
+                    if (error != null) { logger.warn("RTP cache restore failed for {}", key, error); return; }
+                    if (!stopped && bufferMap.get(key) == replacement)
+                        for (long packed : saved) if (!replacement.offer(packed)) break;
+                });
+                return replacement;
+            });
 
             Long lastDemand = this.lastDemandMap.get(worldUuid);
             boolean isDemandFresh = lastDemand != null && (System.currentTimeMillis() - lastDemand) <= demandWindowMs;
@@ -162,32 +168,12 @@ public final class AdaptiveRtpReplenisher {
     }
 
     private void replenishSingle(World world, RtpWorldConfig worldConfig, LockFreeCandidateBuffer buffer, int attempt) {
-        if (attempt >= 5 || buffer.size() >= buffer.capacity()) {
+        if (stopped || attempt >= worldConfig.maxAttempts() || buffer.size() >= buffer.capacity()) {
             return;
         }
 
-        ThreadLocalRandom rng = ThreadLocalRandom.current();
-        int candidateX;
-        int candidateZ;
-
-        if (worldConfig.shapeEnum() == RtpWorldConfig.Shape.SQUARE) {
-            int span = Math.max(1, worldConfig.maxRadius());
-            int inner = Math.max(0, Math.min(worldConfig.minRadius(), span - 1));
-            int dx;
-            int dz;
-            int maxAttempts = 10;
-            do {
-                dx = rng.nextInt(-span, span + 1);
-                dz = rng.nextInt(-span, span + 1);
-            } while (Math.max(Math.abs(dx), Math.abs(dz)) < inner && --maxAttempts > 0);
-            candidateX = worldConfig.centerX() + dx;
-            candidateZ = worldConfig.centerZ() + dz;
-        } else {
-            double angle = rng.nextDouble() * 2 * Math.PI;
-            double r = Math.sqrt(rng.nextDouble() * (Math.pow(worldConfig.maxRadius(), 2) - Math.pow(worldConfig.minRadius(), 2)) + Math.pow(worldConfig.minRadius(), 2));
-            candidateX = worldConfig.centerX() + (int) (r * Math.cos(angle));
-            candidateZ = worldConfig.centerZ() + (int) (r * Math.sin(angle));
-        }
+        double[] point = DefaultRtpService.randomPoint(worldConfig);
+        int candidateX = (int) Math.floor(point[0]), candidateZ = (int) Math.floor(point[1]);
 
         UUID worldUuid = world.getUID();
         AtomicBoolean genLock = this.generatingMap.computeIfAbsent(worldUuid, k -> new AtomicBoolean(false));
@@ -196,13 +182,14 @@ public final class AdaptiveRtpReplenisher {
             return;
         }
 
-        this.safetyInspector.inspectCandidate(world, worldConfig, candidateX, candidateZ, true)
+        this.safetyInspector.inspectCandidate(world, worldConfig, candidateX, candidateZ, configManager.getActiveConfig().runtime().generateChunks())
             .whenComplete((candidate, ex) -> {
                 genLock.set(false);
+                if (stopped || bufferMap.get(worldUuid) != buffer) return;
                 if (ex == null && candidate != null) {
                     long packed = PackedLocation.fromCandidate(candidate);
                     if (buffer.offer(packed)) {
-                        this.spatialIndex.markSafe((int) candidate.x() >> 4, (int) candidate.z() >> 4);
+
                         this.repository.savePackedLocation(worldUuid, packed);
                     }
                 } else if (buffer.size() < buffer.capacity()) {

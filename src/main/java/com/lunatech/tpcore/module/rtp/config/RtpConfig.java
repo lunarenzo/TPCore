@@ -1,6 +1,8 @@
 package com.lunatech.tpcore.module.rtp.config;
 
 import java.util.List;
+import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import org.spongepowered.configurate.objectmapping.ConfigSerializable;
 
@@ -11,10 +13,37 @@ public record RtpConfig(
     double maxMsptThreshold,
     int demandWindowMinutes,
     Map<String, RtpWorldConfig> worldConfigs,
-    RtpMessages messages
+    RtpMessages messages,
+    Runtime runtime
 ) {
+    @ConfigSerializable
+    public record Runtime(int maxRequests, int timeoutSeconds, int maxCooldowns, boolean generateChunks,
+                          int storageQueueCapacity, int cacheRetentionPerWorld, int cacheMaxAgeMinutes) {
+        public Runtime {
+            if (maxRequests < 1 || maxRequests > 64 || timeoutSeconds < 1 || timeoutSeconds > 120
+                || maxCooldowns < maxRequests || maxCooldowns > 32768 || storageQueueCapacity < 1 || storageQueueCapacity > 512
+                || cacheRetentionPerWorld < 1 || cacheRetentionPerWorld > 1024 || cacheMaxAgeMinutes < 1 || cacheMaxAgeMinutes > 10080)
+                throw new IllegalArgumentException("Invalid RTP runtime bounds");
+        }
+        public static Runtime defaults() { return new Runtime(16, 20, 2048, true, 64, 64, 60); }
+    }
+
+    public RtpConfig(boolean enabled, int bufferCapacity, double maxMsptThreshold, int demandWindowMinutes,
+                     Map<String, RtpWorldConfig> worldConfigs, RtpMessages messages) {
+        this(enabled, bufferCapacity, maxMsptThreshold, demandWindowMinutes, worldConfigs, messages, Runtime.defaults());
+    }
+
     public RtpConfig {
-        worldConfigs = worldConfigs != null ? Map.copyOf(worldConfigs) : Map.of();
+        if (bufferCapacity < 2 || bufferCapacity > 32 || !Double.isFinite(maxMsptThreshold) || maxMsptThreshold < 1
+            || demandWindowMinutes < 1 || demandWindowMinutes > 1440 || (worldConfigs != null && worldConfigs.size() > 64))
+            throw new IllegalArgumentException("Invalid RTP configuration bounds");
+        runtime = runtime == null ? Runtime.defaults() : runtime;
+        var normalized = new HashMap<String, RtpWorldConfig>();
+        if (worldConfigs != null) worldConfigs.forEach((name, policy) -> {
+            if (normalized.put(name.toLowerCase(Locale.ROOT), policy) != null)
+                throw new IllegalArgumentException("Duplicate RTP world: " + name);
+        });
+        worldConfigs = Map.copyOf(normalized);
     }
 
     public static RtpConfig createDefault() {
@@ -63,7 +92,11 @@ public record RtpConfig(
         String onlyPlayers,
         String worldNotFound,
         String reloadSuccess,
-        String cannotUseMounted
+        String cannotUseMounted,
+        String busy,
+        String timedOut,
+        String outcomeUnknown,
+        String reloadFailed
     ) {
         public static RtpMessages createDefault() {
             return new RtpMessages(
@@ -82,7 +115,11 @@ public record RtpConfig(
                 "<red>Only players can execute random teleportation.</red>",
                 "<red>World '<world>' does not exist or is not loaded.</red>",
                 "<green>RTP module configuration reloaded successfully.</green>",
-                "<red>You cannot use random teleportation while riding a mount or vehicle!</red>"
+                "<red>You cannot use random teleportation while riding a mount or vehicle!</red>",
+                "<yellow>RTP is busy or you already have a pending request. Try again shortly.</yellow>",
+                "<yellow>Your RTP search timed out before departure.</yellow>",
+                "<yellow>Your teleport was dispatched but its arrival is unconfirmed. Wait before trying again.</yellow>",
+                "<red>RTP reload failed. The last valid configuration was retained.</red>"
             );
         }
     }

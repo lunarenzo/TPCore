@@ -25,20 +25,13 @@ world-configs:
     biome-whitelist: []
     cooldown-seconds: 60
     warmup-seconds: 0
+    max-attempts: 30
+    allow-mounted: false
+    # Reserved setting: RTP economy is not implemented; changing this does not charge players.
     cost: 0.0
-    # Controls whether TPCore explicitly registers a 100-tick (5-second) plugin chunk ticket upon teleportation.
-    #
-    # false (Recommended Default):
-    #   - Uses Paper's native player.teleportAsync() pipeline.
-    #   - Minimal main-thread processing overhead.
-    #   - Delegates chunk loading and lifecycle management directly to Paper's engine without registering
-    #     explicit plugin tickets in ChunkHolderManager.
-    #
-    # true:
-    #   - Explicitly forces Paper to hold a 100-tick plugin chunk ticket post-teleport.
-    #   - Prevents immediate chunk unloading if players have slow client rendering or network connections,
-    #     ensuring target blocks remain loaded in server memory for 5 seconds post-teleport.
-    #   - Incurs additional ticket registration processing overhead in Paper's ChunkHolderManager.
+    # Retain already-loaded chunks in the destination's 3x3 area for 100 ticks.
+    # Tickets are bounded, shared by overlapping trips, and changed on each chunk's owner.
+    # This does not synchronously load missing neighboring chunks; teleportAsync loads the destination.
     use-chunk-tickets: false
 
 messages:
@@ -56,4 +49,19 @@ messages:
   teleport-failed: "<red>Teleport failed due to unsafe terrain target.</red>"
   only-players: "<red>Only players can execute random teleportation.</red>"
   world-not-found: "<red>World '<world>' does not exist or is not loaded.</red>"
+  busy: "<yellow>RTP is busy or you already have a pending request. Try again shortly.</yellow>"
+  timed-out: "<yellow>Your RTP search timed out before departure.</yellow>"
+  outcome-unknown: "<yellow>Your teleport was dispatched but its arrival is unconfirmed. Wait before trying again.</yellow>"
+  reload-failed: "<red>RTP reload failed. The last valid configuration was retained.</red>"
   reload-success: "<green>RTP module configuration reloaded successfully.</green>"
+
+# Bounds requests independently from cached destinations. Generation preserves previous behavior;
+# turn it off on pre-generated worlds to prevent RTP from generating new terrain.
+runtime:
+  max-requests: 16
+  timeout-seconds: 20
+  max-cooldowns: 2048
+  generate-chunks: true
+  storage-queue-capacity: 64
+  cache-retention-per-world: 64
+  cache-max-age-minutes: 60

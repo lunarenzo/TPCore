@@ -20,18 +20,16 @@ public final class RtpConfigManager {
         return this.activeConfig;
     }
 
-    public RtpConfig load() {
+    public synchronized RtpConfig load() {
         try {
-            RtpConfig loaded = this.modularConfigManager.loadModuleConfig("rtp", RtpConfig.class, RtpConfig.createDefault());
+            RtpConfig loaded = this.modularConfigManager.tryLoadModuleConfig("rtp", RtpConfig.class, RtpConfig.createDefault(), false);
             if (loaded != null) {
                 this.activeConfig = loaded;
                 return loaded;
             }
         } catch (Exception e) {
-            this.logger.error("Failed to load rtp configuration module. Falling back to default settings.", e);
+            this.logger.error("Failed to load rtp configuration module. Retaining the last valid settings.", e);
         }
-        RtpConfig defaultConfig = RtpConfig.createDefault();
-        this.activeConfig = defaultConfig;
-        return defaultConfig;
+        return null;
     }
 }
