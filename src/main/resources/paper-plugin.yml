@@ -30,6 +30,16 @@ dependencies:
       join-classpath: true
 
 permissions:
+  tpcore.home.use:
+    default: true
+  tpcore.home.set:
+    default: true
+  tpcore.home.list:
+    default: true
+  tpcore.home.del:
+    default: true
+  tpcore.home.other:
+    default: op
   tpcore.home.admin.payments:
     default: op
   tpcore.home.bypass.cost:

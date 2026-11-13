@@ -20,6 +20,11 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.CompletionException;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import org.bukkit.entity.Player;
@@ -35,7 +40,11 @@ public final class HomeEconomy {
 
     public static final class BankLane implements AutoCloseable {
         private final Map<UUID, Attempt> active = new HashMap<>();
-        private final ThreadPoolExecutor io = new ThreadPoolExecutor(2, 2, 30, TimeUnit.SECONDS,
+        private final Map<UUID, Attempt> abandoned = new HashMap<>();
+        private final Set<String> isolated = new HashSet<>();
+        private boolean circuitOpen;
+        // Two spare workers allow a replacement provider to progress after a stalled provider is isolated.
+        private final ThreadPoolExecutor io = new ThreadPoolExecutor(4, 4, 30, TimeUnit.SECONDS,
             new ArrayBlockingQueue<>(256), Thread.ofVirtual().name("tpcore-home-bank-", 0).factory());
         public BankLane() { io.allowCoreThreadTimeOut(true); }
         @Override public void close() { io.shutdown(); }
@@ -47,6 +56,8 @@ public final class HomeEconomy {
     private final Executor executor;
     private final Supplier<Bank> provider;
     private final Map<UUID, Attempt> active;
+    private final BankLane lane;
+    private final CompletableFuture<Void> drained = new CompletableFuture<>();
     private volatile boolean closed;
     private VaultHomeAdapter adapter;
     private String warnedLegacy;
@@ -60,6 +71,7 @@ public final class HomeEconomy {
         this.repository = repository;
         executor = lane.io;
         active = lane.active;
+        this.lane = lane;
         this.provider = provider;
     }
 
@@ -105,7 +117,8 @@ public final class HomeEconomy {
                 attempt.ready.complete(HomeResultStatus.PAYMENT_PENDING);
                 return attempt;
             }
-            if (closed || active.size() >= config.runtime().maxRequests()) {
+            if (closed || lane.circuitOpen || lane.abandoned.size() >= config.economy().maxUnresolvedPayments()
+                || active.size() >= config.runtime().maxRequests()) {
                 attempt.ready.complete(HomeResultStatus.ECONOMY_UNAVAILABLE);
                 return attempt;
             }
@@ -117,12 +130,45 @@ public final class HomeEconomy {
 
     public CompletableFuture<Boolean> acknowledge(UUID id, String operator, int historyLimit) {
         synchronized (active) {
-            if (active.values().stream().anyMatch(attempt -> attempt.id.equals(id))) return CompletableFuture.completedFuture(false);
+            if (lane.abandoned.containsKey(id) || active.values().stream().anyMatch(attempt -> attempt.id.equals(id)))
+                return CompletableFuture.completedFuture(false);
             return repository.acknowledgePayment(id, operator, historyLimit);
         }
     }
 
-    public void close() {
+    public String circuitStatus() {
+        synchronized (active) {
+            return "open=" + lane.circuitOpen + ", active=" + active.size() + ", unresolved-calls=" + lane.abandoned.size()
+                + ", workers=" + lane.io.getActiveCount() + ", isolated=" + lane.isolated;
+        }
+    }
+
+    public boolean isolateProvider() {
+        synchronized (active) {
+            if (lane.abandoned.isEmpty()) return false;
+            var isolated = new HashSet<>(lane.isolated);
+            lane.abandoned.values().forEach(attempt -> {
+                if (attempt.bank != null) isolated.add(attempt.bank.identity());
+            });
+            if (isolated.size() > 4096) return false;
+            lane.isolated.clear();
+            lane.isolated.addAll(isolated);
+            // A fresh registration with a different identity may use the bounded spare workers.
+            lane.circuitOpen = false;
+            return true;
+        }
+    }
+
+    public boolean resetCircuit() {
+        synchronized (active) {
+            if (!lane.abandoned.isEmpty() || !active.isEmpty() || lane.io.getActiveCount() != 0) return false;
+            lane.isolated.clear();
+            lane.circuitOpen = false;
+            return true;
+        }
+    }
+
+    public CompletableFuture<Void> close(int seconds) {
         Attempt[] pending;
         synchronized (active) {
             closed = true;
@@ -131,6 +177,25 @@ public final class HomeEconomy {
         for (Attempt attempt : pending) {
             if (attempt.economy() == this) attempt.abort();
         }
+        synchronized (active) { checkDrained(); }
+        drained.completeOnTimeout(null, seconds, TimeUnit.SECONDS).thenRun(() -> {
+            synchronized (active) {
+                for (Attempt attempt : active.values()) {
+                    if (attempt.economy() == this)
+                        plugin.getSLF4JLogger().warn("Home settlement drain expired with active payment {}", attempt.id);
+                }
+                for (Attempt attempt : lane.abandoned.values()) {
+                    if (attempt.economy() == this)
+                        plugin.getSLF4JLogger().warn("Home settlement drain expired with unconfirmed provider call {}", attempt.id);
+                }
+            }
+        });
+        return drained;
+    }
+
+    private void checkDrained() {
+        if (closed && active.values().stream().noneMatch(attempt -> attempt.economy() == this)
+            && lane.abandoned.values().stream().noneMatch(attempt -> attempt.economy() == this)) drained.complete(null);
     }
 
     private <T> CompletableFuture<T> work(Supplier<T> supplier) {
@@ -151,6 +216,8 @@ public final class HomeEconomy {
         private final CompletableFuture<HomeResultStatus> ready = new CompletableFuture<>();
         private final AtomicReference<Decision> decision = new AtomicReference<>(Decision.OPEN);
         private final AtomicBoolean settling = new AtomicBoolean();
+        private final AtomicBoolean released = new AtomicBoolean();
+        private final AtomicInteger calls = new AtomicInteger();
         private volatile Bank bank;
         private volatile BigDecimal debit;
 
@@ -172,12 +239,16 @@ public final class HomeEconomy {
         }
 
         private void start() {
-            work(() -> provider == null ? discover(config, timeoutSeconds) : provider.get()).whenComplete((selected, failure) -> {
+            observed(() -> CompletableFuture.completedFuture(provider == null ? discover(config, timeoutSeconds) : provider.get()), false)
+                .whenComplete((selected, failure) -> {
                 if (failure != null || selected == null || closed || decision.get() == Decision.ABORTED) {
                     fail(HomeResultStatus.ECONOMY_UNAVAILABLE);
                     return;
                 }
                 bank = selected;
+                synchronized (active) {
+                    if (lane.isolated.contains(bank.identity())) { fail(HomeResultStatus.ECONOMY_UNAVAILABLE); return; }
+                }
                 var payment = new HomePayment(id, player, home, action, bank.identity(), cost, null, null,
                     State.DEBIT_PENDING, System.currentTimeMillis(), null);
                 repository.beginPayment(payment, config.maxUnresolvedPayments()).whenComplete((status, error) -> {
@@ -189,9 +260,9 @@ public final class HomeEconomy {
         }
 
         private void checkBalance() {
-            work(() -> closed || decision.get() == Decision.ABORTED || !bank.current()
-                ? CompletableFuture.<BigDecimal>completedFuture(null) : bank.balance(plugin.getName(), player))
-                .thenCompose(future -> future).whenComplete((balance, failure) -> {
+            observed(() -> closed || decision.get() == Decision.ABORTED || !bank.current()
+                ? CompletableFuture.<BigDecimal>completedFuture(null) : bank.balance(plugin.getName(), player), false)
+                .whenComplete((balance, failure) -> {
                     if (failure != null || balance == null) reject(HomeResultStatus.ECONOMY_UNAVAILABLE);
                     else if (balance.compareTo(cost) < 0) reject(HomeResultStatus.INSUFFICIENT_FUNDS);
                     else withdraw();
@@ -199,9 +270,9 @@ public final class HomeEconomy {
         }
 
         private void withdraw() {
-            work(() -> closed || decision.get() == Decision.ABORTED || !bank.current()
-                ? CompletableFuture.<VaultHomeAdapter.Receipt>completedFuture(null) : bank.transfer(false, plugin.getName(), player, cost))
-                .thenCompose(future -> future).whenComplete((receipt, failure) -> {
+            observed(() -> closed || decision.get() == Decision.ABORTED || !bank.current()
+                ? CompletableFuture.<VaultHomeAdapter.Receipt>completedFuture(null) : bank.transfer(false, plugin.getName(), player, cost), true)
+                .whenComplete((receipt, failure) -> {
                     if (failure != null) { unresolved(State.DEBIT_PENDING, null, null); return; }
                     if (receipt == null) { reject(HomeResultStatus.ECONOMY_UNAVAILABLE); return; }
                     if (!receipt.successful()) {
@@ -212,7 +283,10 @@ public final class HomeEconomy {
                     debit = receipt.amount();
                     update(State.DEBIT_PENDING, debitedState, debit, null).whenComplete((ok, error) -> {
                         if (!Boolean.TRUE.equals(ok)) { fail(HomeResultStatus.PAYMENT_PENDING); return; }
-                        if (debit.compareTo(cost) == 0) ready.complete(HomeResultStatus.SUCCESS);
+                        if (debit.compareTo(cost) == 0) {
+                            if (decision.get() == Decision.ABORTED && ready.isDone()) refund();
+                            else ready.complete(HomeResultStatus.SUCCESS);
+                        }
                         else if (debit.signum() == 0) settle(debitedState, State.REJECTED, HomeResultStatus.PAYMENT_REJECTED);
                         else {
                             refund().whenComplete((confirmed, problem) -> ready.complete(Boolean.TRUE.equals(confirmed)
@@ -229,7 +303,13 @@ public final class HomeEconomy {
         }
 
         private void unresolved(State from, BigDecimal observedDebit, BigDecimal observedRefund) {
-            update(from, State.REVIEW, observedDebit, observedRefund).whenComplete((ok, failure) -> fail(HomeResultStatus.PAYMENT_PENDING));
+            State next = switch (from) {
+                case DEBIT_PENDING -> State.DEBIT_UNKNOWN;
+                case REFUND_PENDING -> State.REFUND_UNKNOWN;
+                case TELEPORT_PENDING -> State.TELEPORT_UNKNOWN;
+                default -> State.CREATION_UNKNOWN;
+            };
+            update(from, next, observedDebit, observedRefund).whenComplete((ok, failure) -> fail(HomeResultStatus.PAYMENT_PENDING));
         }
 
         public void travelOutcome(Boolean arrived, Throwable failure) {
@@ -255,12 +335,12 @@ public final class HomeEconomy {
             if (!settling.compareAndSet(false, true)) return CompletableFuture.completedFuture(false);
             return update(debitedState, State.REFUND_PENDING, null, null).thenCompose(ok -> {
                 if (!ok) return CompletableFuture.completedFuture(false);
-                return work(() -> bank.current() ? bank.transfer(true, plugin.getName(), player, debit)
-                    : CompletableFuture.<VaultHomeAdapter.Receipt>completedFuture(null))
-                    .thenCompose(future -> future).handle((receipt, failure) -> receipt)
+                return observed(() -> bank.current() ? bank.transfer(true, plugin.getName(), player, debit)
+                    : CompletableFuture.<VaultHomeAdapter.Receipt>completedFuture(null), true)
+                    .handle((receipt, failure) -> receipt)
                     .thenCompose(receipt -> {
                         boolean exact = receipt != null && receipt.successful() && receipt.amount().compareTo(debit) == 0;
-                        return update(State.REFUND_PENDING, exact ? State.REFUNDED : State.REVIEW, null,
+                        return update(State.REFUND_PENDING, exact ? State.REFUNDED : State.REFUND_UNKNOWN, null,
                             receipt == null ? null : receipt.amount()).thenApply(saved -> exact && saved);
                     });
             }).whenComplete((ok, failure) -> {
@@ -271,7 +351,21 @@ public final class HomeEconomy {
         }
 
         private CompletableFuture<Boolean> update(State from, State to, BigDecimal observedDebit, BigDecimal observedRefund) {
-            return repository.updatePayment(id, from, to, observedDebit, observedRefund, config.paymentHistoryLimit());
+            return update(from, to, observedDebit, observedRefund, 0);
+        }
+
+        private CompletableFuture<Boolean> update(State from, State to, BigDecimal observedDebit, BigDecimal observedRefund, int retry) {
+            return repository.updatePayment(id, from, to, observedDebit, observedRefund, config.paymentHistoryLimit())
+                .handle((saved, failure) -> {
+                    if (failure == null) return CompletableFuture.completedFuture(saved);
+                    Throwable cause = failure instanceof CompletionException ? failure.getCause() : failure;
+                    if (cause instanceof RejectedExecutionException && retry < 3 && !drained.isDone())
+                        return CompletableFuture.supplyAsync(() -> true, CompletableFuture.delayedExecutor(50L << retry, TimeUnit.MILLISECONDS))
+                            .thenCompose(ignored -> update(from, to, observedDebit, observedRefund, retry + 1));
+                    plugin.getSLF4JLogger().error("Home payment evidence could not be recorded: id={}, transition={}->{}, debit={}, refund={}",
+                        id, from, to, observedDebit, observedRefund, failure);
+                    return CompletableFuture.<Boolean>failedFuture(failure);
+                }).thenCompose(future -> future);
         }
 
         private void fail(HomeResultStatus status) {
@@ -281,7 +375,47 @@ public final class HomeEconomy {
         }
 
         private void release() {
-            synchronized (active) { active.remove(player, this); }
+            released.set(true);
+            synchronized (active) {
+                active.remove(player, this);
+                if (calls.get() == 0) lane.abandoned.remove(id);
+                checkDrained();
+            }
+        }
+
+        private <T> CompletableFuture<T> observed(Supplier<CompletableFuture<T>> operation, boolean transfer) {
+            calls.incrementAndGet();
+            var raw = work(operation).thenCompose(future -> future);
+            var result = new CompletableFuture<T>();
+            var deadline = new CompletableFuture<Void>();
+            deadline.orTimeout(timeoutSeconds, TimeUnit.SECONDS).whenComplete((ignored, failure) -> {
+                if (failure != null && !raw.isDone()) {
+                    stall(result, transfer);
+                    if (!transfer) result.completeExceptionally(new TimeoutException("Home balance/provider lookup timed out"));
+                }
+            });
+            raw.whenComplete((value, failure) -> {
+                deadline.complete(null);
+                calls.decrementAndGet();
+                if (failure == null) result.complete(value); else result.completeExceptionally(failure);
+                synchronized (active) {
+                    if (released.get() && calls.get() == 0) lane.abandoned.remove(id);
+                    checkDrained();
+                }
+            });
+            return result;
+        }
+
+        private <T> void stall(CompletableFuture<T> result, boolean transfer) {
+            synchronized (active) {
+                if (result.isDone()) return;
+                lane.circuitOpen = true;
+                lane.abandoned.put(id, this);
+                active.remove(player, this);
+            }
+            decision.compareAndSet(Decision.OPEN, Decision.ABORTED);
+            ready.complete(transfer ? HomeResultStatus.PAYMENT_PENDING : HomeResultStatus.ECONOMY_UNAVAILABLE);
+            plugin.getSLF4JLogger().warn("Home provider call stalled for payment {}. Inspect /homepayments circuit.", id);
         }
     }
 }

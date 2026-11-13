@@ -77,6 +77,8 @@ public final class DefaultHomeService implements HomeService {
         final AtomicReference<Phase> phase = new AtomicReference<>(Phase.PREPARING);
         volatile CompletableFuture<?> observation;
         volatile ScheduledTask warmup;
+        volatile CompletableFuture<Void> deadline;
+        final AtomicBoolean cooldownApplied = new AtomicBoolean();
         BigDecimal fee = BigDecimal.ZERO;
         volatile HomeEconomy.Attempt payment;
         Waiting waiting;
@@ -241,6 +243,10 @@ public final class DefaultHomeService implements HomeService {
         return economy.acknowledge(id, operator, settings.get().economy().paymentHistoryLimit());
     }
 
+    public String paymentCircuit() { return economy.circuitStatus(); }
+    public boolean isolatePaymentProvider() { return economy.isolateProvider(); }
+    public boolean resetPaymentCircuit() { return economy.resetCircuit(); }
+
     @Override public CompletableFuture<HomeResultStatus> deleteHome(Player player, String name) {
         if (!valid(name)) return done(HomeResultStatus.INVALID_NAME);
         UUID owner = player.getUniqueId();
@@ -369,21 +375,11 @@ public final class DefaultHomeService implements HomeService {
             requests.put(actor, request);
             lookup = expected == null ? repository.findByName(owner, name) : repository.findMatching(expected);
         }
-        var deadline = new CompletableFuture<Void>();
-        deadline.orTimeout((long) warmup + config.runtime().timeoutSeconds(), TimeUnit.SECONDS).whenComplete((ignored, error) -> {
-            if (error != null) {
-                Phase prior = request.phase.getAndSet(Phase.DONE);
-                if (prior != Phase.DONE) {
-                    if (prior == Phase.DISPATCHED) plugin.getSLF4JLogger().warn("Home teleport outcome unknown: player {}, owner {}, home {}",
-                        request.actor, request.owner, request.name);
-                    var payment = request.payment;
-                    HomeResultStatus status = prior == Phase.DISPATCHED ? HomeResultStatus.OUTCOME_UNKNOWN
-                        : payment != null ? HomeResultStatus.PAYMENT_PENDING : HomeResultStatus.TIMED_OUT;
-                    finish(request, status);
-                }
-            }
+        armDeadline(request, config.runtime().timeoutSeconds());
+        request.result.whenComplete((ignored, error) -> {
+            var deadline = request.deadline;
+            if (deadline != null) deadline.complete(null);
         });
-        request.result.whenComplete((ignored, error) -> deadline.complete(null));
         // An admitted lookup retains only immutable request data and weak session handles on the I/O lane.
         var playerHandle = new WeakReference<>(player);
         var requestHandle = new WeakReference<>(request);
@@ -402,15 +398,43 @@ public final class DefaultHomeService implements HomeService {
         return request.result;
     }
 
+    private void armDeadline(Request request, long seconds) {
+        var previous = request.deadline;
+        if (previous != null) previous.complete(null);
+        var deadline = new CompletableFuture<Void>();
+        request.deadline = deadline;
+        deadline.orTimeout(seconds, TimeUnit.SECONDS).whenComplete((ignored, error) -> {
+            if (error != null && request.deadline == deadline) {
+                Phase prior = request.phase.getAndSet(Phase.DONE);
+                if (prior != Phase.DONE) {
+                    if (prior == Phase.DISPATCHED) plugin.getSLF4JLogger().warn("Home teleport outcome unknown: player {}, owner {}, home {}",
+                        request.actor, request.owner, request.name);
+                    var payment = request.payment;
+                    HomeResultStatus status = prior == Phase.DISPATCHED ? HomeResultStatus.OUTCOME_UNKNOWN
+                        : payment != null ? HomeResultStatus.PAYMENT_PENDING : HomeResultStatus.TIMED_OUT;
+                    finish(request, status);
+                }
+            }
+        });
+        if (request.result.isDone()) deadline.complete(null);
+    }
+
     private void warmup(Request request, Player player, Home home, int seconds) {
         HomeFeedback.fee(player, request.config, request.fee);
-        if (seconds == 0) { inspect(request, player, home); return; }
+        if (seconds == 0) { beginWork(request, player, home); return; }
+        // Warmup uses server ticks. A generous independent wall-time guard still bounds suspended owners.
+        armDeadline(request, request.config.runtime().warmupTimeoutSeconds());
         var messages = request.config.messages();
         String template = messages.warmupStart();
         player.sendMessage(MessageFormatter.parse(MINI, template.contains("<prefix>") ? template : messages.prefix() + template,
             Placeholder.parsed("prefix", messages.prefix()),
             Placeholder.unparsed("home", home.name()), Placeholder.unparsed("seconds", Integer.toString(seconds))));
-        onOwner(request, player, () -> inspect(request, player, home), seconds * 20L);
+        onOwner(request, player, () -> beginWork(request, player, home), seconds * 20L);
+    }
+
+    private void beginWork(Request request, Player player, Home home) {
+        armDeadline(request, request.config.runtime().timeoutSeconds());
+        inspect(request, player, home);
     }
 
     private void inspect(Request request, Player player, Home home) {
@@ -486,12 +510,6 @@ public final class DefaultHomeService implements HomeService {
         outcome.whenComplete((success, failure) -> {
             if (!request.phase.compareAndSet(Phase.DISPATCHED, Phase.DONE)) return;
             if (failure != null) plugin.getSLF4JLogger().warn("Home teleport dispatch failed", failure);
-            if (Boolean.TRUE.equals(success) && applyCooldown) {
-                synchronized (admission) {
-                    if (!closed && cooldowns.size() < request.config.runtime().maxCooldowns() && request.config.cooldownSeconds() > 0)
-                        cooldowns.put(request.actor, System.nanoTime() + TimeUnit.SECONDS.toNanos(request.config.cooldownSeconds()));
-                }
-            }
             HomeResultStatus status = Boolean.TRUE.equals(success) ? HomeResultStatus.SUCCESS : HomeResultStatus.TELEPORT_FAILED;
             if (request.payment != null && (failure != null || success == null)) status = HomeResultStatus.OUTCOME_UNKNOWN;
             finish(request, status);
@@ -504,8 +522,15 @@ public final class DefaultHomeService implements HomeService {
             return;
         }
         if (request.phase.get() == Phase.DISPATCHED) {
-            if (payment == null) engine.teleport(player, target, request.actor, outcome);
-            else engine.teleport(player, target, request.actor, outcome, payment::travelOutcome);
+            engine.teleport(player, target, request.actor, outcome, (arrived, failure) -> {
+                if (Boolean.TRUE.equals(arrived) && applyCooldown && request.cooldownApplied.compareAndSet(false, true)) {
+                    synchronized (admission) {
+                        if (!closed && cooldowns.size() < request.config.runtime().maxCooldowns() && request.config.cooldownSeconds() > 0)
+                            cooldowns.put(request.actor, System.nanoTime() + TimeUnit.SECONDS.toNanos(request.config.cooldownSeconds()));
+                    }
+                }
+                if (payment != null) payment.travelOutcome(arrived, failure);
+            });
         } else {
             engine.releaseDispatch(request.actor);
             if (payment != null) payment.travelOutcome(false, null);
@@ -620,12 +645,13 @@ public final class DefaultHomeService implements HomeService {
     public CompletableFuture<Void> close() {
         synchronized (admission) { closed = true; cooldowns.clear(); }
         pricedSaves.values().forEach(save -> save.complete(HomeResultStatus.CANCELLED));
-        economy.close();
+        var settlement = economy.close(settings.get().runtime().storageDrainSeconds());
+        repository.settlementDrain(settlement);
         requests.forEach((id, request) -> {
             Phase prior = request.phase.getAndSet(Phase.DONE);
             if (prior != Phase.DONE) finish(request, prior == Phase.DISPATCHED ? HomeResultStatus.OUTCOME_UNKNOWN : HomeResultStatus.CANCELLED);
         });
-        return repository.close();
+        return settlement.thenCompose(ignored -> repository.close());
     }
 
     public static boolean valid(String name) { return name != null && NAME.matcher(name).matches(); }

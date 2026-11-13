@@ -26,6 +26,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.Semaphore;
 import org.slf4j.Logger;
 
 public final class SqliteHomeRepository implements HomeRepository {
@@ -34,6 +35,8 @@ public final class SqliteHomeRepository implements HomeRepository {
     private final File directory;
     private final Logger logger;
     private final ThreadPoolExecutor io;
+    private final Semaphore ordinarySlots;
+    private volatile CompletableFuture<Void> settlementDrain = CompletableFuture.completedFuture(null);
     private final AtomicBoolean closing = new AtomicBoolean();
     private final CompletableFuture<Void> stopped = new CompletableFuture<>();
     private final int drainSeconds;
@@ -52,7 +55,8 @@ public final class SqliteHomeRepository implements HomeRepository {
         this.directory = directory;
         this.logger = logger;
         this.drainSeconds = drainSeconds;
-        io = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(queueCapacity),
+        ordinarySlots = new Semaphore(queueCapacity);
+        io = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(queueCapacity + 1024),
             Thread.ofVirtual().name("tpcore-home-io-", 0).factory());
         shutdownHook = Thread.ofPlatform().name("tpcore-home-shutdown").unstarted(this::drainAtJvmExit);
         Runtime.getRuntime().addShutdownHook(shutdownHook);
@@ -340,9 +344,23 @@ public final class SqliteHomeRepository implements HomeRepository {
 
     @Override public CompletableFuture<Boolean> updatePayment(UUID id, State expected, State next,
         BigDecimal debit, BigDecimal refund, int historyLimit) {
-        return submit(() -> {
-            try (Connection connection = pool.getConnection()) {
-                return transaction(connection, () -> changePayment(connection, id, expected, next, debit, refund, historyLimit));
+        return submitCritical(() -> {
+            for (int attempt = 0; ; attempt++) {
+                try (Connection connection = pool.getConnection()) {
+                    return transaction(connection, () -> {
+                        if (changePayment(connection, id, expected, next, debit, refund, historyLimit)) return true;
+                        try (var query = connection.prepareStatement("SELECT state,debit,refund FROM tpcore_home_payments WHERE id=?")) {
+                            query.setString(1, id.toString());
+                            try (var rows = query.executeQuery()) {
+                                return rows.next() && next.name().equals(rows.getString("state"))
+                                    && (debit == null || debit.toPlainString().equals(rows.getString("debit")))
+                                    && (refund == null || refund.toPlainString().equals(rows.getString("refund")));
+                            }
+                        }
+                    });
+                } catch (SQLException busy) {
+                    if (attempt >= 2 || (busy.getErrorCode() != 5 && busy.getErrorCode() != 6)) throw busy;
+                }
             }
         });
     }
@@ -519,27 +537,45 @@ public final class SqliteHomeRepository implements HomeRepository {
 
     private <T> CompletableFuture<T> submit(Work<T> work, boolean write) {
         if (closing.get()) return CompletableFuture.failedFuture(new RejectedExecutionException("Home storage is closing"));
-        var task = new StorageTask<>(work, write);
+        if (!ordinarySlots.tryAcquire()) return CompletableFuture.failedFuture(new RejectedExecutionException("Home storage queue is full"));
+        var task = new StorageTask<>(work, write, true);
+        try { io.execute(task); }
+        catch (RejectedExecutionException rejected) { ordinarySlots.release(); task.result.completeExceptionally(rejected); }
+        return task.result;
+    }
+
+    private <T> CompletableFuture<T> submitCritical(Work<T> work) {
+        if (closing.get()) return CompletableFuture.failedFuture(new RejectedExecutionException("Home settlement storage is closed"));
+        var task = new StorageTask<>(work, false, false);
         try { io.execute(task); }
         catch (RejectedExecutionException rejected) { task.result.completeExceptionally(rejected); }
         return task.result;
     }
 
+    @Override public void settlementDrain(CompletableFuture<Void> drain) { settlementDrain = drain; }
+
     private final class StorageTask<T> implements Runnable {
         private final Work<T> work;
         private final boolean write;
+        private final boolean ordinary;
         private final CompletableFuture<T> result = new CompletableFuture<>();
 
-        StorageTask(Work<T> work, boolean write) { this.work = work; this.write = write; }
+        StorageTask(Work<T> work, boolean write, boolean ordinary) { this.work = work; this.write = write; this.ordinary = ordinary; }
 
         void discard() {
+            if (ordinary) ordinarySlots.release();
             if (write) discardedWrites.incrementAndGet();
             result.completeExceptionally(new RejectedExecutionException("Home storage drain deadline expired before execution"));
         }
 
         @Override public void run() {
+            if (ordinary) ordinarySlots.release();
             long deadline = drainDeadline;
-            if (deadline != 0 && System.nanoTime() - deadline >= 0) { discard(); return; }
+            if (deadline != 0 && System.nanoTime() - deadline >= 0) {
+                if (write) discardedWrites.incrementAndGet();
+                result.completeExceptionally(new RejectedExecutionException("Home storage drain deadline expired"));
+                return;
+            }
             try {
                 T value = work.run();
                 if (write && closing.get()) {
@@ -555,6 +591,8 @@ public final class SqliteHomeRepository implements HomeRepository {
     }
 
     @Override public CompletableFuture<Void> close() {
+        CompletableFuture<Void> drain = settlementDrain;
+        if (!drain.isDone()) return drain.handle((value, error) -> null).thenCompose(ignored -> close());
         if (closing.compareAndSet(false, true)) {
             drainDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(drainSeconds);
             io.shutdown();
@@ -584,7 +622,7 @@ public final class SqliteHomeRepository implements HomeRepository {
     }
 
     private void drainAtJvmExit() {
-        try { close().get(drainSeconds + 1L, TimeUnit.SECONDS); }
+        try { close().get(drainSeconds * 2L + 1, TimeUnit.SECONDS); }
         catch (Exception incomplete) {
             logger.error("Home storage did not finish before JVM exit: {} writes committed, {} discarded; an in-flight write may be unresolved",
                 committedWrites.get(), discardedWrites.get(), incomplete);

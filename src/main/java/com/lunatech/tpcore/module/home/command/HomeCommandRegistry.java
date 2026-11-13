@@ -123,6 +123,9 @@ public final class HomeCommandRegistry {
                 .executes(ctx -> benchmark(ctx.getSource().getSender(), IntegerArgumentType.getInteger(ctx, "count"))))
             .build(), "Measure one bounded read from Home storage", List.of("homebench"));
         commands.register(Commands.literal("homepayments").requires(src -> src.getSender().hasPermission(Permissions.HOME_ADMIN_PAYMENTS))
+            .then(Commands.literal("circuit").executes(ctx -> circuit(ctx.getSource().getSender(), "status"))
+                .then(Commands.literal("isolate").executes(ctx -> circuit(ctx.getSource().getSender(), "isolate")))
+                .then(Commands.literal("reset").executes(ctx -> circuit(ctx.getSource().getSender(), "reset"))))
             .then(Commands.literal("list")
                 .executes(ctx -> payments(ctx.getSource().getSender(), 1))
                 .then(Commands.argument("page", IntegerArgumentType.integer(1))
@@ -296,6 +299,21 @@ public final class HomeCommandRegistry {
             Placeholder.unparsed("refund", entry.refund() == null ? "—" : entry.refund().toPlainString()),
             Placeholder.unparsed("updated", Instant.ofEpochMilli(entry.updated()).toString()),
             Placeholder.unparsed("operator", entry.operator() == null ? "—" : entry.operator()));
+        if (detail) send(viewer, config, config.economy().message("payment-evidence"), Placeholder.unparsed("evidence",
+            config.economy().message("evidence-" + entry.state().name().toLowerCase(Locale.ROOT).replace('_', '-'))));
+    }
+
+    private int circuit(CommandSender sender, String action) {
+        var current = moduleAvailable(sender, settings.get());
+        if (current == null) return Command.SINGLE_SUCCESS;
+        if (!action.equals("status")) {
+            boolean accepted = action.equals("isolate") ? current.isolatePaymentProvider() : current.resetPaymentCircuit();
+            send(sender, settings.get(), settings.get().economy().message("payment-circuit-changed"),
+                Placeholder.unparsed("accepted", Boolean.toString(accepted)));
+        }
+        send(sender, settings.get(), settings.get().economy().message("payment-circuit"),
+            Placeholder.unparsed("status", current.paymentCircuit()));
+        return Command.SINGLE_SUCCESS;
     }
 
     private <T> void paymentReply(DefaultHomeService current, CommandSender sender, CompletableFuture<T> future,

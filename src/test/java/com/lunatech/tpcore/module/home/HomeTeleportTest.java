@@ -101,6 +101,43 @@ class HomeTeleportTest {
     }
 
     @Test
+    void lateSuccessfulArrivalStartsCooldownEvenAfterRequestTimedOut() throws Exception {
+        try (var fixture = new Fixture()) {
+            when(fixture.config.cooldownSeconds()).thenReturn(10);
+            var result = fixture.begin();
+            fixture.entityStep();
+            fixture.regionStep();
+            fixture.chunk.complete(mock(Chunk.class));
+            fixture.regionStep();
+            fixture.entityStep();
+            assertEquals(HomeResultStatus.OUTCOME_UNKNOWN, result.get(10, TimeUnit.SECONDS));
+            fixture.nativeTeleport.complete(true);
+            assertTrue(fixture.service.remainingCooldown(fixture.playerId) > 0);
+            assertEquals(HomeResultStatus.COOLDOWN_ACTIVE, fixture.begin().join());
+        }
+    }
+
+    @Test
+    void slowTickWarmupUsesItsOwnDeadlineBeforeWorkDeadlineStarts() throws Exception {
+        try (var fixture = new Fixture()) {
+            when(fixture.config.warmupSeconds()).thenReturn(1);
+            when(fixture.config.messages()).thenReturn(HomeConfig.createDefault().messages());
+            when(fixture.config.runtime().timeoutSeconds()).thenReturn(1);
+            var result = fixture.begin();
+            fixture.entityStep();
+            Thread.sleep(1300); // One nominal second of ticks takes longer than the I/O work deadline.
+            assertFalse(result.isDone());
+            fixture.entityStep();
+            fixture.regionStep();
+            fixture.chunk.complete(mock(Chunk.class));
+            fixture.regionStep();
+            fixture.entityStep();
+            fixture.nativeTeleport.complete(true);
+            assertEquals(HomeResultStatus.SUCCESS, result.join());
+        }
+    }
+
+    @Test
     void missingWorldUuidDoesNotFallBackToName() {
         try (var fixture = new Fixture()) {
             fixture.bukkit.when(() -> Bukkit.getWorld(fixture.worldId)).thenReturn(null);
@@ -136,14 +173,14 @@ class HomeTeleportTest {
             var target = new Location(fixture.world, 64.5, 64, 64.5);
             var first = new CompletableFuture<Boolean>();
             assertTrue(engine.reserveDispatch(fixture.playerId, 1));
-            fixture.run(() -> engine.teleport(fixture.player, target, fixture.playerId, first), "entity");
+            fixture.run(() -> engine.teleport(fixture.player, target, fixture.playerId, first, null), "entity");
             assertTrue(first.cancel(false));
             assertTrue(engine.isDispatched(fixture.playerId));
             assertFalse(engine.reserveDispatch(fixture.playerId, 1));
             UUID other = UUID.randomUUID();
             var second = new CompletableFuture<Boolean>();
             assertTrue(engine.reserveDispatch(other, 1));
-            fixture.run(() -> engine.teleport(fixture.player, target, other, second), "entity");
+            fixture.run(() -> engine.teleport(fixture.player, target, other, second, null), "entity");
             assertTrue(second.cancel(false));
             UUID next = UUID.randomUUID();
             assertFalse(engine.reserveDispatch(next, 1));
@@ -242,6 +279,7 @@ class HomeTeleportTest {
             var runtime = mock(HomeRuntimeConfig.class);
             when(config.runtime()).thenReturn(runtime);
             when(runtime.timeoutSeconds()).thenReturn(4);
+            when(runtime.warmupTimeoutSeconds()).thenReturn(900);
             when(runtime.safetyFreshnessMillis()).thenReturn(5000);
             when(runtime.maxCooldowns()).thenReturn(32);
             when(runtime.maxRequests()).thenReturn(4);
@@ -256,6 +294,11 @@ class HomeTeleportTest {
             when(player.hasPermission(USE)).thenReturn(true);
             when(plugin.getSLF4JLogger()).thenReturn(LoggerFactory.getLogger(getClass()));
             when(entityScheduler.run(eq(plugin), any(), any())).thenAnswer(call -> {
+                Consumer<ScheduledTask> action = call.getArgument(1);
+                entityTasks.add(() -> action.accept(scheduled));
+                return scheduled;
+            });
+            when(entityScheduler.runDelayed(eq(plugin), any(), any(), anyLong())).thenAnswer(call -> {
                 Consumer<ScheduledTask> action = call.getArgument(1);
                 entityTasks.add(() -> action.accept(scheduled));
                 return scheduled;

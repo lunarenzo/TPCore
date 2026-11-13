@@ -211,10 +211,6 @@ public final class ConcurrentTeleportPipelineEngine {
         if (ticket != null) ticket.release();
     }
 
-    public void teleport(Player player, Location target, UUID id, CompletableFuture<Boolean> result) {
-        teleport(player, target, id, result, null);
-    }
-
     public void teleport(Player player, Location target, UUID id, CompletableFuture<Boolean> result,
         BiConsumer<Boolean, Throwable> settlement) {
         WorkTicket ticket = dispatched.get(id);
@@ -222,8 +218,11 @@ public final class ConcurrentTeleportPipelineEngine {
         var observer = new WeakReference<>(result);
         try {
             player.teleportAsync(target).whenComplete((success, failure) -> {
-                if (dispatched.remove(id, ticket)) ticket.release();
-                if (settlement != null) settlement.accept(success, failure);
+                try {
+                    if (settlement != null) settlement.accept(success, failure);
+                } finally {
+                    if (dispatched.remove(id, ticket)) ticket.release();
+                }
                 var current = observer.get();
                 if (current != null) {
                     if (failure == null) current.complete(success);

@@ -32,4 +32,5 @@ public interface HomeRepository {
     CompletableFuture<HomeResultStatus> archiveMatching(HomePage.Entry expected, int capacity, long retentionMillis);
     CompletableFuture<HomeResultStatus> restore(UUID owner, String name, int limit, long retentionMillis);
     CompletableFuture<Void> close();
+    void settlementDrain(CompletableFuture<Void> drain);
 }

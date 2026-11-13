@@ -10,6 +10,7 @@ public record HomePayment(UUID id, UUID player, String home, Action action, Stri
 
     public enum State {
         DEBIT_PENDING, DEBITED, TELEPORT_PENDING, REFUND_PENDING, REVIEW,
+        DEBIT_UNKNOWN, TELEPORT_UNKNOWN, REFUND_UNKNOWN, CREATION_UNKNOWN,
         REJECTED, KEPT, REFUNDED, ACKNOWLEDGED;
 
         public boolean resolved() {

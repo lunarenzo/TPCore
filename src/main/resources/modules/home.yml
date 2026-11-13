@@ -143,6 +143,22 @@ economy:
     payment-not-found: "<yellow>No matching home payment was found.</yellow>"
     payment-acknowledged: "<green>Payment <id> marked as reconciled.</green>"
     payment-ack-denied: "<yellow>Only an unresolved payment without active work can be acknowledged.</yellow>"
+    payment-circuit: "<gray>Home payment circuit: <status></gray>"
+    payment-circuit-changed: "<yellow>Home payment circuit action accepted: <accepted>. Inspect /homepayments circuit.</yellow>"
+    payment-evidence: "<gray>Evidence: <evidence></gray>"
+    evidence-debit-pending: "Withdrawal intent persisted. A withdrawal may have started. No final debit receipt is recorded."
+    evidence-debit-unknown: "Withdrawal failed or its outcome could not be established. Check provider debit history."
+    evidence-debited: "Debit recorded. Creation has not yet been confirmed."
+    evidence-teleport-pending: "Debit recorded. Home travel was prepared or dispatched. Await the arrival result."
+    evidence-teleport-unknown: "Debit recorded, but arrival outcome is unknown. Check the player's travel before refunding."
+    evidence-refund-pending: "Refund intent recorded. A refund may have started. Check provider credit history."
+    evidence-refund-unknown: "Refund outcome is unknown or incomplete. The recorded refund is the observed credit, if available."
+    evidence-creation-unknown: "Debit recorded, but creation outcome is uncertain. Check the saved home and provider history."
+    evidence-review: "Legacy REVIEW entry. Its interrupted operation is not recorded. Check debit, credit and home history."
+    evidence-rejected: "Payment was rejected before a confirmed debit."
+    evidence-kept: "Home action completed and the recorded debit was kept."
+    evidence-refunded: "The provider confirmed the exact refund."
+    evidence-acknowledged: "Staff independently reconciled and acknowledged this entry."
     payment-row: "<gray><id> | <player> | <action> <home> | <state> | <amount></gray>"
     payment-detail: "<gray>Provider: <provider> | Debit: <debit> | Refund: <refund> | Updated: <updated> | Reconciled by: <operator></gray>"
 runtime:
@@ -155,8 +171,10 @@ runtime:
   # A player with an unresolved dispatched teleport still cannot start a second one.
   stalled-work-reserve: 2
   max-cooldowns: 2048
-  # Applies in addition to the configured warmup.
+  # Bounds lookup and post-warmup work separately.
   timeout-seconds: 15
+  # Wall-clock backstop for tick-based warmup, allowing the countdown to survive low TPS.
+  warmup-timeout-seconds: 900
   safety-freshness-millis: 500
   list-page-size: 10
   # Applies ONLY to homes saved before world UUIDs were stored.

@@ -141,6 +141,6 @@ public final class HomeModule implements ReloadableModule {
         active = false;
         menus.invalidate();
         stop();
-        bankLane.close();
+        stopped.whenComplete((ignored, failure) -> bankLane.close());
     }
 }
